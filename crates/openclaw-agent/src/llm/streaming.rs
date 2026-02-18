@@ -1,11 +1,30 @@
 use anyhow::{Context, Result};
 use futures_util::StreamExt;
 use serde::Deserialize;
-use std::io::Write;
+use tokio::sync::mpsc;
 
 use super::{Completion, FunctionCall, ToolCall, UsageStats};
 
-/// Stream a chat completion, printing tokens as they arrive.
+/// Events emitted during streaming
+#[derive(Debug, Clone)]
+pub enum StreamEvent {
+    /// A chunk of content text arrived
+    ContentDelta(String),
+    /// A chunk of reasoning text arrived
+    ReasoningDelta(String),
+    /// Tool call is being assembled (name known)
+    ToolCallStart { name: String },
+    /// Tool is being executed
+    ToolExec { name: String, call_id: String },
+    /// Tool execution finished
+    ToolResult { name: String, success: bool },
+    /// New round starting (after tool calls)
+    RoundStart { round: usize },
+    /// Stream finished — final completion
+    Done,
+}
+
+/// Stream a chat completion, sending events via channel as tokens arrive.
 /// Returns the final Completion once the stream ends.
 pub async fn stream_completion(
     client: &reqwest::Client,
@@ -15,7 +34,7 @@ pub async fn stream_completion(
     messages: &[super::Message],
     tools: &[super::ToolDefinition],
     max_tokens: u32,
-    writer: &mut dyn Write,
+    event_tx: Option<mpsc::UnboundedSender<StreamEvent>>,
 ) -> Result<(Completion, UsageStats)> {
     let mut body = serde_json::json!({
         "model": model,
@@ -55,7 +74,6 @@ pub async fn stream_completion(
         let chunk = chunk.context("Stream read error")?;
         buffer.push_str(&String::from_utf8_lossy(&chunk));
 
-        // Process complete SSE lines
         while let Some(line_end) = buffer.find('\n') {
             let line = buffer[..line_end].trim().to_string();
             buffer = buffer[line_end + 1..].to_string();
@@ -69,19 +87,20 @@ pub async fn stream_completion(
                     if let Some(choice) = chunk.choices.first() {
                         let delta = &choice.delta;
 
-                        // Content tokens
                         if let Some(ref c) = delta.content {
                             content.push_str(c);
-                            let _ = writer.write_all(c.as_bytes());
-                            let _ = writer.flush();
+                            if let Some(ref tx) = event_tx {
+                                let _ = tx.send(StreamEvent::ContentDelta(c.clone()));
+                            }
                         }
 
-                        // Reasoning tokens
                         if let Some(ref r) = delta.reasoning_content {
                             reasoning.push_str(r);
+                            if let Some(ref tx) = event_tx {
+                                let _ = tx.send(StreamEvent::ReasoningDelta(r.clone()));
+                            }
                         }
 
-                        // Tool call deltas
                         if let Some(ref tc_deltas) = delta.tool_calls {
                             for tc_delta in tc_deltas {
                                 let idx = tc_delta.index as usize;
@@ -95,6 +114,11 @@ pub async fn stream_completion(
                                 if let Some(ref func) = tc_delta.function {
                                     if let Some(ref name) = func.name {
                                         partial.name = name.clone();
+                                        if let Some(ref tx) = event_tx {
+                                            let _ = tx.send(StreamEvent::ToolCallStart {
+                                                name: name.clone(),
+                                            });
+                                        }
                                     }
                                     if let Some(ref args) = func.arguments {
                                         partial.arguments.push_str(args);
@@ -104,7 +128,6 @@ pub async fn stream_completion(
                         }
                     }
 
-                    // Usage in final chunk
                     if let Some(u) = chunk.usage {
                         usage = UsageStats {
                             prompt_tokens: u.prompt_tokens,
@@ -117,7 +140,10 @@ pub async fn stream_completion(
         }
     }
 
-    // Build final result
+    if let Some(ref tx) = event_tx {
+        let _ = tx.send(StreamEvent::Done);
+    }
+
     if !tool_calls.is_empty() {
         let calls = tool_calls
             .into_iter()

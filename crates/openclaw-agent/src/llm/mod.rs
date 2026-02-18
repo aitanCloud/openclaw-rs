@@ -149,6 +149,23 @@ pub trait LlmProvider: Send + Sync {
         messages: &[Message],
         tools: &[ToolDefinition],
     ) -> Result<(Completion, UsageStats)>;
+
+    /// Streaming completion — sends events via channel as tokens arrive.
+    /// Default implementation falls back to non-streaming complete().
+    async fn complete_streaming(
+        &self,
+        messages: &[Message],
+        tools: &[ToolDefinition],
+        event_tx: tokio::sync::mpsc::UnboundedSender<streaming::StreamEvent>,
+    ) -> Result<(Completion, UsageStats)> {
+        let result = self.complete(messages, tools).await?;
+        // Emit the full content as a single delta for non-streaming providers
+        if let Completion::Text { ref content, .. } = result.0 {
+            let _ = event_tx.send(streaming::StreamEvent::ContentDelta(content.clone()));
+        }
+        let _ = event_tx.send(streaming::StreamEvent::Done);
+        Ok(result)
+    }
 }
 
 // ── OpenAI-compatible provider ──
@@ -170,6 +187,26 @@ impl OpenAiCompatibleProvider {
             model: model.to_string(),
             max_tokens: 4096,
         }
+    }
+
+    pub fn client(&self) -> &reqwest::Client {
+        &self.client
+    }
+
+    pub fn base_url(&self) -> &str {
+        &self.base_url
+    }
+
+    pub fn api_key(&self) -> &str {
+        &self.api_key
+    }
+
+    pub fn model(&self) -> &str {
+        &self.model
+    }
+
+    pub fn max_tokens(&self) -> u32 {
+        self.max_tokens
     }
 }
 
@@ -290,6 +327,25 @@ impl LlmProvider for OpenAiCompatibleProvider {
         let reasoning = choice.message.reasoning_content;
 
         Ok((Completion::Text { content, reasoning }, usage))
+    }
+
+    async fn complete_streaming(
+        &self,
+        messages: &[Message],
+        tools: &[ToolDefinition],
+        event_tx: tokio::sync::mpsc::UnboundedSender<streaming::StreamEvent>,
+    ) -> Result<(Completion, UsageStats)> {
+        streaming::stream_completion(
+            &self.client,
+            &self.base_url,
+            &self.api_key,
+            &self.model,
+            messages,
+            tools,
+            self.max_tokens,
+            Some(event_tx),
+        )
+        .await
     }
 }
 

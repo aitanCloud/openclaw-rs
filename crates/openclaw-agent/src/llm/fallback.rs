@@ -245,6 +245,53 @@ impl LlmProvider for FallbackProvider {
 
         Err(last_error.unwrap_or_else(|| anyhow::anyhow!("All providers exhausted or circuit-broken")))
     }
+
+    async fn complete_streaming(
+        &self,
+        messages: &[Message],
+        tools: &[ToolDefinition],
+        event_tx: tokio::sync::mpsc::UnboundedSender<super::streaming::StreamEvent>,
+    ) -> Result<(super::Completion, super::UsageStats)> {
+        let mut last_error = None;
+
+        for (i, entry) in self.entries.iter().enumerate() {
+            let failures = entry.consecutive_failures.load(Ordering::Relaxed);
+
+            if failures > 3 {
+                info!(
+                    "Skipping {} (circuit open: {} consecutive failures)",
+                    entry.label, failures
+                );
+                continue;
+            }
+
+            let t_start = Instant::now();
+            info!("Trying streaming provider {}/{}: {}", i + 1, self.entries.len(), entry.label);
+
+            match entry.provider.complete_streaming(messages, tools, event_tx.clone()).await {
+                Ok(result) => {
+                    let elapsed = t_start.elapsed().as_millis();
+                    entry.consecutive_failures.store(0, Ordering::Relaxed);
+                    if let Ok(mut last) = self.last_successful.write() {
+                        *last = entry.label.clone();
+                    }
+                    info!("{} streaming succeeded in {}ms", entry.label, elapsed);
+                    return Ok(result);
+                }
+                Err(e) => {
+                    let elapsed = t_start.elapsed().as_millis();
+                    let new_failures = entry.consecutive_failures.fetch_add(1, Ordering::Relaxed) + 1;
+                    warn!(
+                        "{} streaming failed in {}ms (consecutive failures: {}): {}",
+                        entry.label, elapsed, new_failures, e
+                    );
+                    last_error = Some(e);
+                }
+            }
+        }
+
+        Err(last_error.unwrap_or_else(|| anyhow::anyhow!("All streaming providers exhausted")))
+    }
 }
 
 #[cfg(test)]
