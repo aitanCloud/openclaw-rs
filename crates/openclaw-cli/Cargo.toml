@@ -19,3 +19,4 @@ chrono = { workspace = true }
 colored = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+reqwest = { workspace = true }

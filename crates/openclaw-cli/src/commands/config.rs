@@ -51,7 +51,17 @@ fn show_config() -> Result<()> {
         println!("  {} {}", "Port:".dimmed(), port);
     }
     if let Some(auth) = &cfg.gateway.auth {
-        println!("  {} {}", "Auth:".dimmed(), auth);
+        let auth_display = match auth {
+            serde_json::Value::String(s) => s.clone(),
+            serde_json::Value::Object(map) => {
+                map.get("mode")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("custom")
+                    .to_string()
+            }
+            _ => format!("{}", auth),
+        };
+        println!("  {} {}", "Auth:".dimmed(), auth_display);
     }
 
     // Agent defaults

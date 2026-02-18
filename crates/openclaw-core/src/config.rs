@@ -72,7 +72,7 @@ pub struct GatewayConfig {
     #[serde(default)]
     pub port: Option<u16>,
     #[serde(default)]
-    pub auth: Option<String>,
+    pub auth: Option<serde_json::Value>,
 }
 
 /// Load and parse openclaw-manual.json
