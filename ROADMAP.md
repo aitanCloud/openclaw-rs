@@ -57,14 +57,21 @@
 - ✅ **Concurrency control** — semaphore (5 concurrent tasks), busy message when full
 - ✅ **Graceful shutdown** — SIGINT handler drains active tasks (30s timeout), clean exit
 
-## v0.5.0 — Advanced Tools
+## v0.5.0 — Practical Tool Upgrades (shipped)
+
+- ✅ **List dir tool** — dedicated `list_dir` with recursive mode (3 levels), sorted entries, size display, 500 entry cap
+- ✅ **Patch tool** — surgical `patch` for find-and-replace edits, uniqueness enforcement, path safety
+- ✅ **Per-turn timeout** — 120s tokio::timeout wrapping entire agent turn in Telegram gateway
+- ✅ **7 built-in tools** — exec, read, write, list_dir, patch, web_search, web_fetch
+
+## v0.6.0 — Advanced Tools
 
 - 📋 **Browser tool** — headless browser for web interaction
 - 📋 **Image/canvas tools** — image generation and manipulation
 - 📋 **TTS tool** — text-to-speech via Telegram voice messages
 - 📋 **Plugin system** — dynamic tool loading from workspace
 
-## v0.6.0 — Multi-Channel & Daemon
+## v0.7.0 — Multi-Channel & Daemon
 
 - 📋 **Unix socket daemon mode** — long-running agent process
 - 📋 **Concurrent agent turns** — multiple users/sessions simultaneously

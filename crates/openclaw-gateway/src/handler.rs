@@ -118,16 +118,24 @@ pub async fn handle_message(
 
     let t_start = std::time::Instant::now();
 
-    // ── Spawn the agent turn in background ──
+    // ── Spawn the agent turn in background (with per-turn timeout) ──
+    let turn_timeout = std::time::Duration::from_secs(120);
     let agent_handle = tokio::spawn(async move {
-        runtime::run_agent_turn_streaming(
-            provider.as_ref(),
-            &text,
-            &agent_config,
-            &tools,
-            event_tx,
+        match tokio::time::timeout(
+            turn_timeout,
+            runtime::run_agent_turn_streaming(
+                provider.as_ref(),
+                &text,
+                &agent_config,
+                &tools,
+                event_tx,
+            ),
         )
         .await
+        {
+            Ok(result) => result,
+            Err(_) => Err(anyhow::anyhow!("Agent turn timed out after 120s")),
+        }
     });
 
     // ── Stream loop: receive events, edit Telegram message in real-time ──
