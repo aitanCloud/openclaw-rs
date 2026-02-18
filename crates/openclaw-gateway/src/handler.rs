@@ -333,6 +333,7 @@ async fn handle_command(
                 /status — show bot status\n\
                 /model — show current model info\n\
                 /sessions — list recent sessions\n\
+                /export — export current session as markdown\n\
                 /help — show this help",
             )
             .await?;
@@ -414,6 +415,39 @@ async fn handle_command(
                 format!("🤖 *Model:* `{}`", config.agent.model.as_deref().unwrap_or("default"))
             };
             bot.send_message(chat_id, &chain_info).await?;
+        }
+        "/export" => {
+            let store = SessionStore::open(&config.agent.name)?;
+            let session_key = format!("tg:{}:{}", config.agent.name, chat_id);
+            let messages = store.load_messages(&session_key)?;
+
+            if messages.is_empty() {
+                bot.send_message(chat_id, "No messages in current session to export.")
+                    .await?;
+            } else {
+                let mut md = String::from("# Session Export\n\n");
+                for msg in &messages {
+                    let role_icon = match msg.role.as_str() {
+                        "user" => "👤",
+                        "assistant" => "🤖",
+                        "system" => "⚙️",
+                        "tool" => "🔧",
+                        _ => "❓",
+                    };
+                    md.push_str(&format!("### {} {}\n\n{}\n\n---\n\n",
+                        role_icon,
+                        msg.role,
+                        msg.content.as_deref().unwrap_or("(empty)"),
+                    ));
+                }
+                md.push_str(&format!("_Exported {} messages_", messages.len()));
+
+                // Send as chunks if needed
+                let chunks = split_for_telegram(&md, 4000);
+                for chunk in chunks {
+                    bot.send_message(chat_id, &chunk).await?;
+                }
+            }
         }
         "/sessions" => {
             let store = SessionStore::open(&config.agent.name)?;

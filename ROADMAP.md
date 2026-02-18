@@ -86,13 +86,19 @@
 - ✅ **Find tool** — glob-based file finder using fd with fallback to find, type filtering, max depth
 - ✅ **9 built-in tools** — exec, read, write, list_dir, patch, grep, find, web_search, web_fetch
 
-## v0.9.0 — Advanced Tools
+## v0.9.0 — Context Intelligence (shipped)
+
+- ✅ **Token-aware context pruning** — estimates tokens (~4 chars/token), walks history backwards keeping messages within 12K token budget, replaces hard 40-message cap
+- ✅ **`/export` command** — dumps current session as formatted markdown to Telegram, with role icons and chunked delivery
+- ✅ **6 Telegram commands** — /help, /new, /status, /model, /sessions, /export
+
+## v0.10.0 — Advanced Tools
 
 - 📋 **Browser tool** — headless browser for web interaction
 - 📋 **Image/canvas tools** — image generation and manipulation
 - 📋 **TTS tool** — text-to-speech via Telegram voice messages
 
-## v0.10.0 — Multi-Channel & Daemon
+## v0.11.0 — Multi-Channel & Daemon
 
 - 📋 **Unix socket daemon mode** — long-running agent process
 - 📋 **Concurrent agent turns** — multiple users/sessions simultaneously

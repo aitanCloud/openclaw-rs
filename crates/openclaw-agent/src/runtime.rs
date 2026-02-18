@@ -11,6 +11,21 @@ use crate::workspace;
 
 const MAX_TOOL_ROUNDS: usize = 20;
 const MAX_HISTORY_MESSAGES: usize = 40;
+/// Approximate max tokens for context history (leave room for system prompt + current turn)
+const MAX_HISTORY_TOKENS: usize = 12000;
+
+/// Rough token estimate: ~4 chars per token for English text.
+/// This is intentionally conservative to avoid exceeding context windows.
+fn estimate_tokens(text: &str) -> usize {
+    // Count chars / 4, with a minimum of 1 token per message
+    (text.len() / 4).max(1)
+}
+
+fn estimate_message_tokens(msg: &Message) -> usize {
+    let base = estimate_tokens(msg.content.as_deref().unwrap_or(""));
+    // Role overhead: ~4 tokens for role/formatting
+    base + 4
+}
 
 /// Configuration for an agent turn
 pub struct AgentTurnConfig {
@@ -33,13 +48,33 @@ fn load_session_history(agent_name: &str, session_key: &str) -> Vec<Message> {
 
     match store.load_llm_messages(session_key) {
         Ok(msgs) => {
-            // Take the last N messages to avoid blowing up context
+            // Hard cap first
             let start = msgs.len().saturating_sub(MAX_HISTORY_MESSAGES);
-            let history: Vec<Message> = msgs[start..].to_vec();
-            if !history.is_empty() {
-                debug!("Loaded {} history messages for session {}", history.len(), session_key);
+            let candidates: Vec<Message> = msgs[start..].to_vec();
+
+            // Token-aware pruning: walk backwards, keep messages until budget exhausted
+            let mut token_budget = MAX_HISTORY_TOKENS;
+            let mut kept: Vec<Message> = Vec::new();
+
+            for msg in candidates.iter().rev() {
+                let msg_tokens = estimate_message_tokens(msg);
+                if msg_tokens > token_budget {
+                    break;
+                }
+                token_budget -= msg_tokens;
+                kept.push(msg.clone());
             }
-            history
+
+            kept.reverse();
+
+            if !kept.is_empty() {
+                let total_tokens: usize = kept.iter().map(|m| estimate_message_tokens(m)).sum();
+                debug!(
+                    "Loaded {} history messages (~{} tokens) for session {} (pruned from {})",
+                    kept.len(), total_tokens, session_key, msgs.len()
+                );
+            }
+            kept
         }
         Err(e) => {
             debug!("Could not load session history: {}", e);
