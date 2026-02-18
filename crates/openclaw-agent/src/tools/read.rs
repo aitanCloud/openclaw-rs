@@ -133,6 +133,7 @@ mod tests {
             workspace_dir: "/tmp".to_string(),
             agent_name: "test".to_string(),
             session_key: "test-session".to_string(),
+            sandbox: crate::sandbox::SandboxPolicy::default(),
         };
 
         // Create a test file
@@ -158,6 +159,7 @@ mod tests {
             workspace_dir: "/tmp".to_string(),
             agent_name: "test".to_string(),
             session_key: "test-session".to_string(),
+            sandbox: crate::sandbox::SandboxPolicy::default(),
         };
 
         tokio::fs::write("/tmp/openclaw-test-read2.txt", "a\nb\nc\nd\ne\n")

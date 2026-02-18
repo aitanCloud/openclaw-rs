@@ -49,12 +49,13 @@
 - ✅ **Parallel tool execution** — `futures::join_all` runs concurrent tool calls when LLM requests multiple
 - ✅ **Session history injection** — loads up to 40 recent messages from SQLite into LLM context for conversation memory
 
-## v0.4.0 — Security & Reliability
+## v0.4.0 — Security & Reliability (shipped)
 
-- 📋 **Sandbox policies** — restrict tool execution (path allowlist, command blocklist)
-- 📋 **Timeout enforcement** — per-tool and per-turn timeouts
-- 📋 **Rate limiting** — per-user message rate limits
-- 📋 **Graceful shutdown** — drain active turns before stopping
+- ✅ **Sandbox policies** — `SandboxPolicy` struct with command blocklist (30+ dangerous patterns), path allowlist for read/write, timeout clamping
+- ✅ **Timeout enforcement** — exec tool respects `sandbox.clamp_timeout()`, max 60s default
+- ✅ **Rate limiting** — sliding window (10 msgs/60s per user), in-memory tracker, Telegram feedback on limit hit
+- ✅ **Concurrency control** — semaphore (5 concurrent tasks), busy message when full
+- ✅ **Graceful shutdown** — SIGINT handler drains active tasks (30s timeout), clean exit
 
 ## v0.5.0 — Advanced Tools
 

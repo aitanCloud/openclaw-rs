@@ -44,10 +44,21 @@ impl Tool for ExecTool {
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("exec: missing 'command' argument"))?;
 
+        // Sandbox: check command blocklist
+        if let Some(blocked) = ctx.sandbox.is_command_blocked(command) {
+            return Ok(ToolResult::error(format!(
+                "Command blocked by sandbox policy: contains '{}'",
+                blocked
+            )));
+        }
+
         let timeout_secs = args
             .get("timeout_secs")
             .and_then(|v| v.as_u64())
             .unwrap_or(DEFAULT_TIMEOUT_SECS);
+
+        // Sandbox: clamp timeout
+        let timeout_secs = ctx.sandbox.clamp_timeout(timeout_secs);
 
         let result = tokio::time::timeout(
             std::time::Duration::from_secs(timeout_secs),
@@ -116,6 +127,7 @@ mod tests {
             workspace_dir: "/tmp".to_string(),
             agent_name: "test".to_string(),
             session_key: "test-session".to_string(),
+            sandbox: crate::sandbox::SandboxPolicy::default(),
         };
         let args = serde_json::json!({"command": "echo hello"});
         let result = tool.execute(args, &ctx).await.unwrap();
@@ -130,10 +142,41 @@ mod tests {
             workspace_dir: "/tmp".to_string(),
             agent_name: "test".to_string(),
             session_key: "test-session".to_string(),
+            sandbox: crate::sandbox::SandboxPolicy::default(),
         };
         let args = serde_json::json!({"command": "false"});
         let result = tool.execute(args, &ctx).await.unwrap();
         assert!(result.is_error);
+    }
+
+    #[tokio::test]
+    async fn test_exec_blocked_command() {
+        let tool = ExecTool;
+        let ctx = ToolContext {
+            workspace_dir: "/tmp".to_string(),
+            agent_name: "test".to_string(),
+            session_key: "test-session".to_string(),
+            sandbox: crate::sandbox::SandboxPolicy::default(),
+        };
+        let args = serde_json::json!({"command": "rm -rf /"});
+        let result = tool.execute(args, &ctx).await.unwrap();
+        assert!(result.is_error);
+        assert!(result.output.contains("blocked"));
+    }
+
+    #[tokio::test]
+    async fn test_exec_blocked_shadow() {
+        let tool = ExecTool;
+        let ctx = ToolContext {
+            workspace_dir: "/tmp".to_string(),
+            agent_name: "test".to_string(),
+            session_key: "test-session".to_string(),
+            sandbox: crate::sandbox::SandboxPolicy::default(),
+        };
+        let args = serde_json::json!({"command": "cat /etc/shadow"});
+        let result = tool.execute(args, &ctx).await.unwrap();
+        assert!(result.is_error);
+        assert!(result.output.contains("blocked"));
     }
 
     #[tokio::test]
@@ -143,6 +186,7 @@ mod tests {
             workspace_dir: "/tmp".to_string(),
             agent_name: "test".to_string(),
             session_key: "test-session".to_string(),
+            sandbox: crate::sandbox::SandboxPolicy::default(),
         };
         let args = serde_json::json!({"command": "sleep 10", "timeout_secs": 1});
         let result = tool.execute(args, &ctx).await.unwrap();

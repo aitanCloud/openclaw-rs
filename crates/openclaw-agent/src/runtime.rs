@@ -93,6 +93,7 @@ pub async fn run_agent_turn(
         workspace_dir: config.workspace_dir.clone(),
         agent_name: config.agent_name.clone(),
         session_key: config.session_key.clone(),
+        sandbox: crate::sandbox::SandboxPolicy::default(),
     };
 
     let mut total_usage = UsageStats::default();
@@ -231,6 +232,7 @@ pub async fn run_agent_turn_streaming(
         workspace_dir: config.workspace_dir.clone(),
         agent_name: config.agent_name.clone(),
         session_key: config.session_key.clone(),
+        sandbox: crate::sandbox::SandboxPolicy::default(),
     };
 
     let mut total_usage = UsageStats::default();

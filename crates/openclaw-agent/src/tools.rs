@@ -9,6 +9,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 
 use crate::llm::{FunctionDefinition, ToolDefinition};
+use crate::sandbox::SandboxPolicy;
 
 /// Context passed to every tool execution
 #[derive(Debug, Clone)]
@@ -16,6 +17,7 @@ pub struct ToolContext {
     pub workspace_dir: String,
     pub agent_name: String,
     pub session_key: String,
+    pub sandbox: SandboxPolicy,
 }
 
 /// Result of a tool execution

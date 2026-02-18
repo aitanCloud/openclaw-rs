@@ -1,10 +1,11 @@
 mod config;
 mod handler;
+mod ratelimit;
 mod telegram;
 
 use axum::{routing::get, Json, Router};
 use std::sync::Arc;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -60,34 +61,89 @@ async fn main() -> anyhow::Result<()> {
         }
     });
 
-    // ── Telegram long-polling loop ──
+    // ── Rate limiter: 10 messages per 60 seconds per user ──
+    let rate_limiter = Arc::new(ratelimit::RateLimiter::new(10, 60));
+
+    // ── Active task tracker for graceful shutdown ──
+    let active_tasks: Arc<tokio::sync::Semaphore> = Arc::new(tokio::sync::Semaphore::new(5));
+
+    // ── Telegram long-polling loop with graceful shutdown ──
     info!("Starting Telegram long-polling...");
     let mut offset: i64 = 0;
 
+    let shutdown = tokio::signal::ctrl_c();
+    tokio::pin!(shutdown);
+
     loop {
-        match bot.get_updates(offset, 30).await {
-            Ok(updates) => {
-                for update in updates {
-                    offset = update.update_id + 1;
+        tokio::select! {
+            _ = &mut shutdown => {
+                info!("Shutdown signal received, draining active tasks...");
+                // Wait for active tasks to finish (up to 30s)
+                let drain_start = std::time::Instant::now();
+                while active_tasks.available_permits() < 5 {
+                    if drain_start.elapsed().as_secs() > 30 {
+                        warn!("Drain timeout — {} tasks still active, forcing shutdown",
+                            5 - active_tasks.available_permits());
+                        break;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                }
+                info!("Graceful shutdown complete");
+                return Ok(());
+            }
+            result = bot.get_updates(offset, 30) => {
+                match result {
+                    Ok(updates) => {
+                        for update in updates {
+                            offset = update.update_id + 1;
 
-                    if let Some(msg) = update.message {
-                        let bot_clone = telegram::TelegramBot::new(&config.telegram.bot_token);
-                        let config_clone = config.clone();
+                            if let Some(msg) = update.message {
+                                let user_id = msg.from.as_ref().map(|u| u.id).unwrap_or(0);
 
-                        // Handle each message in a separate task
-                        tokio::spawn(async move {
-                            if let Err(e) =
-                                handler::handle_message(&bot_clone, &msg, &config_clone).await
-                            {
-                                error!("Handler error: {}", e);
+                                // Rate limit check
+                                if let Err(wait_secs) = rate_limiter.check(user_id) {
+                                    let rl_bot = telegram::TelegramBot::new(&config.telegram.bot_token);
+                                    let chat_id = msg.chat.id;
+                                    warn!("Rate limited user {} for {}s", user_id, wait_secs);
+                                    let _ = rl_bot.send_message(
+                                        chat_id,
+                                        &format!("⏳ Rate limited. Try again in {}s.", wait_secs),
+                                    ).await;
+                                    continue;
+                                }
+
+                                // Acquire semaphore permit for concurrency control
+                                let permit = match active_tasks.clone().try_acquire_owned() {
+                                    Ok(p) => p,
+                                    Err(_) => {
+                                        let busy_bot = telegram::TelegramBot::new(&config.telegram.bot_token);
+                                        let _ = busy_bot.send_message(
+                                            msg.chat.id,
+                                            "🔄 Server busy — too many concurrent requests. Try again shortly.",
+                                        ).await;
+                                        continue;
+                                    }
+                                };
+
+                                let bot_clone = telegram::TelegramBot::new(&config.telegram.bot_token);
+                                let config_clone = config.clone();
+
+                                tokio::spawn(async move {
+                                    let _permit = permit; // held until task completes
+                                    if let Err(e) =
+                                        handler::handle_message(&bot_clone, &msg, &config_clone).await
+                                    {
+                                        error!("Handler error: {}", e);
+                                    }
+                                });
                             }
-                        });
+                        }
+                    }
+                    Err(e) => {
+                        error!("Polling error: {}", e);
+                        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
                     }
                 }
-            }
-            Err(e) => {
-                error!("Polling error: {}", e);
-                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
             }
         }
     }
