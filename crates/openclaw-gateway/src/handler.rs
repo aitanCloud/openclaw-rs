@@ -104,8 +104,12 @@ pub async fn handle_message(
     };
     store.create_session(&session_key, &config.agent.name, provider.name())?;
 
-    // ── Tools + config ──
-    let tools = ToolRegistry::with_defaults();
+    // ── Tools + config (load plugins from workspace) ──
+    let mut tools = ToolRegistry::with_defaults();
+    let plugin_count = tools.load_plugins(&workspace_dir);
+    if plugin_count > 0 {
+        info!("Loaded {} plugin tool(s) from workspace", plugin_count);
+    }
     let agent_config = AgentTurnConfig {
         agent_name: config.agent.name.clone(),
         session_key: session_key.clone(),

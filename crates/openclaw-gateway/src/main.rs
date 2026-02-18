@@ -36,14 +36,19 @@ async fn main() -> anyhow::Result<()> {
     );
 
     // ── Start health check HTTP server ──
+    let start_time = std::time::Instant::now();
     let health_config = Arc::new(config.clone());
+    let tools = openclaw_agent::tools::ToolRegistry::with_defaults();
+    let tool_names: Vec<String> = tools.tool_names().iter().map(|s| s.to_string()).collect();
+    let tool_names = Arc::new(tool_names);
     let app = Router::new()
         .route("/health", get(health_handler))
         .route(
             "/status",
             get({
                 let cfg = health_config.clone();
-                move || status_handler(cfg)
+                let tnames = tool_names.clone();
+                move || status_handler(cfg, tnames, start_time)
             }),
         );
 
@@ -61,11 +66,17 @@ async fn main() -> anyhow::Result<()> {
         }
     });
 
-    // ── Rate limiter: 10 messages per 60 seconds per user ──
-    let rate_limiter = Arc::new(ratelimit::RateLimiter::new(10, 60));
+    // ── Rate limiter (config-driven) ──
+    let rl_msgs = config.agent.sandbox.as_ref()
+        .and_then(|s| s.rate_limit_messages).unwrap_or(10);
+    let rl_window = config.agent.sandbox.as_ref()
+        .and_then(|s| s.rate_limit_window_secs).unwrap_or(60);
+    let rate_limiter = Arc::new(ratelimit::RateLimiter::new(rl_msgs, rl_window));
 
-    // ── Active task tracker for graceful shutdown ──
-    let active_tasks: Arc<tokio::sync::Semaphore> = Arc::new(tokio::sync::Semaphore::new(5));
+    // ── Active task tracker (config-driven concurrency) ──
+    let max_concurrent = config.agent.sandbox.as_ref()
+        .and_then(|s| s.max_concurrent).unwrap_or(5);
+    let active_tasks: Arc<tokio::sync::Semaphore> = Arc::new(tokio::sync::Semaphore::new(max_concurrent));
 
     // ── Telegram long-polling loop with graceful shutdown ──
     info!("Starting Telegram long-polling...");
@@ -80,10 +91,10 @@ async fn main() -> anyhow::Result<()> {
                 info!("Shutdown signal received, draining active tasks...");
                 // Wait for active tasks to finish (up to 30s)
                 let drain_start = std::time::Instant::now();
-                while active_tasks.available_permits() < 5 {
+                while active_tasks.available_permits() < max_concurrent {
                     if drain_start.elapsed().as_secs() > 30 {
                         warn!("Drain timeout — {} tasks still active, forcing shutdown",
-                            5 - active_tasks.available_permits());
+                            max_concurrent - active_tasks.available_permits());
                         break;
                     }
                     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
@@ -153,11 +164,27 @@ async fn health_handler() -> &'static str {
     "ok"
 }
 
-async fn status_handler(config: Arc<config::GatewayConfig>) -> Json<serde_json::Value> {
+async fn status_handler(
+    config: Arc<config::GatewayConfig>,
+    tool_names: Arc<Vec<String>>,
+    start_time: std::time::Instant,
+) -> Json<serde_json::Value> {
+    let uptime_secs = start_time.elapsed().as_secs();
+    let uptime = if uptime_secs >= 86400 {
+        format!("{}d {}h {}m", uptime_secs / 86400, (uptime_secs % 86400) / 3600, (uptime_secs % 3600) / 60)
+    } else if uptime_secs >= 3600 {
+        format!("{}h {}m", uptime_secs / 3600, (uptime_secs % 3600) / 60)
+    } else {
+        format!("{}m {}s", uptime_secs / 60, uptime_secs % 60)
+    };
+
     Json(serde_json::json!({
         "status": "running",
         "version": env!("CARGO_PKG_VERSION"),
         "agent": config.agent.name,
         "fallback": config.agent.fallback,
+        "uptime": uptime,
+        "tools": *tool_names,
+        "tool_count": tool_names.len(),
     }))
 }

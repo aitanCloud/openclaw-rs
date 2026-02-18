@@ -64,14 +64,22 @@
 - ✅ **Per-turn timeout** — 120s tokio::timeout wrapping entire agent turn in Telegram gateway
 - ✅ **7 built-in tools** — exec, read, write, list_dir, patch, web_search, web_fetch
 
-## v0.6.0 — Advanced Tools
+## v0.6.0 — Plugin System & Config (shipped)
+
+- ✅ **Script plugin system** — load shell-based tools from `.openclaw/plugins/*.json` manifests
+  - JSON manifest: name, description, parameters, command, optional timeout
+  - Receives tool args as JSON on stdin, sandbox-enforced
+  - Auto-discovered at each agent turn from workspace
+- ✅ **Config-driven sandbox** — rate limit, concurrency, exec timeout, blocked commands all configurable via `agent.sandbox` in gateway config
+- ✅ **Enhanced /status endpoint** — returns uptime, tool list, tool count, version, agent name
+
+## v0.7.0 — Advanced Tools
 
 - 📋 **Browser tool** — headless browser for web interaction
 - 📋 **Image/canvas tools** — image generation and manipulation
 - 📋 **TTS tool** — text-to-speech via Telegram voice messages
-- 📋 **Plugin system** — dynamic tool loading from workspace
 
-## v0.7.0 — Multi-Channel & Daemon
+## v0.8.0 — Multi-Channel & Daemon
 
 - 📋 **Unix socket daemon mode** — long-running agent process
 - 📋 **Concurrent agent turns** — multiple users/sessions simultaneously

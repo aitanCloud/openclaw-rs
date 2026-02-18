@@ -2,6 +2,7 @@ pub mod exec;
 pub mod list_dir;
 pub mod patch;
 pub mod read;
+pub mod script_plugin;
 pub mod web_fetch;
 pub mod web_search;
 pub mod write;
@@ -137,6 +138,18 @@ impl ToolRegistry {
             .collect();
 
         futures::future::join_all(futures).await
+    }
+
+    /// Load and register script plugins from the workspace plugins directory.
+    /// Returns the number of plugins loaded.
+    pub fn load_plugins(&mut self, workspace_dir: &std::path::Path) -> usize {
+        let plugins_dir = script_plugin::plugins_dir(workspace_dir);
+        let plugins = script_plugin::load_plugins(&plugins_dir);
+        let count = plugins.len();
+        for plugin in plugins {
+            self.register(Box::new(plugin));
+        }
+        count
     }
 
     pub fn tool_names(&self) -> Vec<&str> {

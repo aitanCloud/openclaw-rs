@@ -19,6 +19,26 @@ pub struct AgentConfig {
     #[serde(default = "default_true")]
     pub fallback: bool,
     pub model: Option<String>,
+    #[serde(default)]
+    pub sandbox: Option<SandboxConfig>,
+}
+
+/// Optional sandbox configuration overrides
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SandboxConfig {
+    /// Extra commands to block (added to defaults)
+    #[serde(default)]
+    pub blocked_commands: Vec<String>,
+    /// Max exec timeout in seconds
+    pub max_exec_timeout_secs: Option<u64>,
+    /// Per-turn timeout in seconds
+    pub turn_timeout_secs: Option<u64>,
+    /// Max concurrent tasks
+    pub max_concurrent: Option<usize>,
+    /// Rate limit: messages per window
+    pub rate_limit_messages: Option<usize>,
+    /// Rate limit: window in seconds
+    pub rate_limit_window_secs: Option<u64>,
 }
 
 fn default_true() -> bool {
@@ -53,6 +73,7 @@ impl GatewayConfig {
                 name: agent_name,
                 fallback: use_fallback,
                 model,
+                sandbox: None,
             },
         })
     }
