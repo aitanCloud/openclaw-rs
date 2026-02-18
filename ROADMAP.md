@@ -80,13 +80,19 @@
 - ✅ **Refactored LLM response processing** — extracted `process_chat_response` helper for cleaner code reuse
 - ✅ **Stats footer styling** — italic formatting for the stats line in Telegram responses
 
-## v0.8.0 — Advanced Tools
+## v0.8.0 — Search & Discovery Tools (shipped)
+
+- ✅ **Grep tool** — regex search across files using rg (ripgrep) with fallback to grep, smart case, glob filtering, context lines
+- ✅ **Find tool** — glob-based file finder using fd with fallback to find, type filtering, max depth
+- ✅ **9 built-in tools** — exec, read, write, list_dir, patch, grep, find, web_search, web_fetch
+
+## v0.9.0 — Advanced Tools
 
 - 📋 **Browser tool** — headless browser for web interaction
 - 📋 **Image/canvas tools** — image generation and manipulation
 - 📋 **TTS tool** — text-to-speech via Telegram voice messages
 
-## v0.9.0 — Multi-Channel & Daemon
+## v0.10.0 — Multi-Channel & Daemon
 
 - 📋 **Unix socket daemon mode** — long-running agent process
 - 📋 **Concurrent agent turns** — multiple users/sessions simultaneously

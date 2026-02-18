@@ -1,4 +1,6 @@
 pub mod exec;
+pub mod find;
+pub mod grep;
 pub mod list_dir;
 pub mod patch;
 pub mod read;
@@ -73,6 +75,8 @@ impl ToolRegistry {
         registry.register(Box::new(write::WriteTool));
         registry.register(Box::new(list_dir::ListDirTool));
         registry.register(Box::new(patch::PatchTool));
+        registry.register(Box::new(grep::GrepTool));
+        registry.register(Box::new(find::FindTool));
         registry.register(Box::new(web_search::WebSearchTool));
         registry.register(Box::new(web_fetch::WebFetchTool));
         registry
@@ -176,16 +180,18 @@ mod tests {
         assert!(names.contains(&"write"));
         assert!(names.contains(&"list_dir"));
         assert!(names.contains(&"patch"));
+        assert!(names.contains(&"grep"));
+        assert!(names.contains(&"find"));
         assert!(names.contains(&"web_search"));
         assert!(names.contains(&"web_fetch"));
-        assert_eq!(names.len(), 7);
+        assert_eq!(names.len(), 9);
     }
 
     #[test]
     fn test_definitions_format() {
         let registry = ToolRegistry::with_defaults();
         let defs = registry.definitions();
-        assert_eq!(defs.len(), 7);
+        assert_eq!(defs.len(), 9);
         for def in &defs {
             assert_eq!(def.tool_type, "function");
             assert!(!def.function.name.is_empty());
