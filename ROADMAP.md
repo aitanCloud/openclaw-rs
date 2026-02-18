@@ -92,13 +92,20 @@
 - ✅ **`/export` command** — dumps current session as formatted markdown to Telegram, with role icons and chunked delivery
 - ✅ **6 Telegram commands** — /help, /new, /status, /model, /sessions, /export
 
-## v0.10.0 — Advanced Tools
+## v0.10.0 — Cron & Efficiency (shipped)
+
+- ✅ **Cron job executor** — background task checks jobs.json every 30s, parses 5-field cron expressions and `every` schedules, fires agent turns, delivers results to Telegram, updates job state
+- ✅ **Tool output truncation** — caps tool output at 32K chars before sending to LLM, preserves 75% head + 25% tail with truncation marker
+- ✅ **Cron expression parser** — supports *, N, N-M, */N, N,M,... with timezone support (US timezones + common IANA)
+- ✅ **77 tests** — 58 agent + 7 core + 12 gateway
+
+## v0.11.0 — Advanced Tools
 
 - 📋 **Browser tool** — headless browser for web interaction
 - 📋 **Image/canvas tools** — image generation and manipulation
 - 📋 **TTS tool** — text-to-speech via Telegram voice messages
 
-## v0.11.0 — Multi-Channel & Daemon
+## v0.12.0 — Multi-Channel & Daemon
 
 - 📋 **Unix socket daemon mode** — long-running agent process
 - 📋 **Concurrent agent turns** — multiple users/sessions simultaneously

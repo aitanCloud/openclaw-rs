@@ -13,6 +13,24 @@ const MAX_TOOL_ROUNDS: usize = 20;
 const MAX_HISTORY_MESSAGES: usize = 40;
 /// Approximate max tokens for context history (leave room for system prompt + current turn)
 const MAX_HISTORY_TOKENS: usize = 12000;
+/// Max characters of tool output to send to the LLM (prevents token waste on huge outputs)
+const MAX_TOOL_OUTPUT_CHARS: usize = 32000;
+
+/// Truncate tool output if it exceeds the limit, preserving head and tail.
+fn truncate_tool_output(output: &str) -> String {
+    if output.len() <= MAX_TOOL_OUTPUT_CHARS {
+        return output.to_string();
+    }
+    let head_size = MAX_TOOL_OUTPUT_CHARS * 3 / 4; // 75% head
+    let tail_size = MAX_TOOL_OUTPUT_CHARS / 4;       // 25% tail
+    let omitted = output.len() - head_size - tail_size;
+    format!(
+        "{}\n\n... [{} chars truncated] ...\n\n{}",
+        &output[..head_size],
+        omitted,
+        &output[output.len() - tail_size..]
+    )
+}
 
 /// Rough token estimate: ~4 chars per token for English text.
 /// This is intentionally conservative to avoid exceeding context windows.
@@ -233,6 +251,7 @@ pub async fn run_agent_turn(
                         result.is_error
                     );
 
+                    let output = truncate_tool_output(&output);
                     messages.push(Message::tool_result(call_id, &output));
                 }
             }
@@ -380,6 +399,7 @@ pub async fn run_agent_turn_streaming(
                         result.output
                     };
 
+                    let output = truncate_tool_output(&output);
                     messages.push(Message::tool_result(call_id, &output));
                 }
             }
@@ -400,5 +420,26 @@ mod tests {
             minimal_context: false,
         };
         assert_eq!(config.agent_name, "main");
+    }
+
+    #[test]
+    fn test_truncate_tool_output_short() {
+        let short = "hello world";
+        assert_eq!(truncate_tool_output(short), short);
+    }
+
+    #[test]
+    fn test_truncate_tool_output_long() {
+        let long = "x".repeat(50000);
+        let result = truncate_tool_output(&long);
+        assert!(result.len() < long.len());
+        assert!(result.contains("chars truncated"));
+    }
+
+    #[test]
+    fn test_estimate_tokens() {
+        assert_eq!(estimate_tokens(""), 1); // minimum 1
+        assert_eq!(estimate_tokens("hello world!"), 3); // 12 chars / 4
+        assert_eq!(estimate_tokens("a".repeat(100).as_str()), 25);
     }
 }

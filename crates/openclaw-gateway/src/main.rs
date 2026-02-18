@@ -1,4 +1,5 @@
 mod config;
+mod cron;
 mod handler;
 mod ratelimit;
 mod telegram;
@@ -34,6 +35,11 @@ async fn main() -> anyhow::Result<()> {
         me.username.as_deref().unwrap_or("?"),
         me.first_name
     );
+
+    // ── Start cron executor ──
+    let cron_bot = Arc::new(telegram::TelegramBot::new(&config.telegram.bot_token));
+    let cron_config = Arc::new(config.clone());
+    cron::spawn_cron_executor(cron_config, cron_bot);
 
     // ── Start health check HTTP server ──
     let start_time = std::time::Instant::now();
