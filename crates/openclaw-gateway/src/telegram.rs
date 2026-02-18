@@ -225,6 +225,54 @@ impl TelegramBot {
         Ok(())
     }
 
+    /// Edit an existing message with Markdown formatting, falling back to plain text
+    pub async fn edit_message_markdown(&self, chat_id: i64, message_id: i64, text: &str) -> Result<()> {
+        let body = EditMessageRequest {
+            chat_id,
+            message_id,
+            text: text.to_string(),
+            parse_mode: Some("Markdown".to_string()),
+        };
+
+        let resp = self
+            .client
+            .post(format!("{}/editMessageText", self.api_base))
+            .json(&body)
+            .send()
+            .await;
+
+        match resp {
+            Ok(r) => {
+                if !r.status().is_success() {
+                    let status = r.status();
+                    if status.as_u16() == 400 {
+                        // Could be markdown parse error or "message not modified" — try plain
+                        let plain_body = EditMessageRequest {
+                            chat_id,
+                            message_id,
+                            text: text.to_string(),
+                            parse_mode: None,
+                        };
+                        let _ = self
+                            .client
+                            .post(format!("{}/editMessageText", self.api_base))
+                            .json(&plain_body)
+                            .send()
+                            .await;
+                    } else {
+                        let err_body = r.text().await.unwrap_or_default();
+                        warn!("editMessageText markdown failed ({}): {}", status, err_body);
+                    }
+                }
+            }
+            Err(e) => {
+                warn!("Failed to edit message (markdown): {}", e);
+            }
+        }
+
+        Ok(())
+    }
+
     /// Send "typing..." indicator
     pub async fn send_typing(&self, chat_id: i64) -> Result<()> {
         let body = SendChatActionRequest {

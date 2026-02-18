@@ -208,6 +208,41 @@ impl OpenAiCompatibleProvider {
     pub fn max_tokens(&self) -> u32 {
         self.max_tokens
     }
+
+    /// Process a ChatResponse into a Completion + UsageStats
+    fn process_chat_response(&self, chat_response: ChatResponse) -> Result<(Completion, UsageStats)> {
+        let usage = chat_response
+            .usage
+            .map(|u| UsageStats {
+                prompt_tokens: u.prompt_tokens,
+                completion_tokens: u.completion_tokens,
+                total_tokens: u.total_tokens,
+            })
+            .unwrap_or_default();
+
+        let choice = chat_response
+            .choices
+            .into_iter()
+            .next()
+            .context("LLM returned no choices")?;
+
+        if let Some(tool_calls) = choice.message.tool_calls {
+            if !tool_calls.is_empty() {
+                return Ok((
+                    Completion::ToolCalls {
+                        calls: tool_calls,
+                        reasoning: choice.message.reasoning_content,
+                    },
+                    usage,
+                ));
+            }
+        }
+
+        let content = choice.message.content.unwrap_or_default();
+        let reasoning = choice.message.reasoning_content;
+
+        Ok((Completion::Text { content, reasoning }, usage))
+    }
 }
 
 // ── API request/response types ──
@@ -273,60 +308,56 @@ impl LlmProvider for OpenAiCompatibleProvider {
             tools: tools.to_vec(),
         };
 
-        let response = self
-            .client
-            .post(format!("{}/chat/completions", self.base_url))
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .header("Content-Type", "application/json")
-            .json(&request)
-            .send()
-            .await
-            .context("Failed to send request to LLM")?;
+        // Retry with exponential backoff for transient errors (429, 502, 503, 504)
+        let max_retries = 3;
+        let mut last_error = None;
 
-        let status = response.status();
-        if !status.is_success() {
-            let body = response.text().await.unwrap_or_default();
-            anyhow::bail!("LLM API returned {}: {}", status, body);
-        }
-
-        let chat_response: ChatResponse = response
-            .json()
-            .await
-            .context("Failed to parse LLM response")?;
-
-        let usage = chat_response
-            .usage
-            .map(|u| UsageStats {
-                prompt_tokens: u.prompt_tokens,
-                completion_tokens: u.completion_tokens,
-                total_tokens: u.total_tokens,
-            })
-            .unwrap_or_default();
-
-        let choice = chat_response
-            .choices
-            .into_iter()
-            .next()
-            .context("LLM returned no choices")?;
-
-        // If the model returned tool calls, return those
-        if let Some(tool_calls) = choice.message.tool_calls {
-            if !tool_calls.is_empty() {
-                return Ok((
-                    Completion::ToolCalls {
-                        calls: tool_calls,
-                        reasoning: choice.message.reasoning_content,
-                    },
-                    usage,
-                ));
+        for attempt in 0..=max_retries {
+            if attempt > 0 {
+                let delay_ms = 1000 * (1 << (attempt - 1)); // 1s, 2s, 4s
+                tracing::warn!(
+                    "Retrying LLM request (attempt {}/{}) after {}ms",
+                    attempt + 1, max_retries + 1, delay_ms
+                );
+                tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
             }
+
+            let response = match self
+                .client
+                .post(format!("{}/chat/completions", self.base_url))
+                .header("Authorization", format!("Bearer {}", self.api_key))
+                .header("Content-Type", "application/json")
+                .json(&request)
+                .send()
+                .await
+            {
+                Ok(r) => r,
+                Err(e) => {
+                    last_error = Some(anyhow::anyhow!("Failed to send request to LLM: {}", e));
+                    continue;
+                }
+            };
+
+            let status = response.status();
+            if !status.is_success() {
+                let body = response.text().await.unwrap_or_default();
+                let is_transient = matches!(status.as_u16(), 429 | 502 | 503 | 504);
+                if is_transient && attempt < max_retries {
+                    last_error = Some(anyhow::anyhow!("LLM API returned {}: {}", status, body));
+                    continue;
+                }
+                anyhow::bail!("LLM API returned {}: {}", status, body);
+            }
+
+            let chat_response: ChatResponse = response
+                .json()
+                .await
+                .context("Failed to parse LLM response")?;
+
+            return self.process_chat_response(chat_response);
         }
 
-        // Otherwise it's a text response
-        let content = choice.message.content.unwrap_or_default();
-        let reasoning = choice.message.reasoning_content;
-
-        Ok((Completion::Text { content, reasoning }, usage))
+        Err(last_error.unwrap_or_else(|| anyhow::anyhow!("LLM request failed after retries")))
     }
 
     async fn complete_streaming(

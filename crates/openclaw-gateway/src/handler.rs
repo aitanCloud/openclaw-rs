@@ -275,7 +275,7 @@ pub async fn handle_message(
     };
 
     let stats = format!(
-        "\n\n{}ms · {} round(s) · {} tool(s) · {} tokens · {}",
+        "\n\n_{}ms · {} round(s) · {} tool(s) · {} tokens · {}_",
         elapsed,
         result.total_rounds,
         result.tool_calls_made,
@@ -287,13 +287,13 @@ pub async fn handle_message(
 
     if full_response.len() <= 4000 {
         stream_bot
-            .edit_message(chat_id, placeholder_id, &full_response)
+            .edit_message_markdown(chat_id, placeholder_id, &full_response)
             .await?;
     } else {
         // First 4000 chars in the edited message, rest as new messages
         let first = &full_response[..4000.min(full_response.len())];
         stream_bot
-            .edit_message(chat_id, placeholder_id, first)
+            .edit_message_markdown(chat_id, placeholder_id, first)
             .await?;
         if full_response.len() > 4000 {
             let rest = &full_response[4000..];

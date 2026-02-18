@@ -73,13 +73,20 @@
 - ✅ **Config-driven sandbox** — rate limit, concurrency, exec timeout, blocked commands all configurable via `agent.sandbox` in gateway config
 - ✅ **Enhanced /status endpoint** — returns uptime, tool list, tool count, version, agent name
 
-## v0.7.0 — Advanced Tools
+## v0.7.0 — Reliability & Polish (shipped)
+
+- ✅ **Telegram Markdown rendering** — final response rendered with Markdown parse mode, automatic fallback to plain text on parse errors
+- ✅ **LLM retry with backoff** — exponential backoff (1s/2s/4s) for transient errors (429, 502, 503, 504), up to 3 retries per provider
+- ✅ **Refactored LLM response processing** — extracted `process_chat_response` helper for cleaner code reuse
+- ✅ **Stats footer styling** — italic formatting for the stats line in Telegram responses
+
+## v0.8.0 — Advanced Tools
 
 - 📋 **Browser tool** — headless browser for web interaction
 - 📋 **Image/canvas tools** — image generation and manipulation
 - 📋 **TTS tool** — text-to-speech via Telegram voice messages
 
-## v0.8.0 — Multi-Channel & Daemon
+## v0.9.0 — Multi-Channel & Daemon
 
 - 📋 **Unix socket daemon mode** — long-running agent process
 - 📋 **Concurrent agent turns** — multiple users/sessions simultaneously
