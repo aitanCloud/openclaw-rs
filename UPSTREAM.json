@@ -1,0 +1,51 @@
+{
+  "upstream": {
+    "repo": "openclaw/openclaw",
+    "url": "https://github.com/openclaw/openclaw",
+    "branch": "main",
+    "pinnedVersion": "2026.2.18",
+    "pinnedCommit": "750276fa361100768db624c6097336684b7974d4",
+    "pinnedAt": "2026-02-18T20:04:03Z",
+    "lastChecked": "2026-02-18T15:34:17-05:00",
+    "filesStudied": [
+      "src/entry.ts",
+      "src/runtime.ts",
+      "src/globals.ts",
+      "src/agents/workspace.ts",
+      "src/agents/agent-scope.ts",
+      "src/agents/auth-profiles.ts",
+      "src/agents/openclaw-tools.ts",
+      "src/gateway/call.ts",
+      "src/gateway/tools-invoke-http.ts"
+    ]
+  },
+  "port": {
+    "repo": "aitanCloud/openclaw-rs",
+    "version": "0.1.0",
+    "portedModules": [
+      "cli (version, help, sessions, skills, config, cron, chat, agent)",
+      "config parser (openclaw-manual.json)",
+      "cron jobs parser (cron/jobs.json)",
+      "sessions loader",
+      "skills loader",
+      "workspace assembly (SOUL.md, TOOLS.md, AGENTS.md, IDENTITY.md, USER.md, MEMORY.md)",
+      "agent runtime (LLM provider, tool loop, reasoning model support)",
+      "tools: exec, read, write"
+    ],
+    "notYetPorted": [
+      "gateway (HTTP/WebSocket server)",
+      "session persistence",
+      "channel integrations (Telegram, Discord, Slack, WhatsApp)",
+      "browser tool",
+      "web search/fetch tools",
+      "image tool",
+      "message tool",
+      "canvas tool",
+      "TTS tool",
+      "sandbox/security policies",
+      "streaming responses",
+      "auth profile rotation/cooldown",
+      "plugin system"
+    ]
+  }
+}
