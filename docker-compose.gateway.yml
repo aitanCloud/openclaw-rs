@@ -1,0 +1,35 @@
+services:
+  rustbot:
+    build:
+      context: .
+      dockerfile: crates/openclaw-gateway/Dockerfile
+    container_name: openclaw-rustbot
+    restart: unless-stopped
+    ports:
+      - "3100:3100"
+    environment:
+      - TELEGRAM_BOT_TOKEN=8523877015:AAFw0mW52cDG84tptI_U2FO0PsmUzCdif6A
+      - ALLOWED_USER_IDS=7984400336
+      - AGENT_NAME=main
+      - USE_FALLBACK=true
+      - RUST_LOG=openclaw_gateway=info
+      - HTTP_PORT=3100
+      - HOME=/home/shawaz
+    volumes:
+      # Config (read-only)
+      - /home/shawaz/.openclaw/openclaw-manual.json:/home/shawaz/.openclaw/openclaw-manual.json:ro
+      # Workspace (read-write for agent tools)
+      - /home/shawaz/.openclaw/workspace:/home/shawaz/.openclaw/workspace:rw
+      # Sessions DB (read-write, Docker volume)
+      - rustbot-data:/home/shawaz/.openclaw/agents/main
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:3100/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+volumes:
+  rustbot-data:
