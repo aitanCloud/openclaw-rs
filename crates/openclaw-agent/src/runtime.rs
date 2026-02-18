@@ -22,6 +22,7 @@ pub struct AgentTurnConfig {
 pub struct AgentTurnResult {
     pub response: String,
     pub reasoning: Option<String>,
+    pub model_name: String,
     pub tool_calls_made: usize,
     pub total_rounds: usize,
     pub total_usage: UsageStats,
@@ -74,6 +75,7 @@ pub async fn run_agent_turn(
             return Ok(AgentTurnResult {
                 response: "(Agent reached maximum tool call rounds)".to_string(),
                 reasoning: None,
+                model_name: provider.name().to_string(),
                 tool_calls_made,
                 total_rounds: rounds,
                 total_usage,
@@ -104,6 +106,7 @@ pub async fn run_agent_turn(
                 return Ok(AgentTurnResult {
                     response: content,
                     reasoning,
+                    model_name: provider.name().to_string(),
                     tool_calls_made,
                     total_rounds: rounds,
                     total_usage,

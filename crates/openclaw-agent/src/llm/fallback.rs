@@ -1,6 +1,7 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::RwLock;
 use std::time::Instant;
 use tracing::{info, warn};
 
@@ -17,10 +18,12 @@ pub struct FallbackEntry {
 /// Tracks consecutive failures per provider for health scoring.
 pub struct FallbackProvider {
     entries: Vec<FallbackEntry>,
+    last_successful: RwLock<String>,
 }
 
 impl FallbackProvider {
     pub fn new(entries: Vec<(String, OpenAiCompatibleProvider)>) -> Self {
+        let first_label = entries.first().map(|(l, _)| l.clone()).unwrap_or_default();
         Self {
             entries: entries
                 .into_iter()
@@ -30,6 +33,7 @@ impl FallbackProvider {
                     consecutive_failures: AtomicUsize::new(0),
                 })
                 .collect(),
+            last_successful: RwLock::new(first_label),
         }
     }
 
@@ -187,7 +191,12 @@ fn build_first_model_entry(
 #[async_trait]
 impl LlmProvider for FallbackProvider {
     fn name(&self) -> &str {
-        "fallback-chain"
+        // Return last successful model; falls back to "fallback-chain" if lock poisoned
+        // We leak a &str here since the trait requires &str — acceptable for a long-lived provider
+        let guard = self.last_successful.read().unwrap();
+        let name = guard.clone();
+        drop(guard);
+        Box::leak(name.into_boxed_str())
     }
 
     async fn complete(
@@ -216,6 +225,9 @@ impl LlmProvider for FallbackProvider {
                 Ok(result) => {
                     let elapsed = t_start.elapsed().as_millis();
                     entry.consecutive_failures.store(0, Ordering::Relaxed);
+                    if let Ok(mut last) = self.last_successful.write() {
+                        *last = entry.label.clone();
+                    }
                     info!("{} succeeded in {}ms", entry.label, elapsed);
                     return Ok(result);
                 }

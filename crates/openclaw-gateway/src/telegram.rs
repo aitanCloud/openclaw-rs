@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use tracing::{debug, error, info, warn};
+use tracing::{error, warn};
 
 /// Telegram Bot API client using raw reqwest (no framework bloat)
 pub struct TelegramBot {
@@ -49,9 +49,23 @@ pub struct TgChat {
     pub chat_type: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct TgSentMessage {
+    pub message_id: i64,
+}
+
 #[derive(Debug, Serialize)]
 struct SendMessageRequest {
     chat_id: i64,
+    text: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    parse_mode: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct EditMessageRequest {
+    chat_id: i64,
+    message_id: i64,
     text: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     parse_mode: Option<String>,
@@ -100,9 +114,39 @@ impl TelegramBot {
         Ok(resp.result.unwrap_or_default())
     }
 
-    /// Send a text message
+    /// Send a text message, returning the message_id for later editing
+    pub async fn send_message_with_id(&self, chat_id: i64, text: &str) -> Result<i64> {
+        let body = SendMessageRequest {
+            chat_id,
+            text: text.to_string(),
+            parse_mode: None,
+        };
+
+        let resp = self
+            .client
+            .post(format!("{}/sendMessage", self.api_base))
+            .json(&body)
+            .send()
+            .await
+            .context("Failed to send message")?;
+
+        let resp_body: TgResponse<TgSentMessage> = resp
+            .json()
+            .await
+            .context("Failed to parse sendMessage response")?;
+
+        if let Some(msg) = resp_body.result {
+            Ok(msg.message_id)
+        } else {
+            anyhow::bail!(
+                "sendMessage failed: {}",
+                resp_body.description.unwrap_or_default()
+            )
+        }
+    }
+
+    /// Send a text message (fire-and-forget, with Markdown fallback)
     pub async fn send_message(&self, chat_id: i64, text: &str) -> Result<()> {
-        // Telegram has a 4096 char limit per message
         let chunks = split_message(text, 4000);
 
         for chunk in chunks {
@@ -123,7 +167,6 @@ impl TelegramBot {
                 Ok(r) => {
                     if !r.status().is_success() {
                         let err_body = r.text().await.unwrap_or_default();
-                        // If Markdown fails, retry without parse_mode
                         warn!("sendMessage failed with Markdown, retrying plain: {}", err_body);
                         let plain_body = SendMessageRequest {
                             chat_id,
@@ -141,6 +184,41 @@ impl TelegramBot {
                 Err(e) => {
                     error!("Failed to send message: {}", e);
                 }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Edit an existing message (for streaming updates)
+    pub async fn edit_message(&self, chat_id: i64, message_id: i64, text: &str) -> Result<()> {
+        let body = EditMessageRequest {
+            chat_id,
+            message_id,
+            text: text.to_string(),
+            parse_mode: None,
+        };
+
+        let resp = self
+            .client
+            .post(format!("{}/editMessageText", self.api_base))
+            .json(&body)
+            .send()
+            .await;
+
+        match resp {
+            Ok(r) => {
+                if !r.status().is_success() {
+                    // Telegram returns 400 if text hasn't changed — ignore
+                    let status = r.status();
+                    if status.as_u16() != 400 {
+                        let err_body = r.text().await.unwrap_or_default();
+                        warn!("editMessageText failed ({}): {}", status, err_body);
+                    }
+                }
+            }
+            Err(e) => {
+                warn!("Failed to edit message: {}", e);
             }
         }
 
@@ -195,7 +273,6 @@ fn split_message(text: &str, max_len: usize) -> Vec<String> {
             break;
         }
 
-        // Find a good split point (newline near the limit)
         let split_at = remaining[..max_len]
             .rfind('\n')
             .unwrap_or(max_len);
