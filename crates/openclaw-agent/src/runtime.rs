@@ -5,10 +5,12 @@ use tracing::{debug, info, warn};
 
 use crate::llm::streaming::StreamEvent;
 use crate::llm::{Completion, LlmProvider, Message, UsageStats};
+use crate::sessions::SessionStore;
 use crate::tools::{ToolContext, ToolRegistry};
 use crate::workspace;
 
 const MAX_TOOL_ROUNDS: usize = 20;
+const MAX_HISTORY_MESSAGES: usize = 40;
 
 /// Configuration for an agent turn
 pub struct AgentTurnConfig {
@@ -16,6 +18,34 @@ pub struct AgentTurnConfig {
     pub session_key: String,
     pub workspace_dir: String,
     pub minimal_context: bool,
+}
+
+/// Load recent conversation history from the session store.
+/// Returns up to MAX_HISTORY_MESSAGES recent messages (user + assistant only).
+fn load_session_history(agent_name: &str, session_key: &str) -> Vec<Message> {
+    let store = match SessionStore::open(agent_name) {
+        Ok(s) => s,
+        Err(e) => {
+            debug!("Could not open session store for history: {}", e);
+            return Vec::new();
+        }
+    };
+
+    match store.load_llm_messages(session_key) {
+        Ok(msgs) => {
+            // Take the last N messages to avoid blowing up context
+            let start = msgs.len().saturating_sub(MAX_HISTORY_MESSAGES);
+            let history: Vec<Message> = msgs[start..].to_vec();
+            if !history.is_empty() {
+                debug!("Loaded {} history messages for session {}", history.len(), session_key);
+            }
+            history
+        }
+        Err(e) => {
+            debug!("Could not load session history: {}", e);
+            Vec::new()
+        }
+    }
 }
 
 /// Result of a complete agent turn
@@ -51,11 +81,11 @@ pub async fn run_agent_turn(
         ws.dir.display()
     );
 
-    // Build initial messages
-    let mut messages = vec![
-        Message::system(&ws.system_prompt),
-        Message::user(user_message),
-    ];
+    // Build initial messages with session history
+    let history = load_session_history(&config.agent_name, &config.session_key);
+    let mut messages = vec![Message::system(&ws.system_prompt)];
+    messages.extend(history);
+    messages.push(Message::user(user_message));
 
     // Get tool definitions
     let tool_defs = tools.definitions();
@@ -117,31 +147,37 @@ pub async fn run_agent_turn(
 
             Completion::ToolCalls { calls, reasoning } => {
                 info!(
-                    "Round {}: LLM requested {} tool call(s)",
+                    "Round {}: LLM requested {} tool call(s){}",
                     rounds,
-                    calls.len()
+                    calls.len(),
+                    if calls.len() > 1 { " (parallel)" } else { "" }
                 );
 
-                // Add the assistant message with tool calls (and reasoning for models like kimi-k2.5)
                 messages.push(Message::assistant_tool_calls(calls.clone(), reasoning));
 
-                // Execute each tool call
-                for call in &calls {
-                    let tool_name = &call.function.name;
-                    let args_str = &call.function.arguments;
+                // Prepare tool calls for parallel execution
+                let prepared: Vec<(String, serde_json::Value, String)> = calls
+                    .iter()
+                    .map(|call| {
+                        let args: serde_json::Value = serde_json::from_str(&call.function.arguments)
+                            .unwrap_or_else(|e| {
+                                warn!("Failed to parse tool args for {}: {}", call.function.name, e);
+                                serde_json::json!({})
+                            });
+                        (call.function.name.clone(), args, call.id.clone())
+                    })
+                    .collect();
 
-                    debug!("Executing tool: {} (call_id: {})", tool_name, call.id);
+                // Execute all tool calls concurrently
+                let results = tools.execute_parallel(&prepared, &tool_ctx).await;
 
-                    let args: serde_json::Value = serde_json::from_str(args_str)
-                        .unwrap_or_else(|e| {
-                            warn!("Failed to parse tool args for {}: {}", tool_name, e);
-                            serde_json::json!({})
-                        });
-
-                    let result = match tools.execute(tool_name, args, &tool_ctx).await {
-                        Ok(result) => result,
+                // Process results in order, matching back to call IDs
+                for (i, (name, result)) in results.into_iter().enumerate() {
+                    let call_id = &calls[i].id;
+                    let result = match result {
+                        Ok(r) => r,
                         Err(e) => {
-                            warn!("Tool {} execution error: {}", tool_name, e);
+                            warn!("Tool {} execution error: {}", name, e);
                             crate::tools::ToolResult::error(format!("Tool error: {}", e))
                         }
                     };
@@ -156,12 +192,12 @@ pub async fn run_agent_turn(
 
                     debug!(
                         "Tool {} result: {} bytes, error={}",
-                        tool_name,
+                        name,
                         output.len(),
                         result.is_error
                     );
 
-                    messages.push(Message::tool_result(&call.id, &output));
+                    messages.push(Message::tool_result(call_id, &output));
                 }
             }
         }
@@ -184,10 +220,11 @@ pub async fn run_agent_turn_streaming(
         .await
         .context("Failed to load workspace")?;
 
-    let mut messages = vec![
-        Message::system(&ws.system_prompt),
-        Message::user(user_message),
-    ];
+    // Build initial messages with session history
+    let history = load_session_history(&config.agent_name, &config.session_key);
+    let mut messages = vec![Message::system(&ws.system_prompt)];
+    messages.extend(history);
+    messages.push(Message::user(user_message));
 
     let tool_defs = tools.definitions();
     let tool_ctx = ToolContext {
@@ -252,35 +289,49 @@ pub async fn run_agent_turn_streaming(
             }
 
             Completion::ToolCalls { calls, reasoning } => {
-                info!("Streaming round {}: LLM requested {} tool call(s)", rounds, calls.len());
+                info!(
+                    "Streaming round {}: LLM requested {} tool call(s){}",
+                    rounds, calls.len(),
+                    if calls.len() > 1 { " (parallel)" } else { "" }
+                );
 
                 messages.push(Message::assistant_tool_calls(calls.clone(), reasoning));
 
+                // Emit tool exec events for all calls
                 for call in &calls {
-                    let tool_name = &call.function.name;
-                    let args_str = &call.function.arguments;
-
                     let _ = event_tx.send(StreamEvent::ToolExec {
-                        name: tool_name.clone(),
+                        name: call.function.name.clone(),
                         call_id: call.id.clone(),
                     });
+                }
 
-                    let args: serde_json::Value = serde_json::from_str(args_str)
-                        .unwrap_or_else(|e| {
-                            warn!("Failed to parse tool args for {}: {}", tool_name, e);
-                            serde_json::json!({})
-                        });
+                // Prepare and execute all tool calls concurrently
+                let prepared: Vec<(String, serde_json::Value, String)> = calls
+                    .iter()
+                    .map(|call| {
+                        let args: serde_json::Value = serde_json::from_str(&call.function.arguments)
+                            .unwrap_or_else(|e| {
+                                warn!("Failed to parse tool args for {}: {}", call.function.name, e);
+                                serde_json::json!({})
+                            });
+                        (call.function.name.clone(), args, call.id.clone())
+                    })
+                    .collect();
 
-                    let result = match tools.execute(tool_name, args, &tool_ctx).await {
-                        Ok(result) => result,
+                let results = tools.execute_parallel(&prepared, &tool_ctx).await;
+
+                for (i, (name, result)) in results.into_iter().enumerate() {
+                    let call_id = &calls[i].id;
+                    let result = match result {
+                        Ok(r) => r,
                         Err(e) => {
-                            warn!("Tool {} execution error: {}", tool_name, e);
+                            warn!("Tool {} execution error: {}", name, e);
                             crate::tools::ToolResult::error(format!("Tool error: {}", e))
                         }
                     };
 
                     let _ = event_tx.send(StreamEvent::ToolResult {
-                        name: tool_name.clone(),
+                        name: name.clone(),
                         success: !result.is_error,
                     });
 
@@ -292,7 +343,7 @@ pub async fn run_agent_turn_streaming(
                         result.output
                     };
 
-                    messages.push(Message::tool_result(&call.id, &output));
+                    messages.push(Message::tool_result(call_id, &output));
                 }
             }
         }

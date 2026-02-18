@@ -18,3 +18,5 @@ rusqlite = { workspace = true }
 uuid = { workspace = true }
 futures-util = { workspace = true }
 async-trait = "0.1"
+futures = { workspace = true }
+urlencoding = { workspace = true }

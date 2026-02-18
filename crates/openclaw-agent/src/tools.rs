@@ -1,5 +1,7 @@
 pub mod exec;
 pub mod read;
+pub mod web_fetch;
+pub mod web_search;
 pub mod write;
 
 use anyhow::Result;
@@ -64,6 +66,8 @@ impl ToolRegistry {
         registry.register(Box::new(exec::ExecTool));
         registry.register(Box::new(read::ReadTool));
         registry.register(Box::new(write::WriteTool));
+        registry.register(Box::new(web_search::WebSearchTool));
+        registry.register(Box::new(web_fetch::WebFetchTool));
         registry
     }
 
@@ -102,6 +106,33 @@ impl ToolRegistry {
         tool.execute(args, ctx).await
     }
 
+    /// Execute multiple tool calls concurrently using futures::join_all.
+    /// Returns results in the same order as the input calls.
+    pub async fn execute_parallel(
+        &self,
+        calls: &[(String, Value, String)], // (tool_name, args, call_id)
+        ctx: &ToolContext,
+    ) -> Vec<(String, Result<ToolResult>)> {
+        let futures: Vec<_> = calls
+            .iter()
+            .map(|(tool_name, args, _call_id)| {
+                let tool = self.tools.iter().find(|t| t.name() == tool_name);
+                let ctx = ctx.clone();
+                let args = args.clone();
+                let name = tool_name.clone();
+
+                async move {
+                    match tool {
+                        Some(t) => (name, t.execute(args, &ctx).await),
+                        None => (name.clone(), Err(anyhow::anyhow!("Unknown tool: {}", name))),
+                    }
+                }
+            })
+            .collect();
+
+        futures::future::join_all(futures).await
+    }
+
     pub fn tool_names(&self) -> Vec<&str> {
         self.tools.iter().map(|t| t.name()).collect()
     }
@@ -124,14 +155,16 @@ mod tests {
         assert!(names.contains(&"exec"));
         assert!(names.contains(&"read"));
         assert!(names.contains(&"write"));
-        assert_eq!(names.len(), 3);
+        assert!(names.contains(&"web_search"));
+        assert!(names.contains(&"web_fetch"));
+        assert_eq!(names.len(), 5);
     }
 
     #[test]
     fn test_definitions_format() {
         let registry = ToolRegistry::with_defaults();
         let defs = registry.definitions();
-        assert_eq!(defs.len(), 3);
+        assert_eq!(defs.len(), 5);
         for def in &defs {
             assert_eq!(def.tool_type, "function");
             assert!(!def.function.name.is_empty());

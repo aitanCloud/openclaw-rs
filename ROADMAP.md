@@ -1,0 +1,110 @@
+# OpenClaw Rust Port — Roadmap
+
+**Version:** 0.2.0
+**Last updated:** 2026-02-18
+**Maintainer:** Cascade + Shawaz
+
+---
+
+## Legend
+
+| Status | Meaning |
+|--------|---------|
+| ✅ | Shipped |
+| 🚧 | In progress |
+| 📋 | Planned |
+| 💡 | Idea / low priority |
+
+---
+
+## v0.1.0 — Foundation (shipped)
+
+- ✅ Agent runtime with tool-call loop (max 20 rounds)
+- ✅ OpenAI-compatible LLM provider (Ollama, Moonshot, DeepSeek, Anthropic)
+- ✅ Fallback chain with circuit breaker (>3 failures = skip)
+- ✅ Tool system: `exec`, `read_file`, `write_file`, `list_dir`
+- ✅ Workspace context loader (system prompt, project files)
+- ✅ Session persistence (SQLite)
+- ✅ CLI with streaming (SSE → stdout)
+- ✅ Config from `openclaw-manual.json`
+
+## v0.2.0 — Telegram Gateway (shipped)
+
+- ✅ Telegram bot gateway (`@rustedCoreBot`)
+- ✅ Long-polling with access control (user ID allowlist)
+- ✅ Real-time streaming: SSE → mpsc channel → editMessageText in-place
+  - Edit throttle: 80 chars / 400ms minimum between edits
+  - Tool execution indicators: ⚙️ Running → ✅ Done
+  - Multi-round indicators: 🔄 Round N
+- ✅ Model name in stats footer (`2094ms · 1 round(s) · 0 tool(s) · 721 tokens · moonshot/kimi-k2.5`)
+- ✅ Fallback provider tracks last successful model via RwLock
+- ✅ Commands: `/start`, `/help`, `/new`, `/status`, `/model`, `/sessions`
+- ✅ Docker deployment with compose (config RO, workspace RW, sessions volume)
+- ✅ Health endpoint on `:3100`
+
+## v0.3.0 — Agent Capabilities (shipped)
+
+- ✅ **Web search tool** — DuckDuckGo HTML search, returns titles/URLs/snippets (no API key needed)
+- ✅ **Web fetch tool** — fetch URLs with HTML-to-text extraction, 128KB limit, 20s timeout
+- ✅ **Parallel tool execution** — `futures::join_all` runs concurrent tool calls when LLM requests multiple
+- ✅ **Session history injection** — loads up to 40 recent messages from SQLite into LLM context for conversation memory
+
+## v0.4.0 — Security & Reliability
+
+- 📋 **Sandbox policies** — restrict tool execution (path allowlist, command blocklist)
+- 📋 **Timeout enforcement** — per-tool and per-turn timeouts
+- 📋 **Rate limiting** — per-user message rate limits
+- 📋 **Graceful shutdown** — drain active turns before stopping
+
+## v0.5.0 — Advanced Tools
+
+- 📋 **Browser tool** — headless browser for web interaction
+- 📋 **Image/canvas tools** — image generation and manipulation
+- 📋 **TTS tool** — text-to-speech via Telegram voice messages
+- 📋 **Plugin system** — dynamic tool loading from workspace
+
+## v0.6.0 — Multi-Channel & Daemon
+
+- 📋 **Unix socket daemon mode** — long-running agent process
+- 📋 **Concurrent agent turns** — multiple users/sessions simultaneously
+- 📋 **Discord integration**
+- 📋 **Slack integration**
+- 💡 **WhatsApp integration**
+
+---
+
+## Architecture Notes
+
+```
+openclaw-rs/
+├── crates/
+│   ├── openclaw-core/       # Config, paths, shared types
+│   ├── openclaw-agent/      # LLM providers, tools, runtime, sessions
+│   ├── openclaw-cli/        # Terminal interface with streaming
+│   └── openclaw-gateway/    # Telegram bot, HTTP health, message handler
+├── Dockerfile
+├── docker-compose.gateway.yml
+└── ROADMAP.md               # This file
+```
+
+### Streaming Pipeline
+
+```
+LLM SSE stream
+  → stream_completion() parses chunks
+  → StreamEvent variants (ContentDelta, ToolExec, ToolResult, RoundStart, Done)
+  → mpsc::unbounded_channel
+  → Telegram handler accumulates text
+  → editMessageText every 80 chars / 400ms
+  → Final edit with stats footer
+```
+
+### Fallback Chain
+
+```
+ollama/llama3.2:1b → ollama/qwen2.5-coder:14b → moonshot/kimi-k2.5
+  → deepseek-reasoner → deepseek-chat → anthropic/claude-opus-4-6
+```
+
+Circuit breaker: >3 consecutive failures = provider skipped.
+Last successful model tracked in `RwLock<String>` for stats display.
