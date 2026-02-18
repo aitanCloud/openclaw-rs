@@ -267,6 +267,7 @@ pub async fn run_agent_turn_streaming(
     config: &AgentTurnConfig,
     tools: &ToolRegistry,
     event_tx: tokio::sync::mpsc::UnboundedSender<StreamEvent>,
+    image_urls: Vec<String>,
 ) -> Result<AgentTurnResult> {
     let t_start = Instant::now();
 
@@ -279,7 +280,13 @@ pub async fn run_agent_turn_streaming(
     let history = load_session_history(&config.agent_name, &config.session_key);
     let mut messages = vec![Message::system(&ws.system_prompt)];
     messages.extend(history);
-    messages.push(Message::user(user_message));
+
+    // Use multimodal message if images are present
+    if image_urls.is_empty() {
+        messages.push(Message::user(user_message));
+    } else {
+        messages.push(Message::user_with_images(user_message, image_urls));
+    }
 
     let tool_defs = tools.definitions();
     let tool_ctx = ToolContext {

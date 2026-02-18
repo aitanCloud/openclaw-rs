@@ -1,5 +1,8 @@
 use anyhow::Result;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+use std::time::SystemTime;
+use tracing::debug;
 
 /// Bootstrap files that form the agent's system prompt context
 const BOOTSTRAP_FILES: &[&str] = &[
@@ -14,7 +17,7 @@ const BOOTSTRAP_FILES: &[&str] = &[
 /// Minimal set for cron/subagent sessions
 const MINIMAL_BOOTSTRAP_FILES: &[&str] = &["AGENTS.md", "TOOLS.md"];
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BootstrapFile {
     pub name: String,
     pub content: String,
@@ -27,7 +30,31 @@ pub struct WorkspaceContext {
     pub system_prompt: String,
 }
 
-/// Load workspace bootstrap files and assemble the system prompt
+/// Cached workspace context entry
+struct CachedWorkspace {
+    dir: PathBuf,
+    minimal: bool,
+    bootstrap_files: Vec<BootstrapFile>,
+    system_prompt_base: String, // without runtime timestamp
+    file_mtimes: Vec<(String, Option<SystemTime>)>,
+}
+
+static WORKSPACE_CACHE: Mutex<Option<CachedWorkspace>> = Mutex::new(None);
+
+/// Check if any bootstrap files have been modified since last cache
+fn files_changed(dir: &Path, cached: &CachedWorkspace) -> bool {
+    for (filename, cached_mtime) in &cached.file_mtimes {
+        let path = dir.join(filename);
+        let current_mtime = std::fs::metadata(&path).ok().and_then(|m| m.modified().ok());
+        if &current_mtime != cached_mtime {
+            return true;
+        }
+    }
+    false
+}
+
+/// Load workspace bootstrap files and assemble the system prompt.
+/// Uses an in-memory cache — only re-reads files if modification times have changed.
 pub async fn load_workspace(dir: &Path, minimal: bool) -> Result<WorkspaceContext> {
     let files_to_load = if minimal {
         MINIMAL_BOOTSTRAP_FILES
@@ -35,10 +62,38 @@ pub async fn load_workspace(dir: &Path, minimal: bool) -> Result<WorkspaceContex
         BOOTSTRAP_FILES
     };
 
+    // Check cache
+    {
+        let cache = WORKSPACE_CACHE.lock().unwrap();
+        if let Some(ref cached) = *cache {
+            if cached.dir == dir && cached.minimal == minimal && !files_changed(dir, cached) {
+                // Cache hit — just update the runtime timestamp
+                let now = chrono::Local::now();
+                let runtime = format!(
+                    "<!-- runtime -->\nCurrent date/time: {}",
+                    now.format("%A, %B %e, %Y — %l:%M %p %Z")
+                );
+                let system_prompt = format!("{}\n\n{}", cached.system_prompt_base, runtime);
+                debug!("Workspace cache hit ({} files)", cached.bootstrap_files.len());
+                return Ok(WorkspaceContext {
+                    dir: dir.to_path_buf(),
+                    bootstrap_files: cached.bootstrap_files.clone(),
+                    system_prompt,
+                });
+            }
+        }
+    }
+
+    debug!("Workspace cache miss — reading files from {}", dir.display());
+
     let mut bootstrap_files = Vec::new();
+    let mut file_mtimes = Vec::new();
 
     for &filename in files_to_load {
         let file_path = dir.join(filename);
+        let mtime = std::fs::metadata(&file_path).ok().and_then(|m| m.modified().ok());
+        file_mtimes.push((filename.to_string(), mtime));
+
         match tokio::fs::read_to_string(&file_path).await {
             Ok(content) => {
                 let content = strip_frontmatter(&content);
@@ -55,7 +110,20 @@ pub async fn load_workspace(dir: &Path, minimal: bool) -> Result<WorkspaceContex
         }
     }
 
+    let system_prompt_base = assemble_system_prompt_base(&bootstrap_files);
     let system_prompt = assemble_system_prompt(&bootstrap_files);
+
+    // Update cache
+    {
+        let mut cache = WORKSPACE_CACHE.lock().unwrap();
+        *cache = Some(CachedWorkspace {
+            dir: dir.to_path_buf(),
+            minimal,
+            bootstrap_files: bootstrap_files.clone(),
+            system_prompt_base,
+            file_mtimes,
+        });
+    }
 
     Ok(WorkspaceContext {
         dir: dir.to_path_buf(),
@@ -79,14 +147,13 @@ fn strip_frontmatter(content: &str) -> String {
     }
 }
 
-/// Assemble bootstrap files into a single system prompt
-fn assemble_system_prompt(files: &[BootstrapFile]) -> String {
+/// Assemble bootstrap files into a base prompt (without runtime timestamp)
+fn assemble_system_prompt_base(files: &[BootstrapFile]) -> String {
     if files.is_empty() {
         return "You are a helpful AI assistant.".to_string();
     }
 
     let mut parts = Vec::new();
-
     for file in files {
         parts.push(format!(
             "<!-- {} -->\n{}",
@@ -94,15 +161,22 @@ fn assemble_system_prompt(files: &[BootstrapFile]) -> String {
             file.content.trim()
         ));
     }
-
-    // Add runtime context
-    let now = chrono::Local::now();
-    parts.push(format!(
-        "<!-- runtime -->\nCurrent date/time: {}",
-        now.format("%A, %B %e, %Y — %l:%M %p %Z")
-    ));
-
     parts.join("\n\n")
+}
+
+/// Assemble bootstrap files into a single system prompt (with runtime timestamp)
+fn assemble_system_prompt(files: &[BootstrapFile]) -> String {
+    let base = assemble_system_prompt_base(files);
+    if files.is_empty() {
+        return base;
+    }
+
+    let now = chrono::Local::now();
+    format!(
+        "{}\n\n<!-- runtime -->\nCurrent date/time: {}",
+        base,
+        now.format("%A, %B %e, %Y — %l:%M %p %Z")
+    )
 }
 
 /// Resolve the workspace directory for a given agent

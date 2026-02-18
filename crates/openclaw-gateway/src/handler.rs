@@ -4,7 +4,7 @@ use tracing::{error, info, warn};
 
 use openclaw_agent::llm::fallback::FallbackProvider;
 use openclaw_agent::llm::streaming::StreamEvent;
-use openclaw_agent::llm::{LlmProvider, OpenAiCompatibleProvider};
+use openclaw_agent::llm::{LlmProvider, Message, OpenAiCompatibleProvider};
 use openclaw_agent::runtime::{self, AgentTurnConfig};
 use openclaw_agent::sessions::SessionStore;
 use openclaw_agent::tools::ToolRegistry;
@@ -29,10 +29,16 @@ pub async fn handle_message(
     let user_id = user.map(|u| u.id).unwrap_or(0);
     let user_name = user.map(|u| u.first_name.as_str()).unwrap_or("unknown");
 
-    let text = match &msg.text {
-        Some(t) if !t.is_empty() => t.clone(),
-        _ => return Ok(()),
-    };
+    // Extract text from message or photo caption
+    let has_photo = msg.photo.as_ref().map(|p| !p.is_empty()).unwrap_or(false);
+    let text = msg.text.clone()
+        .or_else(|| msg.caption.clone())
+        .unwrap_or_default();
+
+    // Must have text or photo
+    if text.is_empty() && !has_photo {
+        return Ok(());
+    }
 
     // ── Access control ──
     if !config.telegram.allowed_user_ids.is_empty()
@@ -44,11 +50,36 @@ pub async fn handle_message(
         return Ok(());
     }
 
-    info!("Message from {} ({}): {}", user_name, user_id, &text[..text.len().min(100)]);
+    info!("Message from {} ({}): {}{}", user_name, user_id,
+        &text[..text.len().min(100)],
+        if has_photo { " [+photo]" } else { "" });
 
     // ── Handle commands ──
-    if text.starts_with('/') {
+    if text.starts_with('/') && !has_photo {
         return handle_command(bot, chat_id, user_id, &text, config).await;
+    }
+
+    // ── Download photo if present ──
+    let mut image_urls: Vec<String> = Vec::new();
+    if has_photo {
+        if let Some(photos) = &msg.photo {
+            // Telegram sends multiple sizes; pick the largest (last)
+            if let Some(largest) = photos.last() {
+                match download_and_encode_photo(bot, &largest.file_id).await {
+                    Ok(data_url) => {
+                        info!("Downloaded photo: {} bytes encoded", data_url.len());
+                        image_urls.push(data_url);
+                    }
+                    Err(e) => {
+                        warn!("Failed to download photo: {}", e);
+                        bot.send_message(chat_id, "⚠️ Failed to download photo.").await?;
+                        if text.is_empty() {
+                            return Ok(());
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // ── Send initial placeholder ──
@@ -133,6 +164,7 @@ pub async fn handle_message(
                 &agent_config,
                 &tools,
                 event_tx,
+                image_urls,
             ),
         )
         .await
@@ -334,6 +366,7 @@ async fn handle_command(
                 /model — show current model info\n\
                 /sessions — list recent sessions\n\
                 /export — export current session as markdown\n\
+                /cron — list and manage cron jobs\n\
                 /help — show this help",
             )
             .await?;
@@ -471,6 +504,74 @@ async fn handle_command(
                 bot.send_message(chat_id, &msg).await?;
             }
         }
+        "/cron" => {
+            let cron_path = openclaw_core::paths::cron_jobs_path();
+            if !cron_path.exists() {
+                bot.send_message(chat_id, "No cron jobs file found.").await?;
+            } else {
+                let parts: Vec<&str> = text.split_whitespace().collect();
+
+                match parts.get(1).map(|s| *s) {
+                    Some("enable") | Some("disable") => {
+                        let action = parts[1];
+                        let target = parts.get(2).map(|s| *s).unwrap_or("");
+                        if target.is_empty() {
+                            bot.send_message(chat_id, "Usage: /cron enable <name> or /cron disable <name>").await?;
+                        } else {
+                            match toggle_cron_job(&cron_path, target, action == "enable") {
+                                Ok(job_name) => {
+                                    let icon = if action == "enable" { "✅" } else { "⏸️" };
+                                    bot.send_message(chat_id, &format!("{} Cron job '{}' {}d.", icon, job_name, action)).await?;
+                                }
+                                Err(e) => {
+                                    bot.send_message(chat_id, &format!("❌ {}", e)).await?;
+                                }
+                            }
+                        }
+                    }
+                    _ => {
+                        // Default: list all cron jobs
+                        match openclaw_core::cron::load_cron_jobs(&cron_path) {
+                            Ok(cron_file) => {
+                                if cron_file.jobs.is_empty() {
+                                    bot.send_message(chat_id, "No cron jobs configured.").await?;
+                                } else {
+                                    let mut msg = String::from("⏰ *Cron Jobs:*\n\n");
+                                    for job in &cron_file.jobs {
+                                        let status = if job.enabled { "✅" } else { "⏸️" };
+                                        let last_run = job.state.as_ref()
+                                            .and_then(|s| s.last_run_at_ms)
+                                            .map(|ms| {
+                                                let age = chrono::Utc::now().timestamp_millis() - ms as i64;
+                                                format_duration(age)
+                                            })
+                                            .unwrap_or_else(|| "never".to_string());
+                                        let last_status = job.state.as_ref()
+                                            .and_then(|s| s.last_status.as_deref())
+                                            .unwrap_or("—");
+                                        let duration = job.state.as_ref()
+                                            .and_then(|s| s.last_duration_ms)
+                                            .map(|ms| format!("{:.1}s", ms as f64 / 1000.0))
+                                            .unwrap_or_else(|| "—".to_string());
+
+                                        msg.push_str(&format!(
+                                            "{} *{}*\n  Schedule: `{}`\n  Last: {} ({}), took {}\n\n",
+                                            status, job.name, job.schedule,
+                                            last_run, last_status, duration,
+                                        ));
+                                    }
+                                    msg.push_str("_Use /cron enable <name> or /cron disable <name>_");
+                                    bot.send_message(chat_id, &msg).await?;
+                                }
+                            }
+                            Err(e) => {
+                                bot.send_message(chat_id, &format!("❌ Failed to load cron jobs: {}", e)).await?;
+                            }
+                        }
+                    }
+                }
+            }
+        }
         _ => {
             bot.send_message(chat_id, "Unknown command. Try /help for available commands.")
                 .await?;
@@ -478,6 +579,37 @@ async fn handle_command(
     }
 
     Ok(())
+}
+
+/// Toggle a cron job's enabled state by name (case-insensitive partial match)
+fn toggle_cron_job(path: &std::path::Path, name: &str, enable: bool) -> Result<String> {
+    let content = std::fs::read_to_string(path)?;
+    let mut cron_file: serde_json::Value = serde_json::from_str(&content)?;
+
+    let jobs = cron_file.get_mut("jobs")
+        .and_then(|j| j.as_array_mut())
+        .ok_or_else(|| anyhow::anyhow!("Invalid cron jobs file"))?;
+
+    let name_lower = name.to_lowercase();
+    let mut found = None;
+
+    for job in jobs.iter_mut() {
+        let job_name = job.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        if job_name.to_lowercase().contains(&name_lower) {
+            job.as_object_mut().unwrap().insert("enabled".to_string(), serde_json::json!(enable));
+            found = Some(job_name);
+            break;
+        }
+    }
+
+    match found {
+        Some(job_name) => {
+            let updated = serde_json::to_string_pretty(&cron_file)?;
+            std::fs::write(path, updated)?;
+            Ok(job_name)
+        }
+        None => Err(anyhow::anyhow!("No cron job matching '{}' found", name)),
+    }
 }
 
 fn resolve_single_provider(model_spec: &str) -> Result<OpenAiCompatibleProvider> {
@@ -536,4 +668,29 @@ fn format_duration(ms: i64) -> String {
     else if secs < 3600 { format!("{}m ago", secs / 60) }
     else if secs < 86400 { format!("{}h ago", secs / 3600) }
     else { format!("{}d ago", secs / 86400) }
+}
+
+/// Download a Telegram photo and encode it as a base64 data URL
+async fn download_and_encode_photo(bot: &TelegramBot, file_id: &str) -> Result<String> {
+    use base64::Engine;
+
+    let file = bot.get_file(file_id).await?;
+    let file_path = file.file_path
+        .ok_or_else(|| anyhow::anyhow!("Telegram getFile returned no file_path"))?;
+
+    let bytes = bot.download_file(&file_path).await?;
+
+    // Detect MIME type from extension
+    let mime = if file_path.ends_with(".png") {
+        "image/png"
+    } else if file_path.ends_with(".gif") {
+        "image/gif"
+    } else if file_path.ends_with(".webp") {
+        "image/webp"
+    } else {
+        "image/jpeg"
+    };
+
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+    Ok(format!("data:{};base64,{}", mime, b64))
 }

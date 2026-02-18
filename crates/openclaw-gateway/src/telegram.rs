@@ -30,7 +30,26 @@ pub struct TgMessage {
     pub from: Option<TgUser>,
     pub chat: TgChat,
     pub text: Option<String>,
+    pub caption: Option<String>,
     pub date: i64,
+    #[serde(default)]
+    pub photo: Option<Vec<TgPhotoSize>>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TgPhotoSize {
+    pub file_id: String,
+    pub file_unique_id: String,
+    pub width: u32,
+    pub height: u32,
+    #[serde(default)]
+    pub file_size: Option<u64>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TgFile {
+    pub file_id: String,
+    pub file_path: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -288,6 +307,36 @@ impl TelegramBot {
             .await;
 
         Ok(())
+    }
+
+    /// Get file info from Telegram (needed to download photos)
+    pub async fn get_file(&self, file_id: &str) -> Result<TgFile> {
+        let resp: TgResponse<TgFile> = self
+            .client
+            .get(format!("{}/getFile?file_id={}", self.api_base, file_id))
+            .send()
+            .await
+            .context("Failed to call getFile")?
+            .json()
+            .await
+            .context("Failed to parse getFile response")?;
+
+        resp.result.context("getFile returned no result")
+    }
+
+    /// Download a file from Telegram servers, returns raw bytes
+    pub async fn download_file(&self, file_path: &str) -> Result<Vec<u8>> {
+        let url = format!("https://api.telegram.org/file/bot{}/{}", self.token, file_path);
+        let bytes = self
+            .client
+            .get(&url)
+            .send()
+            .await
+            .context("Failed to download file")?
+            .bytes()
+            .await
+            .context("Failed to read file bytes")?;
+        Ok(bytes.to_vec())
     }
 
     /// Get bot info (for startup verification)

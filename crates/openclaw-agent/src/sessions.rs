@@ -214,6 +214,7 @@ impl SessionStore {
                 reasoning_content: msg.reasoning_content,
                 tool_call_id: msg.tool_call_id,
                 tool_calls,
+                image_urls: Vec::new(),
             });
         }
 

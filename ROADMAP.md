@@ -99,13 +99,22 @@
 - ✅ **Cron expression parser** — supports *, N, N-M, */N, N,M,... with timezone support (US timezones + common IANA)
 - ✅ **77 tests** — 58 agent + 7 core + 12 gateway
 
-## v0.11.0 — Advanced Tools
+## v0.11.0 — Vision, Cron Control & Caching (shipped)
+
+- ✅ **Telegram photo/vision support** — receive photos, download largest size, base64 encode, send as multimodal content to vision-capable LLMs (OpenAI vision format)
+- ✅ **Custom Message serialization** — `content` field serializes as array of content parts when images present, plain string otherwise
+- ✅ **`/cron` command** — list all cron jobs with status/schedule/last-run, enable/disable by name (case-insensitive partial match)
+- ✅ **System prompt caching** — in-memory cache with file mtime checking, avoids re-reading SOUL.md/TOOLS.md/etc every turn
+- ✅ **7 Telegram commands** — /help, /new, /status, /model, /sessions, /export, /cron
+- ✅ **77 tests** — 58 agent + 7 core + 12 gateway
+
+## v0.12.0 — Advanced Tools
 
 - 📋 **Browser tool** — headless browser for web interaction
 - 📋 **Image/canvas tools** — image generation and manipulation
 - 📋 **TTS tool** — text-to-speech via Telegram voice messages
 
-## v0.12.0 — Multi-Channel & Daemon
+## v0.13.0 — Multi-Channel & Daemon
 
 - 📋 **Unix socket daemon mode** — long-running agent process
 - 📋 **Concurrent agent turns** — multiple users/sessions simultaneously

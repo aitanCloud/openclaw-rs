@@ -16,17 +16,56 @@ pub enum Role {
     Tool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct Message {
     pub role: Role,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub reasoning_content: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_call_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_calls: Option<Vec<ToolCall>>,
+    /// Base64-encoded image data URLs for vision (e.g. "data:image/jpeg;base64,...")
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub image_urls: Vec<String>,
+}
+
+/// Custom serializer: when image_urls is non-empty, serialize content as an array
+/// of content parts (OpenAI vision format) instead of a plain string.
+impl Serialize for Message {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
+        use serde::ser::SerializeMap;
+        let mut map = serializer.serialize_map(None)?;
+
+        map.serialize_entry("role", &self.role)?;
+
+        if !self.image_urls.is_empty() {
+            // Multimodal: content is an array of parts
+            let mut parts: Vec<serde_json::Value> = Vec::new();
+            if let Some(ref text) = self.content {
+                parts.push(serde_json::json!({"type": "text", "text": text}));
+            }
+            for url in &self.image_urls {
+                parts.push(serde_json::json!({
+                    "type": "image_url",
+                    "image_url": {"url": url}
+                }));
+            }
+            map.serialize_entry("content", &parts)?;
+        } else if let Some(ref content) = self.content {
+            map.serialize_entry("content", content)?;
+        }
+
+        if let Some(ref rc) = self.reasoning_content {
+            map.serialize_entry("reasoning_content", rc)?;
+        }
+        if let Some(ref id) = self.tool_call_id {
+            map.serialize_entry("tool_call_id", id)?;
+        }
+        if let Some(ref calls) = self.tool_calls {
+            map.serialize_entry("tool_calls", calls)?;
+        }
+
+        map.end()
+    }
 }
 
 impl Message {
@@ -37,6 +76,7 @@ impl Message {
             reasoning_content: None,
             tool_call_id: None,
             tool_calls: None,
+            image_urls: Vec::new(),
         }
     }
 
@@ -47,6 +87,19 @@ impl Message {
             reasoning_content: None,
             tool_call_id: None,
             tool_calls: None,
+            image_urls: Vec::new(),
+        }
+    }
+
+    /// Create a user message with text and one or more images (base64 data URLs)
+    pub fn user_with_images(content: &str, image_urls: Vec<String>) -> Self {
+        Self {
+            role: Role::User,
+            content: Some(content.to_string()),
+            reasoning_content: None,
+            tool_call_id: None,
+            tool_calls: None,
+            image_urls,
         }
     }
 
@@ -57,6 +110,7 @@ impl Message {
             reasoning_content: None,
             tool_call_id: None,
             tool_calls: None,
+            image_urls: Vec::new(),
         }
     }
 
@@ -67,6 +121,7 @@ impl Message {
             reasoning_content: reasoning,
             tool_call_id: None,
             tool_calls: Some(calls),
+            image_urls: Vec::new(),
         }
     }
 
@@ -77,6 +132,7 @@ impl Message {
             reasoning_content: None,
             tool_call_id: Some(call_id.to_string()),
             tool_calls: None,
+            image_urls: Vec::new(),
         }
     }
 }
