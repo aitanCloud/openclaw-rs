@@ -49,6 +49,18 @@ enum Commands {
         /// Base URL override
         #[arg(long)]
         base_url: Option<String>,
+        /// Stream tokens as they arrive
+        #[arg(long, default_value_t = false)]
+        stream: bool,
+        /// Continue the most recent session
+        #[arg(long, default_value_t = false, alias = "continue")]
+        continue_session: bool,
+        /// Resume a specific session by key
+        #[arg(long)]
+        session: Option<String>,
+        /// Use model fallback chain from config
+        #[arg(long, default_value_t = false)]
+        fallback: bool,
     },
     /// Send a raw chat message to an LLM (no tools, no workspace context)
     Chat {
@@ -75,13 +87,17 @@ async fn main() -> anyhow::Result<()> {
         Some(Commands::Skills { action }) => commands::skills::run(action),
         Some(Commands::Config { action }) => commands::config::run(action),
         Some(Commands::Cron { action }) => commands::cron::run(action),
-        Some(Commands::Agent { message, agent, model, api_key, base_url }) => {
+        Some(Commands::Agent { message, agent, model, api_key, base_url, stream, continue_session, session, fallback }) => {
             commands::agent::run(commands::agent::AgentOptions {
                 message,
                 agent,
                 model,
                 api_key,
                 base_url,
+                stream,
+                continue_session,
+                session,
+                fallback,
             })
             .await
         }
