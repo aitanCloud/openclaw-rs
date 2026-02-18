@@ -13,7 +13,10 @@ struct ChatRequest {
 #[derive(Serialize, Deserialize)]
 struct ChatMessage {
     role: String,
-    content: String,
+    #[serde(default)]
+    content: Option<String>,
+    #[serde(default)]
+    reasoning_content: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -46,9 +49,10 @@ pub async fn run(
         model: model.to_string(),
         messages: vec![ChatMessage {
             role: "user".to_string(),
-            content: message.to_string(),
+            content: Some(message.to_string()),
+            reasoning_content: None,
         }],
-        max_tokens: 256,
+        max_tokens: 1024,
     };
 
     let t_start = Instant::now();
@@ -77,9 +81,23 @@ pub async fn run(
 
     let t_total = t_start.elapsed();
 
-    // Print response
+    // Print response — reasoning models use reasoning_content, others use content
     if let Some(choice) = chat_response.choices.first() {
-        println!("{}", choice.message.content);
+        let msg = &choice.message;
+        if let Some(content) = &msg.content {
+            if !content.is_empty() {
+                println!("{}", content);
+            }
+        }
+        if let Some(reasoning) = &msg.reasoning_content {
+            if !reasoning.is_empty() {
+                if msg.content.as_ref().map_or(true, |c| c.is_empty()) {
+                    println!("{}", reasoning);
+                } else {
+                    println!("\n{} {}", "Reasoning:".dimmed(), reasoning);
+                }
+            }
+        }
     }
 
     // Print timing
