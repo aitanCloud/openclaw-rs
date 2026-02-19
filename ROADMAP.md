@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.30.0
+**Version:** 0.31.0
 **Last updated:** 2026-02-18
 **Maintainer:** Cascade + Shawaz
 
@@ -253,7 +253,13 @@
 - ✅ **Configurable `/history N`** — show last N messages (default 5, max 20) on both Telegram and Discord
 - ✅ **125 tests** — 93 agent + 7 core + 25 gateway
 
-## v0.31.0 — Daemon & Polish
+## v0.31.0 — Resilience & Logging (shipped)
+
+- ✅ **Message retry with backoff** — Discord `send_reply` retries once on 5xx or network error with 1s delay before giving up
+- ✅ **Gateway connection logging** — log connect events with RESUME/IDENTIFY status, session duration on disconnect
+- ✅ **125 tests** — 93 agent + 7 core + 25 gateway
+
+## v0.32.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**

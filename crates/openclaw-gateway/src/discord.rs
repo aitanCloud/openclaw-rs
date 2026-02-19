@@ -157,7 +157,7 @@ impl DiscordBot {
         Ok(last_id)
     }
 
-    /// Send a reply to a specific message
+    /// Send a reply to a specific message (with retry on 5xx)
     pub async fn send_reply(
         &self,
         channel_id: &str,
@@ -179,23 +179,45 @@ impl DiscordBot {
                 },
             };
 
-            let resp = self
-                .client
-                .post(format!("{}/channels/{}/messages", self.api_base, channel_id))
-                .header("Authorization", format!("Bot {}", self.token))
-                .header("Content-Type", "application/json")
-                .json(&body)
-                .send()
-                .await
-                .context("Failed to send Discord reply")?;
+            let url = format!("{}/channels/{}/messages", self.api_base, channel_id);
+            let mut attempts = 0;
+            loop {
+                attempts += 1;
+                let resp = self
+                    .client
+                    .post(&url)
+                    .header("Authorization", format!("Bot {}", self.token))
+                    .header("Content-Type", "application/json")
+                    .json(&body)
+                    .send()
+                    .await;
 
-            if !resp.status().is_success() {
-                let status = resp.status();
-                let err_body = resp.text().await.unwrap_or_default();
-                warn!("Discord reply failed ({}): {}", status, err_body);
-            } else {
-                let msg: Value = resp.json().await?;
-                last_id = msg["id"].as_str().unwrap_or("").to_string();
+                match resp {
+                    Ok(r) if r.status().is_success() => {
+                        let msg: Value = r.json().await?;
+                        last_id = msg["id"].as_str().unwrap_or("").to_string();
+                        break;
+                    }
+                    Ok(r) if r.status().is_server_error() && attempts < 2 => {
+                        let status = r.status();
+                        warn!("Discord reply 5xx ({}), retrying in 1s...", status);
+                        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                    }
+                    Ok(r) => {
+                        let status = r.status();
+                        let err_body = r.text().await.unwrap_or_default();
+                        warn!("Discord reply failed ({}): {}", status, err_body);
+                        break;
+                    }
+                    Err(e) if attempts < 2 => {
+                        warn!("Discord reply error: {}, retrying in 1s...", e);
+                        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                    }
+                    Err(e) => {
+                        warn!("Discord reply failed after retry: {}", e);
+                        break;
+                    }
+                }
             }
         }
 
@@ -433,15 +455,21 @@ async fn run_gateway_loop(
     let mut resume_state: Option<ResumeState> = None;
 
     loop {
-        let session_start = std::time::Instant::now();
+        let session_start = Instant::now();
         let connect_url = resume_state.as_ref()
             .and_then(|r| r.resume_url.clone())
             .unwrap_or_else(|| gateway_url.to_string());
 
+        let is_resume = resume_state.is_some();
+        info!("Discord Gateway connecting to {} ({})",
+            if connect_url.len() > 60 { &connect_url[..60] } else { &connect_url },
+            if is_resume { "RESUME" } else { "IDENTIFY" });
+
         match run_gateway_session(&connect_url, token, &msg_tx, &mut resume_state).await {
             Ok(()) => {
-                // Clean close — still reconnect (Discord may close for maintenance)
-                info!("Discord Gateway session ended cleanly, reconnecting in 5s...");
+                let duration = session_start.elapsed();
+                info!("Discord Gateway session ended cleanly after {}s, reconnecting in 5s...",
+                    duration.as_secs());
                 tokio::time::sleep(std::time::Duration::from_secs(5)).await;
 
                 // Reset backoff if session lasted > 30s (was healthy)
