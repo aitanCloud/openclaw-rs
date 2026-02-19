@@ -589,6 +589,7 @@ async fn handle_command(
                 &format!("v{}", env!("CARGO_PKG_VERSION")),
                 0x2ECC71, // Green
                 &[
+                    ("Built", env!("BUILD_TIMESTAMP"), true),
                     ("Profile", profile, true),
                     ("PID", &pid.to_string(), true),
                     ("Uptime", &uptime_str, true),

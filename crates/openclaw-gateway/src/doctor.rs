@@ -212,4 +212,34 @@ mod tests {
         let skills_check = checks.iter().find(|(n, _, _)| n == "Skills").unwrap();
         assert!(skills_check.1, "Skills check should always pass");
     }
+
+    #[test]
+    fn test_human_bytes_bytes() {
+        assert_eq!(human_bytes(0), "0 B");
+        assert_eq!(human_bytes(512), "512 B");
+        assert_eq!(human_bytes(1023), "1023 B");
+    }
+
+    #[test]
+    fn test_human_bytes_kb() {
+        assert_eq!(human_bytes(1024), "1.0 KB");
+        assert_eq!(human_bytes(1536), "1.5 KB");
+    }
+
+    #[test]
+    fn test_human_bytes_mb() {
+        assert_eq!(human_bytes(1_048_576), "1.0 MB");
+        assert_eq!(human_bytes(5_242_880), "5.0 MB");
+    }
+
+    #[test]
+    fn test_human_bytes_gb() {
+        assert_eq!(human_bytes(1_073_741_824), "1.0 GB");
+        assert_eq!(human_bytes(2_684_354_560), "2.5 GB");
+    }
+
+    #[test]
+    fn test_dir_size_bytes_nonexistent() {
+        assert_eq!(dir_size_bytes(Path::new("/nonexistent/path/xyz")), 0);
+    }
 }

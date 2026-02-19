@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.62.0
+**Version:** 0.63.0
 **Last updated:** 2026-02-19
 **Maintainer:** Cascade + Shawaz
 
@@ -496,7 +496,14 @@
 - ✅ **5 new uptime tests** — seconds, minutes, hours, days, multi-days edge cases
 - ✅ **168 tests** — 111 agent + 7 core + 50 gateway (was 45)
 
-## v0.63.0 — Daemon & Polish
+## v0.63.0 — Build Timestamp & Test Coverage (shipped)
+
+- ✅ **Compile-time build timestamp** — `BUILD_TIMESTAMP` set via `build.rs`, shown in `/runtime` (both channels), `/health`, and `/status` JSON
+- ✅ **`webhook_configured`** — `/status` JSON now includes `webhook_configured: true/false`
+- ✅ **5 new doctor tests** — `human_bytes` (bytes, KB, MB, GB) and `dir_size_bytes` (nonexistent path)
+- ✅ **173 tests** — 111 agent + 7 core + 55 gateway (was 50)
+
+## v0.64.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**

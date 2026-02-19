@@ -566,12 +566,14 @@ async fn handle_command(
             bot.send_message(chat_id, &format!(
                 "🖥️ *Runtime Info*\n\n\
                 Version: v{}\n\
+                Built: {}\n\
                 Profile: {}\n\
                 PID: {}\n\
                 Uptime: {}\n\
                 OS: {}\n\
                 Arch: {}",
                 env!("CARGO_PKG_VERSION"),
+                env!("BUILD_TIMESTAMP"),
                 if cfg!(debug_assertions) { "debug" } else { "release" },
                 pid,
                 uptime_str,

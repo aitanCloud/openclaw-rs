@@ -26,3 +26,6 @@ dirs = { workspace = true }
 tokio-util = "0.7"
 tokio-tungstenite = { version = "0.26", features = ["rustls-tls-webpki-roots"] }
 futures-util = { workspace = true }
+
+[build-dependencies]
+chrono = "0.4"
