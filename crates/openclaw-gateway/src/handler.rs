@@ -425,6 +425,7 @@ async fn handle_command(
                 /clear — delete current session\n\
                 /db — session database stats\n\
                 /version — build info and uptime\n\
+                /stats — gateway request stats\n\
                 /cron — list and manage cron jobs\n\
                 /help — show this help\n\n\
                 You can also send voice messages — I'll transcribe and respond.",
@@ -435,6 +436,31 @@ async fn handle_command(
             let start = std::time::Instant::now();
             bot.send_message(chat_id, &format!("🏓 Pong! ({}ms)", start.elapsed().as_millis())).await?;
         }
+        "/stats" => {
+            if let Some(m) = crate::metrics::global() {
+                let tg_req = m.telegram_requests.load(std::sync::atomic::Ordering::Relaxed);
+                let dc_req = m.discord_requests.load(std::sync::atomic::Ordering::Relaxed);
+                let tg_err = m.telegram_errors.load(std::sync::atomic::Ordering::Relaxed);
+                let dc_err = m.discord_errors.load(std::sync::atomic::Ordering::Relaxed);
+                let rl = m.rate_limited.load(std::sync::atomic::Ordering::Relaxed);
+                let completed = m.completed_requests.load(std::sync::atomic::Ordering::Relaxed);
+                let avg = m.avg_latency_ms();
+                let uptime = crate::handler::BOOT_TIME.elapsed();
+                let hours = uptime.as_secs() / 3600;
+                let mins = (uptime.as_secs() % 3600) / 60;
+                bot.send_message(chat_id, &format!(
+                    "📊 *Gateway Stats* ({}h {}m uptime)\n\n\
+                    Telegram: {} requests, {} errors\n\
+                    Discord: {} requests, {} errors\n\
+                    Rate limited: {}\n\
+                    Completed: {}\n\
+                    Avg latency: {}ms",
+                    hours, mins, tg_req, tg_err, dc_req, dc_err, rl, completed, avg,
+                )).await?;
+            } else {
+                bot.send_message(chat_id, "📊 Metrics not available.").await?;
+            }
+        }
         "/version" => {
             let uptime = crate::handler::BOOT_TIME.elapsed();
             let hours = uptime.as_secs() / 3600;
@@ -443,7 +469,7 @@ async fn handle_command(
                 "🦀 *openclaw-gateway* v{}\n\
                 Uptime: {}h {}m\n\
                 Agent: {}\n\
-                Commands: 13",
+                Commands: 14",
                 env!("CARGO_PKG_VERSION"), hours, mins, config.agent.name,
             )).await?;
         }

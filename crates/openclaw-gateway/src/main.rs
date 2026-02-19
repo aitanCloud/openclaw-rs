@@ -32,7 +32,7 @@ async fn main() -> anyhow::Result<()> {
     if let Some(ref dc) = config.discord {
         info!("Discord enabled | allowed users: {:?}", dc.allowed_user_ids);
     }
-    info!("Commands: 13 (/help /new /status /model /sessions /export /voice /ping /history /clear /db /version /cron)");
+    info!("Commands: 14 (/help /new /status /model /sessions /export /voice /ping /history /clear /db /version /stats /cron)");
 
     // ── Verify bot token ──
     let bot = telegram::TelegramBot::new(&config.telegram.bot_token);
@@ -76,8 +76,13 @@ async fn main() -> anyhow::Result<()> {
     let cron_config = Arc::new(config.clone());
     cron::spawn_cron_executor(cron_config, cron_bot);
 
-    // ── Metrics ──
+    // ── Metrics (single instance shared via Arc + global static) ──
     let gateway_metrics = Arc::new(metrics::GatewayMetrics::new());
+    // Safety: Arc keeps it alive for program lifetime; leak a clone for global handler access
+    let metrics_ref: &'static metrics::GatewayMetrics = unsafe {
+        &*(Arc::as_ptr(&gateway_metrics))
+    };
+    metrics::init_global(metrics_ref);
 
     // ── Start health check HTTP server ──
     let start_time = std::time::Instant::now();

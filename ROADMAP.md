@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.27.0
+**Version:** 0.28.0
 **Last updated:** 2026-02-18
 **Maintainer:** Cascade + Shawaz
 
@@ -233,7 +233,14 @@
 - ✅ **13 commands on both channels** — /help, /new, /status, /model, /sessions, /export, /voice, /ping, /history, /clear, /db, /version, /cron
 - ✅ **125 tests** — 93 agent + 7 core + 25 gateway
 
-## v0.28.0 — Daemon & Polish
+## v0.28.0 — Live Metrics (shipped)
+
+- ✅ **`/stats` command** — show gateway metrics (Telegram/Discord requests, errors, rate limits, avg latency, uptime) on both channels
+- ✅ **Global metrics accessor** — `OnceLock`-based `metrics::global()` for handler access without threading `Arc` through signatures
+- ✅ **14 commands on both channels** — /help, /new, /status, /model, /sessions, /export, /voice, /ping, /history, /clear, /db, /version, /stats, /cron
+- ✅ **125 tests** — 93 agent + 7 core + 25 gateway
+
+## v0.29.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**

@@ -1,4 +1,18 @@
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::OnceLock;
+
+/// Global metrics instance accessible from handlers
+static GLOBAL_METRICS: OnceLock<&'static GatewayMetrics> = OnceLock::new();
+
+/// Initialize the global metrics reference (call once from main)
+pub fn init_global(metrics: &'static GatewayMetrics) {
+    let _ = GLOBAL_METRICS.set(metrics);
+}
+
+/// Get the global metrics instance (returns None if not initialized)
+pub fn global() -> Option<&'static GatewayMetrics> {
+    GLOBAL_METRICS.get().copied()
+}
 
 /// Lightweight gateway metrics using atomics (no external deps)
 pub struct GatewayMetrics {
