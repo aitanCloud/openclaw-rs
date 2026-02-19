@@ -413,6 +413,7 @@ async fn health_lite_handler() -> Json<serde_json::Value> {
         .ok()
         .map(|fb| fb.provider_labels().len())
         .unwrap_or(0);
+    let llm_stats = openclaw_agent::llm_log::stats();
     Json(serde_json::json!({
         "status": "ok",
         "version": env!("CARGO_PKG_VERSION"),
@@ -422,6 +423,8 @@ async fn health_lite_handler() -> Json<serde_json::Value> {
         "uptime_seconds": uptime_secs,
         "active_tasks": task_registry::active_count(),
         "provider_count": provider_count,
+        "llm_calls": llm_stats.total_recorded,
+        "llm_errors": llm_stats.errors,
     }))
 }
 
@@ -1064,15 +1067,15 @@ mod tests {
     fn test_endpoint_field_counts_summary() {
         // Comprehensive summary of all endpoint JSON field counts
         assert_eq!(47, 47, "/health should have 47 fields (added llm_log)");
-        assert_eq!(8, 8, "/health/lite should have 8 fields");
+        assert_eq!(10, 10, "/health/lite should have 10 fields");
         assert_eq!(5, 5, "/version should have 5 fields");
         assert_eq!(5, 5, "/ready should have 5 fields");
         assert_eq!(20, 20, "/status should have 20 fields");
         assert_eq!(4, 4, "/doctor/json should have 4 top-level fields");
         assert_eq!(6, 6, "/logs should have 6 top-level fields");
         // Total unique JSON fields across all endpoints
-        let total = 47 + 8 + 5 + 5 + 20 + 4 + 6;
-        assert_eq!(total, 95, "Total JSON fields across all endpoints should be 95");
+        let total = 47 + 10 + 5 + 5 + 20 + 4 + 6;
+        assert_eq!(total, 97, "Total JSON fields across all endpoints should be 97");
     }
 
     #[test]
@@ -1147,12 +1150,12 @@ mod tests {
 
     #[test]
     fn test_health_lite_expected_fields() {
-        let expected = ["status", "version", "agent", "pid", "uptime", "uptime_seconds", "active_tasks", "provider_count"];
-        assert_eq!(expected.len(), 8, "Should have 8 /health/lite JSON fields");
+        let expected = ["status", "version", "agent", "pid", "uptime", "uptime_seconds", "active_tasks", "provider_count", "llm_calls", "llm_errors"];
+        assert_eq!(expected.len(), 10, "Should have 10 /health/lite JSON fields");
         let mut sorted = expected.to_vec();
         sorted.sort();
         sorted.dedup();
-        assert_eq!(sorted.len(), 8, "/health/lite fields should have no duplicates");
+        assert_eq!(sorted.len(), 10, "/health/lite fields should have no duplicates");
     }
 
     #[test]

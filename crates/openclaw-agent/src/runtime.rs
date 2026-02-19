@@ -160,6 +160,7 @@ pub async fn run_agent_turn(
         rounds += 1;
         if rounds > MAX_TOOL_ROUNDS {
             warn!("Agent hit max tool rounds ({}), forcing stop", MAX_TOOL_ROUNDS);
+            crate::llm_log::clear_session_context();
             return Ok(AgentTurnResult {
                 response: "(Agent reached maximum tool call rounds)".to_string(),
                 reasoning: None,
@@ -191,6 +192,7 @@ pub async fn run_agent_turn(
                     t_start.elapsed().as_millis()
                 );
 
+                crate::llm_log::clear_session_context();
                 return Ok(AgentTurnResult {
                     response: content,
                     reasoning,
@@ -314,6 +316,7 @@ pub async fn run_agent_turn_streaming(
             if ct.is_cancelled() {
                 warn!("Agent turn cancelled by user before round {}", rounds + 1);
                 let _ = event_tx.send(StreamEvent::Done);
+                crate::llm_log::clear_session_context();
                 return Ok(AgentTurnResult {
                     response: "⛔ Cancelled by user.".to_string(),
                     reasoning: None,
@@ -330,6 +333,7 @@ pub async fn run_agent_turn_streaming(
         if rounds > MAX_TOOL_ROUNDS {
             warn!("Agent hit max tool rounds ({}), forcing stop", MAX_TOOL_ROUNDS);
             let _ = event_tx.send(StreamEvent::Done);
+            crate::llm_log::clear_session_context();
             return Ok(AgentTurnResult {
                 response: "(Agent reached maximum tool call rounds)".to_string(),
                 reasoning: None,
@@ -354,6 +358,7 @@ pub async fn run_agent_turn_streaming(
                 _ = ct.cancelled() => {
                     warn!("Agent turn cancelled during LLM streaming on round {}", rounds);
                     let _ = event_tx.send(StreamEvent::Done);
+                    crate::llm_log::clear_session_context();
                     return Ok(AgentTurnResult {
                         response: "⛔ Cancelled by user.".to_string(),
                         reasoning: None,
@@ -385,6 +390,7 @@ pub async fn run_agent_turn_streaming(
 
                 let _ = event_tx.send(StreamEvent::Done);
 
+                crate::llm_log::clear_session_context();
                 return Ok(AgentTurnResult {
                     response: content,
                     reasoning,

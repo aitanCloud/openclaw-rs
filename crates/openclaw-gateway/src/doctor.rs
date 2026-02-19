@@ -216,7 +216,7 @@ pub async fn run_checks(agent_name: &str) -> Vec<(String, bool, String)> {
     checks.push((
         "HTTP".to_string(),
         true,
-        format!("13 endpoints on port {}", http_port),
+        format!("14 endpoints on port {}", http_port),
     ));
 
     // 15. Hostname

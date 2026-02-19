@@ -840,20 +840,28 @@
 - ✅ **9 gateway CLI subcommands** — added `log-detail`
 - ✅ **224 total tests** — 124 agent + 7 core + 93 gateway
 
-## v1.7.0 — Channel Plugin Abstraction
+## v1.7.0 — Health Lite Enrichment & Session Context Cleanup (shipped)
+
+- ✅ **`/health/lite` enriched** — added `llm_calls` and `llm_errors` fields (10 fields total, was 8)
+- ✅ **`clear_session_context()` wired** — called at all 6 return points in `run_agent_turn` and `run_agent_turn_streaming` (text completion, max rounds, cancellation)
+- ✅ **Doctor HTTP endpoint count** — updated from 13 to 14
+- ✅ **Updated endpoint field count summary** — 97 total JSON fields across all endpoints
+- ✅ **224 total tests** — 124 agent + 7 core + 93 gateway
+
+## v1.8.0 — Channel Plugin Abstraction
 
 - 📋 **`Channel` trait** — abstract interface for message channels (send, edit, upload, typing)
 - 📋 **Telegram channel plugin** — refactor handler.rs to implement Channel trait
 - 📋 **Discord channel plugin** — refactor discord_handler.rs to implement Channel trait
 - 📋 **Plugin loader** — dynamic channel registration from config
 
-## v1.8.0 — WebSocket Protocol
+## v1.9.0 — WebSocket Protocol
 
 - 📋 **WS endpoint** — `ws://gateway:3100/ws` for CLI↔Gateway real-time communication
 - 📋 **CLI connect mode** — `openclaw chat` opens interactive WS session
 - 📋 **TUI** — terminal UI with streaming responses
 
-## v1.9.0+ — Extended Features
+## v1.10.0+ — Extended Features
 
 - 📋 **Multi-agent routing** — per-agent workspaces, auth, routing
 - 📋 **Device pairing** — QR codes, setup codes, token management
