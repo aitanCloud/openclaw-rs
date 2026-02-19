@@ -450,6 +450,7 @@ async fn handle_command(
         "/cancel" | "/stop" => {
             let task_key = format!("tg:{}:{}", user_id, chat_id);
             if crate::task_registry::cancel_task(&task_key) {
+                if let Some(m) = crate::metrics::global() { m.record_task_cancelled(); }
                 bot.send_message(chat_id, "⛔ Cancelled running task.").await?;
             } else {
                 bot.send_message(chat_id, "ℹ️ No task is currently running.").await?;
@@ -634,7 +635,8 @@ async fn handle_command(
                     Session: `{}`\n\
                     Messages: {}\n\
                     Tokens used: {}\n\
-                    Total sessions: {}",
+                    Total sessions: {}\n\
+                    Active tasks: {}",
                     config.agent.name,
                     if config.agent.fallback { "✅ enabled" } else { "❌ disabled" },
                     chain_info,
@@ -642,6 +644,7 @@ async fn handle_command(
                     msg_count,
                     tokens,
                     sessions.len(),
+                    crate::task_registry::active_count(),
                 ),
             )
             .await?;

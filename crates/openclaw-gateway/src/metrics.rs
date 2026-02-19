@@ -27,6 +27,7 @@ pub struct GatewayMetrics {
     pub gateway_connects: AtomicU64,
     pub gateway_disconnects: AtomicU64,
     pub gateway_resumes: AtomicU64,
+    pub tasks_cancelled: AtomicU64,
 }
 
 impl GatewayMetrics {
@@ -43,6 +44,7 @@ impl GatewayMetrics {
             gateway_connects: AtomicU64::new(0),
             gateway_disconnects: AtomicU64::new(0),
             gateway_resumes: AtomicU64::new(0),
+            tasks_cancelled: AtomicU64::new(0),
         }
     }
 
@@ -80,6 +82,10 @@ impl GatewayMetrics {
 
     pub fn record_gateway_resume(&self) {
         self.gateway_resumes.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn record_task_cancelled(&self) {
+        self.tasks_cancelled.fetch_add(1, Ordering::Relaxed);
     }
 
     pub fn record_completion(&self, latency_ms: u64) {
@@ -146,6 +152,11 @@ impl GatewayMetrics {
         out.push_str(&format!("openclaw_gateway_ws_events_total{{event=\"resume\"}} {}\n",
             self.gateway_resumes.load(Ordering::Relaxed)));
 
+        out.push_str("# HELP openclaw_gateway_tasks_cancelled_total Tasks cancelled by user\n");
+        out.push_str("# TYPE openclaw_gateway_tasks_cancelled_total counter\n");
+        out.push_str(&format!("openclaw_gateway_tasks_cancelled_total {}\n",
+            self.tasks_cancelled.load(Ordering::Relaxed)));
+
         out
     }
 
@@ -163,6 +174,7 @@ impl GatewayMetrics {
             "gateway_connects": self.gateway_connects.load(Ordering::Relaxed),
             "gateway_disconnects": self.gateway_disconnects.load(Ordering::Relaxed),
             "gateway_resumes": self.gateway_resumes.load(Ordering::Relaxed),
+            "tasks_cancelled": self.tasks_cancelled.load(Ordering::Relaxed),
         })
     }
 }

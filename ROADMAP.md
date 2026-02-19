@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.34.0
+**Version:** 0.35.0
 **Last updated:** 2026-02-18
 **Maintainer:** Cascade + Shawaz
 
@@ -282,7 +282,14 @@
 - ✅ **17 commands on both channels** — added /cancel and /stop (aliases)
 - ✅ **133 tests** — 95 agent + 7 core + 31 gateway (+5 new task_registry tests)
 
-## v0.35.0 — Daemon & Polish
+## v0.35.0 — Cancellation Polish (shipped)
+
+- ✅ **Discord `/cancel` embed** — red embed with active task count on successful cancellation
+- ✅ **Active tasks in `/status`** — show running task count on both Telegram and Discord
+- ✅ **Cancellation metrics** — `tasks_cancelled` counter in Prometheus text + JSON, recorded on every /cancel or /stop
+- ✅ **133 tests** — 95 agent + 7 core + 31 gateway
+
+## v0.36.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**

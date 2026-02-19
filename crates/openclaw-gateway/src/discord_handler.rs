@@ -462,7 +462,16 @@ async fn handle_command(
         "cancel" | "stop" => {
             let task_key = format!("dc:{}:{}", user_id, channel_id);
             if crate::task_registry::cancel_task(&task_key) {
-                bot.send_reply(channel_id, reply_to, "⛔ Cancelled running task.").await?;
+                if let Some(m) = crate::metrics::global() { m.record_task_cancelled(); }
+                bot.send_embed(
+                    channel_id, Some(reply_to),
+                    "⛔ Task Cancelled",
+                    "The running agent task has been stopped.",
+                    0xED4245, // Discord red
+                    &[
+                        ("Active Tasks", &crate::task_registry::active_count().to_string(), true),
+                    ],
+                ).await?;
             } else {
                 bot.send_reply(channel_id, reply_to, "ℹ️ No task is currently running.").await?;
             }
@@ -668,7 +677,8 @@ async fn handle_command(
                     Session: `{}`\n\
                     Messages: {}\n\
                     Tokens used: {}\n\
-                    Total sessions: {}",
+                    Total sessions: {}\n\
+                    Active tasks: {}",
                     config.agent.name,
                     if config.agent.fallback {
                         "✅ enabled"
@@ -680,6 +690,7 @@ async fn handle_command(
                     msg_count,
                     tokens,
                     sessions.len(),
+                    crate::task_registry::active_count(),
                 ),
             )
             .await?;
