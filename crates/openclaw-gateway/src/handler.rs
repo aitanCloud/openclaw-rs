@@ -406,6 +406,10 @@ pub async fn handle_message(
         result.total_usage.total_tokens, result.model_name,
     );
 
+    if let Some(m) = crate::metrics::global() {
+        m.record_agent_turn(result.tool_calls_made as u64);
+    }
+
     Ok(())
 }
 
@@ -490,6 +494,8 @@ async fn handle_command(
                 let mins = (uptime.as_secs() % 3600) / 60;
                 let cancelled = m.tasks_cancelled.load(std::sync::atomic::Ordering::Relaxed);
                 let timeouts = m.agent_timeouts.load(std::sync::atomic::Ordering::Relaxed);
+                let turns = m.agent_turns.load(std::sync::atomic::Ordering::Relaxed);
+                let tool_calls = m.tool_calls.load(std::sync::atomic::Ordering::Relaxed);
                 let err_rate = m.error_rate_pct();
                 bot.send_message(chat_id, &format!(
                     "📊 *Gateway Stats* ({}h {}m uptime)\n\n\
@@ -497,13 +503,16 @@ async fn handle_command(
                     Discord: {} requests, {} errors\n\
                     Rate limited: {}\n\
                     Completed: {}\n\
+                    Agent turns: {}\n\
+                    Tool calls: {}\n\
                     Cancelled: {}\n\
                     Timeouts: {}\n\
                     Active tasks: {}\n\
                     Avg latency: {}ms\n\
                     Error rate: {:.1}%",
                     hours, mins, tg_req, tg_err, dc_req, dc_err, rl, completed,
-                    cancelled, timeouts, crate::task_registry::active_count(), avg, err_rate,
+                    turns, tool_calls, cancelled, timeouts,
+                    crate::task_registry::active_count(), avg, err_rate,
                 )).await?;
             } else {
                 bot.send_message(chat_id, "📊 Metrics not available.").await?;

@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.48.0
+**Version:** 0.49.0
 **Last updated:** 2026-02-19
 **Maintainer:** Cascade + Shawaz
 
@@ -384,7 +384,17 @@
 - ✅ **156 tests** — 110 agent + 7 core + 39 gateway (+5 new)
 - ✅ **17 tools** — added `memory` (persistent notes)
 
-## v0.49.0 — Daemon & Polish
+## v0.49.0 — Agent Turn & Tool Call Metrics (shipped)
+
+- ✅ **`agent_turns` counter** — tracks total agent turns completed across both channels
+- ✅ **`tool_calls` counter** — tracks total tool calls made by agents (accumulated per turn)
+- ✅ **`record_agent_turn(tool_calls)`** — single method increments both counters, wired into Telegram and Discord handlers
+- ✅ **Prometheus + JSON** — `openclaw_gateway_agent_turns_total` and `openclaw_gateway_tool_calls_total` counters
+- ✅ **`/stats` parity** — Agent Turns and Tool Calls shown on both Telegram and Discord /stats
+- ✅ **`test_agent_turns_and_tool_calls_metric`** — verifies counters in Prometheus + JSON output
+- ✅ **157 tests** — 110 agent + 7 core + 40 gateway (+1 new)
+
+## v0.50.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**

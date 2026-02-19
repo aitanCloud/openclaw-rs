@@ -414,6 +414,10 @@ pub async fn handle_discord_message(
         result.model_name,
     );
 
+    if let Some(m) = crate::metrics::global() {
+        m.record_agent_turn(result.tool_calls_made as u64);
+    }
+
     Ok(())
 }
 
@@ -489,6 +493,8 @@ async fn handle_command(
                 let mins = (uptime.as_secs() % 3600) / 60;
                 let cancelled = m.tasks_cancelled.load(std::sync::atomic::Ordering::Relaxed);
                 let timeouts = m.agent_timeouts.load(std::sync::atomic::Ordering::Relaxed);
+                let turns = m.agent_turns.load(std::sync::atomic::Ordering::Relaxed);
+                let tool_calls = m.tool_calls.load(std::sync::atomic::Ordering::Relaxed);
                 let err_rate = m.error_rate_pct();
                 bot.send_embed(
                     channel_id, Some(reply_to),
@@ -500,6 +506,8 @@ async fn handle_command(
                         ("Discord", &format!("{} req / {} err", dc_req, dc_err), true),
                         ("Rate Limited", &rl.to_string(), true),
                         ("Completed", &completed.to_string(), true),
+                        ("Agent Turns", &turns.to_string(), true),
+                        ("Tool Calls", &tool_calls.to_string(), true),
                         ("Avg Latency", &format!("{}ms", avg), true),
                         ("Error Rate", &format!("{:.1}%", err_rate), true),
                         ("Cancelled", &cancelled.to_string(), true),

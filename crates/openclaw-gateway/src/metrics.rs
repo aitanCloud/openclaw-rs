@@ -29,6 +29,8 @@ pub struct GatewayMetrics {
     pub gateway_resumes: AtomicU64,
     pub tasks_cancelled: AtomicU64,
     pub agent_timeouts: AtomicU64,
+    pub agent_turns: AtomicU64,
+    pub tool_calls: AtomicU64,
 }
 
 impl GatewayMetrics {
@@ -47,6 +49,8 @@ impl GatewayMetrics {
             gateway_resumes: AtomicU64::new(0),
             tasks_cancelled: AtomicU64::new(0),
             agent_timeouts: AtomicU64::new(0),
+            agent_turns: AtomicU64::new(0),
+            tool_calls: AtomicU64::new(0),
         }
     }
 
@@ -92,6 +96,11 @@ impl GatewayMetrics {
 
     pub fn record_agent_timeout(&self) {
         self.agent_timeouts.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn record_agent_turn(&self, tool_calls: u64) {
+        self.agent_turns.fetch_add(1, Ordering::Relaxed);
+        self.tool_calls.fetch_add(tool_calls, Ordering::Relaxed);
     }
 
     pub fn record_completion(&self, latency_ms: u64) {
@@ -183,6 +192,16 @@ impl GatewayMetrics {
         out.push_str("# TYPE openclaw_gateway_error_rate_pct gauge\n");
         out.push_str(&format!("openclaw_gateway_error_rate_pct {:.2}\n", self.error_rate_pct()));
 
+        out.push_str("# HELP openclaw_gateway_agent_turns_total Total agent turns completed\n");
+        out.push_str("# TYPE openclaw_gateway_agent_turns_total counter\n");
+        out.push_str(&format!("openclaw_gateway_agent_turns_total {}\n",
+            self.agent_turns.load(Ordering::Relaxed)));
+
+        out.push_str("# HELP openclaw_gateway_tool_calls_total Total tool calls made by agents\n");
+        out.push_str("# TYPE openclaw_gateway_tool_calls_total counter\n");
+        out.push_str(&format!("openclaw_gateway_tool_calls_total {}\n",
+            self.tool_calls.load(Ordering::Relaxed)));
+
         out
     }
 
@@ -202,6 +221,8 @@ impl GatewayMetrics {
             "gateway_resumes": self.gateway_resumes.load(Ordering::Relaxed),
             "tasks_cancelled": self.tasks_cancelled.load(Ordering::Relaxed),
             "agent_timeouts": self.agent_timeouts.load(Ordering::Relaxed),
+            "agent_turns": self.agent_turns.load(Ordering::Relaxed),
+            "tool_calls": self.tool_calls.load(Ordering::Relaxed),
             "error_rate_pct": (self.error_rate_pct() * 100.0).round() / 100.0,
         })
     }
@@ -358,6 +379,29 @@ mod tests {
         assert!(prom.contains("# HELP openclaw_gateway_agent_timeouts_total"));
         assert!(prom.contains("# HELP openclaw_gateway_error_rate_pct"));
         assert!(prom.contains("# TYPE openclaw_gateway_error_rate_pct gauge"));
+        assert!(prom.contains("# HELP openclaw_gateway_agent_turns_total"));
+        assert!(prom.contains("# HELP openclaw_gateway_tool_calls_total"));
+    }
+
+    #[test]
+    fn test_agent_turns_and_tool_calls_metric() {
+        let m = GatewayMetrics::new();
+        assert_eq!(m.agent_turns.load(Ordering::Relaxed), 0);
+        assert_eq!(m.tool_calls.load(Ordering::Relaxed), 0);
+
+        m.record_agent_turn(3); // 1 turn with 3 tool calls
+        m.record_agent_turn(0); // 1 turn with 0 tool calls
+
+        assert_eq!(m.agent_turns.load(Ordering::Relaxed), 2);
+        assert_eq!(m.tool_calls.load(Ordering::Relaxed), 3);
+
+        let prom = m.to_prometheus();
+        assert!(prom.contains("openclaw_gateway_agent_turns_total 2"));
+        assert!(prom.contains("openclaw_gateway_tool_calls_total 3"));
+
+        let json = m.to_json();
+        assert_eq!(json["agent_turns"], 2);
+        assert_eq!(json["tool_calls"], 3);
     }
 
     #[test]
