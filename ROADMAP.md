@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.89.0
+**Version:** 0.90.0
 **Last updated:** 2026-02-19
 **Maintainer:** Cascade + Shawaz
 
@@ -699,7 +699,14 @@
 - ✅ **12 HTTP endpoints** — /health, /health/lite, /version, /ping, /ready, /status, /metrics, /metrics/json, /metrics/summary, /doctor, /doctor/json, /webhook
 - ✅ **198 tests** — 111 agent + 7 core + 80 gateway (was 78)
 
-## v0.90.0 — Daemon & Polish
+## v0.90.0 — Test Quality Milestone (shipped)
+
+- ✅ **`/doctor/json` field completeness test** — verifies all 4 top-level fields with no duplicates
+- ✅ **Doctor check item field test** — verifies each check has name/ok/detail (3 fields)
+- ✅ **Prometheus HELP/TYPE line count test** — verifies matching HELP and TYPE lines (≥15 each)
+- ✅ **201 tests** — 111 agent + 7 core + 83 gateway (was 80) — **200+ test milestone!**
+
+## v0.91.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**

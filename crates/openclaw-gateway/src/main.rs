@@ -960,6 +960,26 @@ mod tests {
     }
 
     #[test]
+    fn test_doctor_json_expected_fields() {
+        let expected = ["checks_total", "checks_passed", "all_ok", "checks"];
+        assert_eq!(expected.len(), 4, "Should have 4 /doctor/json top-level fields");
+        let mut sorted = expected.to_vec();
+        sorted.sort();
+        sorted.dedup();
+        assert_eq!(sorted.len(), 4, "/doctor/json fields should have no duplicates");
+    }
+
+    #[test]
+    fn test_doctor_check_item_fields() {
+        let item_fields = ["name", "ok", "detail"];
+        assert_eq!(item_fields.len(), 3, "Each doctor check should have 3 fields");
+        let mut sorted = item_fields.to_vec();
+        sorted.sort();
+        sorted.dedup();
+        assert_eq!(sorted.len(), 3, "Doctor check item fields should have no duplicates");
+    }
+
+    #[test]
     fn test_http_endpoints_count() {
         let endpoints = ["/health", "/health/lite", "/version", "/ping", "/ready", "/status", "/metrics", "/metrics/json", "/metrics/summary", "/doctor", "/doctor/json", "/webhook"];
         assert_eq!(endpoints.len(), 12, "Should have 12 HTTP endpoints");

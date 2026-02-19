@@ -587,6 +587,16 @@ mod tests {
     }
 
     #[test]
+    fn test_prometheus_help_type_lines() {
+        let m = GatewayMetrics::new();
+        let prom = m.to_prometheus();
+        let help_count = prom.lines().filter(|l| l.starts_with("# HELP")).count();
+        let type_count = prom.lines().filter(|l| l.starts_with("# TYPE")).count();
+        assert_eq!(help_count, type_count, "Each HELP should have a matching TYPE");
+        assert!(help_count >= 15, "Should have at least 15 HELP lines, got {}", help_count);
+    }
+
+    #[test]
     fn test_json_has_all_expected_fields() {
         let m = GatewayMetrics::new();
         let json = m.to_json();
