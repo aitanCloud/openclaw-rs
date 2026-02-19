@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.70.0
+**Version:** 0.71.0
 **Last updated:** 2026-02-19
 **Maintainer:** Cascade + Shawaz
 
@@ -553,7 +553,14 @@
 - ✅ **Webhook error codes test** — validates all 5 error codes are UPPER_SNAKE_CASE
 - ✅ **179 tests** — 111 agent + 7 core + 61 gateway (was 59)
 
-## v0.71.0 — Daemon & Polish
+## v0.71.0 — Webhook Tracing & /status Endpoints (shipped)
+
+- ✅ **`request_id` on ALL webhook responses** — generated at handler entry, included in all 5 error responses + success for consistent tracing
+- ✅ **`http_endpoints` in `/status` JSON** — lists all 7 endpoints with count
+- ✅ **Boundary value tests** — `human_bytes` tested at exact KB/MB/GB thresholds
+- ✅ **180 tests** — 111 agent + 7 core + 62 gateway (was 61)
+
+## v0.72.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**

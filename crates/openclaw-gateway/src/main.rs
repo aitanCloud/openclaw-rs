@@ -466,13 +466,16 @@ async fn webhook_handler(
     use axum::response::IntoResponse;
     use openclaw_agent::runtime::{self, AgentTurnConfig};
 
+    // Generate request_id early so all responses (including errors) include it
+    let request_id = uuid::Uuid::new_v4().to_string();
+
     // Auth check
     let expected_token = match &config.webhook {
         Some(wh) => &wh.token,
         None => {
             return (
                 axum::http::StatusCode::SERVICE_UNAVAILABLE,
-                Json(serde_json::json!({"error": "webhook not configured", "error_code": "WEBHOOK_NOT_CONFIGURED"})),
+                Json(serde_json::json!({"request_id": request_id, "error": "webhook not configured", "error_code": "WEBHOOK_NOT_CONFIGURED"})),
             ).into_response();
         }
     };
@@ -484,7 +487,7 @@ async fn webhook_handler(
     if token != expected_token {
         return (
             axum::http::StatusCode::UNAUTHORIZED,
-            Json(serde_json::json!({"error": "invalid token", "error_code": "INVALID_TOKEN"})),
+            Json(serde_json::json!({"request_id": request_id, "error": "invalid token", "error_code": "INVALID_TOKEN"})),
         ).into_response();
     }
 
@@ -494,7 +497,7 @@ async fn webhook_handler(
         None => {
             return (
                 axum::http::StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({"error": "missing 'message' field", "error_code": "MISSING_MESSAGE"})),
+                Json(serde_json::json!({"request_id": request_id, "error": "missing 'message' field", "error_code": "MISSING_MESSAGE"})),
             ).into_response();
         }
     };
@@ -515,7 +518,7 @@ async fn webhook_handler(
         Err(e) => {
             return (
                 axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": format!("provider init failed: {}", e), "error_code": "PROVIDER_INIT_FAILED"})),
+                Json(serde_json::json!({"request_id": request_id, "error": format!("provider init failed: {}", e), "error_code": "PROVIDER_INIT_FAILED"})),
             ).into_response();
         }
     };
@@ -550,7 +553,6 @@ async fn webhook_handler(
                 m.record_agent_turn(turn_result.tool_calls_made as u64);
                 m.record_completion(elapsed);
             }
-            let request_id = uuid::Uuid::new_v4().to_string();
             (
                 axum::http::StatusCode::OK,
                 Json(serde_json::json!({
@@ -567,7 +569,7 @@ async fn webhook_handler(
         Err(e) => {
             (
                 axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": format!("agent turn failed: {}", e), "error_code": "AGENT_TURN_FAILED"})),
+                Json(serde_json::json!({"request_id": request_id, "error": format!("agent turn failed: {}", e), "error_code": "AGENT_TURN_FAILED"})),
             ).into_response()
         }
     }
@@ -670,6 +672,8 @@ async fn status_handler(
         "active_tasks": task_registry::active_count(),
         "webhook_configured": config.webhook.is_some(),
         "built": env!("BUILD_TIMESTAMP"),
+        "http_endpoints": ["/health", "/ready", "/status", "/metrics", "/metrics/json", "/doctor", "/webhook"],
+        "http_endpoint_count": 7,
         "commands": {
             "telegram": tg_commands,
             "discord": dc_commands,

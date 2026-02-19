@@ -260,4 +260,14 @@ mod tests {
     fn test_dir_size_bytes_nonexistent() {
         assert_eq!(dir_size_bytes(Path::new("/nonexistent/path/xyz")), 0);
     }
+
+    #[test]
+    fn test_human_bytes_boundary_values() {
+        assert_eq!(human_bytes(1024), "1.0 KB");
+        assert_eq!(human_bytes(1023), "1023 B");
+        assert_eq!(human_bytes(1_048_575), "1024.0 KB");
+        assert_eq!(human_bytes(1_048_576), "1.0 MB");
+        assert_eq!(human_bytes(1_073_741_823), "1024.0 MB");
+        assert_eq!(human_bytes(1_073_741_824), "1.0 GB");
+    }
 }
