@@ -151,6 +151,7 @@ async fn main() -> anyhow::Result<()> {
         )
         .route("/doctor/json", get(doctor_json_handler))
         .route("/logs", get(logs_handler))
+        .route("/logs/:id", get(log_detail_handler))
         .route(
             "/webhook",
             axum::routing::post({
@@ -523,7 +524,7 @@ async fn health_handler() -> axum::response::Response {
             "skills": skills_count,
             "sessions": session_count,
             "commands": 23,
-            "http_endpoint_count": 13,
+            "http_endpoint_count": 14,
             "tool_count": 17,
             "total_requests": total_requests,
             "total_errors": total_errors,
@@ -625,6 +626,25 @@ async fn logs_handler(
         "showing": entries.len(),
         "entries": entries,
     }))
+}
+
+async fn log_detail_handler(
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    match openclaw_agent::llm_log::get_by_id(&id) {
+        Some(entry) => Json(serde_json::json!({
+            "found": true,
+            "entry": entry,
+        })).into_response(),
+        None => (
+            axum::http::StatusCode::NOT_FOUND,
+            Json(serde_json::json!({
+                "found": false,
+                "error": format!("Log entry '{}' not found", id),
+            })),
+        ).into_response(),
+    }
 }
 
 async fn doctor_json_handler() -> Json<serde_json::Value> {
@@ -1116,13 +1136,13 @@ mod tests {
 
     #[test]
     fn test_http_endpoints_count() {
-        let endpoints = ["/health", "/health/lite", "/version", "/ping", "/ready", "/status", "/metrics", "/metrics/json", "/metrics/summary", "/doctor", "/doctor/json", "/webhook", "/logs"];
-        assert_eq!(endpoints.len(), 13, "Should have 13 HTTP endpoints");
+        let endpoints = ["/health", "/health/lite", "/version", "/ping", "/ready", "/status", "/metrics", "/metrics/json", "/metrics/summary", "/doctor", "/doctor/json", "/webhook", "/logs", "/logs/:id"];
+        assert_eq!(endpoints.len(), 14, "Should have 14 HTTP endpoints");
         // Verify no duplicates
         let mut sorted = endpoints.to_vec();
         sorted.sort();
         sorted.dedup();
-        assert_eq!(sorted.len(), 13, "HTTP endpoints should have no duplicates");
+        assert_eq!(sorted.len(), 14, "HTTP endpoints should have no duplicates");
     }
 
     #[test]

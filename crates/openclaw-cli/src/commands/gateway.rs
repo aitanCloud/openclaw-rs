@@ -33,6 +33,11 @@ pub enum GatewayAction {
         #[arg(short, long, default_value_t = 20)]
         limit: usize,
     },
+    /// Show full detail of a single LLM log entry
+    LogDetail {
+        /// Log entry ID (UUID)
+        id: String,
+    },
 }
 
 pub async fn run(action: GatewayAction) -> Result<()> {
@@ -50,6 +55,7 @@ pub async fn run(action: GatewayAction) -> Result<()> {
         GatewayAction::Metrics => metrics(&client, &base).await,
         GatewayAction::Model => model(&client, &base).await,
         GatewayAction::Sessions { limit } => sessions(&client, &base, limit).await,
+        GatewayAction::LogDetail { id } => log_detail(&client, &base, &id).await,
     }
 }
 
@@ -280,6 +286,69 @@ async fn sessions(client: &reqwest::Client, base: &str, limit: usize) -> Result<
                 (i + 1).to_string().bold(), short_key.dimmed(), msgs, tokens);
         }
     }
+    Ok(())
+}
+
+async fn log_detail(client: &reqwest::Client, base: &str, id: &str) -> Result<()> {
+    let resp = client.get(format!("{}/logs/{}", base, id)).send().await
+        .map_err(|e| anyhow::anyhow!("Cannot reach gateway at {}: {}", base, e))?;
+
+    if resp.status() == 404 {
+        println!("{} Log entry '{}' not found.", "✗".red(), id);
+        return Ok(());
+    }
+
+    let json: serde_json::Value = resp.json().await?;
+    let entry = &json["entry"];
+
+    println!("{}", "═══ LLM Log Entry ═══".bold().cyan());
+    println!("  {} {}", "ID:".bold(), entry["id"].as_str().unwrap_or("?"));
+    println!("  {} {}", "Timestamp:".bold(), entry["timestamp"].as_str().unwrap_or("?"));
+    println!("  {} {}", "Model:".bold(), entry["model"].as_str().unwrap_or("?").yellow());
+
+    if let Some(session) = entry["session_key"].as_str() {
+        println!("  {} {}", "Session:".bold(), session.dimmed());
+    }
+
+    println!("  {} {}", "Streaming:".bold(),
+        if entry["streaming"].as_bool().unwrap_or(false) { "yes".green() } else { "no".dimmed() });
+    println!("  {} {}", "Provider Attempt:".bold(), entry["provider_attempt"].as_u64().unwrap_or(1));
+    println!("  {} {}", "Messages:".bold(), entry["messages_count"].as_u64().unwrap_or(0));
+    println!("  {} ~{}", "Request Tokens (est):".bold(), entry["request_tokens_est"].as_u64().unwrap_or(0));
+
+    println!("\n  {}", "── Response ──".bold());
+    if let Some(content) = entry["response_content"].as_str() {
+        // Show full content, wrapped
+        for line in content.lines() {
+            println!("  {}", line);
+        }
+    } else if entry["response_tool_calls"].as_u64().unwrap_or(0) > 0 {
+        let tc = entry["response_tool_calls"].as_u64().unwrap_or(0);
+        let names: Vec<&str> = entry["tool_call_names"].as_array()
+            .map(|a| a.iter().filter_map(|v| v.as_str()).collect())
+            .unwrap_or_default();
+        println!("  {} tool call(s): {}", tc, names.join(", ").yellow());
+    } else {
+        println!("  {}", "(no content)".dimmed());
+    }
+
+    if let Some(reasoning) = entry["response_reasoning"].as_str() {
+        println!("\n  {}", "── Reasoning ──".bold());
+        for line in reasoning.lines() {
+            println!("  {}", line.dimmed());
+        }
+    }
+
+    println!("\n  {}", "── Usage ──".bold());
+    println!("  {} {}", "Prompt Tokens:".bold(), entry["usage_prompt_tokens"].as_u64().unwrap_or(0));
+    println!("  {} {}", "Completion Tokens:".bold(), entry["usage_completion_tokens"].as_u64().unwrap_or(0));
+    println!("  {} {}", "Total Tokens:".bold(), entry["usage_total_tokens"].as_u64().unwrap_or(0));
+    println!("  {} {}ms", "Latency:".bold(), entry["latency_ms"].as_u64().unwrap_or(0));
+
+    if let Some(err) = entry["error"].as_str() {
+        println!("\n  {} {}", "Error:".bold().red(), err.red());
+    }
+
     Ok(())
 }
 

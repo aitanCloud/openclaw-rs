@@ -200,9 +200,20 @@ impl LlmLogEntry {
                     "(no content)".to_string()
                 }
             });
+        let attempt = if self.provider_attempt > 1 {
+            format!(" [attempt {}]", self.provider_attempt)
+        } else {
+            String::new()
+        };
+        let session = self.session_key.as_deref()
+            .map(|s| {
+                let short = if s.len() > 20 { &s[..20] } else { s };
+                format!(" ({})", short)
+            })
+            .unwrap_or_default();
         format!(
-            "{} {} | {}ms | {}tok | {}",
-            status, self.model, self.latency_ms, self.usage_total_tokens, content_preview
+            "{} {}{} | {}ms | {}tok{} | {}",
+            status, self.model, attempt, self.latency_ms, self.usage_total_tokens, session, content_preview
         )
     }
 }
