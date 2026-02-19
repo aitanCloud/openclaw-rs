@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.97.0
+**Version:** 0.98.0
 **Last updated:** 2026-02-19
 **Maintainer:** Cascade + Shawaz
 
@@ -761,7 +761,13 @@
 - ✅ **`provider_count` in `/health/lite`** — 8 total fields, quick LLM provider visibility
 - ✅ **208 tests** — 111 agent + 7 core + 90 gateway
 
-## v0.98.0 — Daemon & Polish
+## v0.98.0 — Webhook Flag & Metrics Init Test (shipped)
+
+- ✅ **`webhook_configured` in `/health`** — 46 total fields, boolean showing webhook availability
+- ✅ **`GatewayMetrics::new()` initial state test** — verifies all 15 counters start at zero
+- ✅ **209 tests** — 111 agent + 7 core + 91 gateway (was 90)
+
+## v0.99.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**

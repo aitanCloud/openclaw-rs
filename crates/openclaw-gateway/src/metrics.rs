@@ -603,6 +603,26 @@ mod tests {
     }
 
     #[test]
+    fn test_metrics_new_all_zeros() {
+        let m = GatewayMetrics::new();
+        assert_eq!(m.total_requests(), 0);
+        assert_eq!(m.total_errors(), 0);
+        assert_eq!(m.avg_latency_ms(), 0);
+        assert_eq!(m.webhook_requests(), 0);
+        assert_eq!(m.agent_turns(), 0);
+        assert_eq!(m.tool_calls(), 0);
+        assert_eq!(m.completed_requests(), 0);
+        assert_eq!(m.rate_limited(), 0);
+        assert_eq!(m.concurrency_rejected(), 0);
+        assert_eq!(m.agent_timeouts(), 0);
+        assert_eq!(m.tasks_cancelled(), 0);
+        assert_eq!(m.gateway_connects(), 0);
+        assert_eq!(m.gateway_disconnects(), 0);
+        assert_eq!(m.gateway_resumes(), 0);
+        assert_eq!(m.error_rate_pct(), 0.0);
+    }
+
+    #[test]
     fn test_json_has_all_expected_fields() {
         let m = GatewayMetrics::new();
         let json = m.to_json();

@@ -531,6 +531,7 @@ async fn health_handler() -> axum::response::Response {
             "gateway_resumes": gw_resumes,
             "provider_count": providers.len(),
             "fallback_chain": providers,
+            "webhook_configured": std::env::var("WEBHOOK_TOKEN").is_ok(),
             "doctor_checks_total": checks_total,
             "doctor_checks_passed": checks_passed,
             "response_time_ms": elapsed_ms,
@@ -936,15 +937,15 @@ mod tests {
             "rate_limited", "concurrency_rejected",
             "agent_timeouts", "tasks_cancelled",
             "gateway_connects", "gateway_disconnects", "gateway_resumes",
-            "provider_count", "fallback_chain",
+            "provider_count", "fallback_chain", "webhook_configured",
             "doctor_checks_total", "doctor_checks_passed", "response_time_ms",
         ];
-        assert_eq!(expected.len(), 45, "Should have 45 /health JSON fields");
+        assert_eq!(expected.len(), 46, "Should have 46 /health JSON fields");
         // Verify no duplicates
         let mut sorted = expected.to_vec();
         sorted.sort();
         sorted.dedup();
-        assert_eq!(sorted.len(), 45, "/health fields should have no duplicates");
+        assert_eq!(sorted.len(), 46, "/health fields should have no duplicates");
     }
 
     #[test]
