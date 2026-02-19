@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.82.0
+**Version:** 0.83.0
 **Last updated:** 2026-02-19
 **Maintainer:** Cascade + Shawaz
 
@@ -642,7 +642,15 @@
 - ✅ **`human_bytes(1)` test** — single byte boundary value
 - ✅ **189 tests** — 111 agent + 7 core + 71 gateway
 
-## v0.83.0 — Daemon & Polish
+## v0.83.0 — Agent Name & /status Validation (shipped)
+
+- ✅ **`agent` field in `/health` and `/version`** — shows configured agent name via `OnceLock` static
+- ✅ **`init_agent_name()` / `agent_name()`** — set once at startup, accessible from all HTTP handlers
+- ✅ **`/status` field completeness test** — verifies all 20 fields with no duplicates
+- ✅ **25 `/health` fields** — comprehensive system overview
+- ✅ **190 tests** — 111 agent + 7 core + 72 gateway (was 71)
+
+## v0.84.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**

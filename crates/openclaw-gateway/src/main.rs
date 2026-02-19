@@ -45,6 +45,9 @@ async fn main() -> anyhow::Result<()> {
         me.first_name
     );
 
+    // ── Store agent name for HTTP endpoints ──
+    handler::init_agent_name(&config.agent.name);
+
     // ── Session maintenance on startup ──
     match openclaw_agent::sessions::SessionStore::open(&config.agent.name) {
         Ok(store) => {
@@ -395,6 +398,7 @@ async fn ping_handler() -> &'static str {
 async fn version_handler() -> Json<serde_json::Value> {
     Json(serde_json::json!({
         "version": env!("CARGO_PKG_VERSION"),
+        "agent": handler::agent_name(),
         "built": env!("BUILD_TIMESTAMP"),
         "boot_time": *handler::BOOT_TIMESTAMP,
     }))
@@ -440,6 +444,7 @@ async fn health_handler() -> axum::response::Response {
         Json(serde_json::json!({
             "status": "ok",
             "version": env!("CARGO_PKG_VERSION"),
+            "agent": handler::agent_name(),
             "built": env!("BUILD_TIMESTAMP"),
             "boot_time": *handler::BOOT_TIMESTAMP,
             "active_tasks": task_registry::active_count(),
@@ -816,7 +821,7 @@ mod tests {
     #[test]
     fn test_health_expected_fields() {
         let expected = [
-            "status", "version", "built", "boot_time", "active_tasks",
+            "status", "version", "agent", "built", "boot_time", "active_tasks",
             "uptime", "uptime_seconds", "memory_rss_bytes", "memory_rss",
             "skills", "sessions", "commands",
             "http_endpoint_count", "tool_count",
@@ -825,12 +830,12 @@ mod tests {
             "provider_count", "fallback_chain",
             "doctor_checks_total", "doctor_checks_passed", "response_time_ms",
         ];
-        assert_eq!(expected.len(), 24, "Should have 24 /health JSON fields");
+        assert_eq!(expected.len(), 25, "Should have 25 /health JSON fields");
         // Verify no duplicates
         let mut sorted = expected.to_vec();
         sorted.sort();
         sorted.dedup();
-        assert_eq!(sorted.len(), 24, "/health fields should have no duplicates");
+        assert_eq!(sorted.len(), 25, "/health fields should have no duplicates");
     }
 
     #[test]
@@ -850,6 +855,22 @@ mod tests {
         sorted.sort();
         sorted.dedup();
         assert_eq!(sorted.len(), 9, "HTTP endpoints should have no duplicates");
+    }
+
+    #[test]
+    fn test_status_expected_fields() {
+        let expected = [
+            "status", "version", "agent", "fallback", "model", "providers",
+            "uptime", "uptime_seconds", "channels", "sessions", "metrics",
+            "tools", "tool_count", "active_tasks",
+            "webhook_configured", "built", "boot_time",
+            "http_endpoints", "http_endpoint_count", "commands",
+        ];
+        assert_eq!(expected.len(), 20, "Should have 20 /status JSON fields");
+        let mut sorted = expected.to_vec();
+        sorted.sort();
+        sorted.dedup();
+        assert_eq!(sorted.len(), 20, "/status fields should have no duplicates");
     }
 
     #[test]

@@ -21,6 +21,17 @@ pub static BOOT_TIME: std::sync::LazyLock<std::time::Instant> =
 pub static BOOT_TIMESTAMP: std::sync::LazyLock<String> =
     std::sync::LazyLock::new(|| chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string());
 
+/// Agent name, set once at startup via init_agent_name()
+static AGENT_NAME: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+pub fn init_agent_name(name: &str) {
+    let _ = AGENT_NAME.set(name.to_string());
+}
+
+pub fn agent_name() -> &'static str {
+    AGENT_NAME.get().map(|s| s.as_str()).unwrap_or("unknown")
+}
+
 /// Minimum chars between Telegram message edits (avoid rate limits)
 const EDIT_MIN_CHARS: usize = 80;
 /// Minimum ms between Telegram message edits
