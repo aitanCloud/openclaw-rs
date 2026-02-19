@@ -496,6 +496,12 @@ async fn handle_command(
                 let turns = m.agent_turns.load(std::sync::atomic::Ordering::Relaxed);
                 let tool_calls = m.tool_calls.load(std::sync::atomic::Ordering::Relaxed);
                 let err_rate = m.error_rate_pct();
+                let session_count = openclaw_agent::sessions::SessionStore::open(&config.agent.name)
+                    .ok()
+                    .and_then(|s| s.db_stats(&config.agent.name).ok())
+                    .map(|stats| stats.session_count)
+                    .unwrap_or(0);
+                let session_str = session_count.to_string();
                 bot.send_embed(
                     channel_id, Some(reply_to),
                     "📊 Gateway Stats",
@@ -508,6 +514,7 @@ async fn handle_command(
                         ("Completed", &completed.to_string(), true),
                         ("Agent Turns", &turns.to_string(), true),
                         ("Tool Calls", &tool_calls.to_string(), true),
+                        ("Sessions", &session_str, true),
                         ("Avg Latency", &format!("{}ms", avg), true),
                         ("Error Rate", &format!("{:.1}%", err_rate), true),
                         ("Cancelled", &cancelled.to_string(), true),

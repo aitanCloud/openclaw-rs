@@ -497,6 +497,11 @@ async fn handle_command(
                 let turns = m.agent_turns.load(std::sync::atomic::Ordering::Relaxed);
                 let tool_calls = m.tool_calls.load(std::sync::atomic::Ordering::Relaxed);
                 let err_rate = m.error_rate_pct();
+                let session_count = openclaw_agent::sessions::SessionStore::open(&config.agent.name)
+                    .ok()
+                    .and_then(|s| s.db_stats(&config.agent.name).ok())
+                    .map(|stats| stats.session_count)
+                    .unwrap_or(0);
                 bot.send_message(chat_id, &format!(
                     "📊 *Gateway Stats* ({}h {}m uptime)\n\n\
                     Telegram: {} requests, {} errors\n\
@@ -505,13 +510,14 @@ async fn handle_command(
                     Completed: {}\n\
                     Agent turns: {}\n\
                     Tool calls: {}\n\
+                    Sessions: {}\n\
                     Cancelled: {}\n\
                     Timeouts: {}\n\
                     Active tasks: {}\n\
                     Avg latency: {}ms\n\
                     Error rate: {:.1}%",
                     hours, mins, tg_req, tg_err, dc_req, dc_err, rl, completed,
-                    turns, tool_calls, cancelled, timeouts,
+                    turns, tool_calls, session_count, cancelled, timeouts,
                     crate::task_registry::active_count(), avg, err_rate,
                 )).await?;
             } else {

@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.52.0
+**Version:** 0.53.0
 **Last updated:** 2026-02-19
 **Maintainer:** Cascade + Shawaz
 
@@ -421,7 +421,14 @@
 - ✅ **160 tests** — 111 agent + 7 core + 42 gateway
 - ✅ **HTTP endpoints** — /health, /status, /metrics, /metrics/json, **/doctor**
 
-## v0.53.0 — Daemon & Polish
+## v0.53.0 — Graceful Shutdown & Session Stats (shipped)
+
+- ✅ **SIGTERM handler** — replaced no-op `pending()` with real `tokio::signal::unix::SignalKind::terminate()` listener for proper systemd shutdown
+- ✅ **Graceful drain** — on SIGINT/SIGTERM, waits up to 30s for active tasks to complete before exiting
+- ✅ **Session count in `/stats`** — both Telegram and Discord /stats now show total session count from SQLite DB
+- ✅ **160 tests** — 111 agent + 7 core + 42 gateway
+
+## v0.54.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**

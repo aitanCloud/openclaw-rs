@@ -252,16 +252,18 @@ async fn main() -> anyhow::Result<()> {
     let shutdown = async {
         let ctrl_c = tokio::signal::ctrl_c();
         #[cfg(unix)]
-        let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-            .expect("Failed to register SIGTERM handler");
-        #[cfg(unix)]
-        let sigterm_fut = sigterm.recv();
+        let sigterm = async {
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                .expect("Failed to install SIGTERM handler")
+                .recv()
+                .await;
+        };
         #[cfg(not(unix))]
-        let sigterm_fut = std::future::pending::<Option<()>>();
+        let sigterm = std::future::pending::<()>();
 
         tokio::select! {
             _ = ctrl_c => info!("Received SIGINT (Ctrl+C)"),
-            _ = sigterm_fut => info!("Received SIGTERM"),
+            _ = sigterm => info!("Received SIGTERM"),
         }
     };
     tokio::pin!(shutdown);
