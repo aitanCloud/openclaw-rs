@@ -1,0 +1,25 @@
+# OpenClaw Rust Workspace Rules
+
+## Context Discipline
+- Do NOT summarize the entire repo or produce a "repo briefing" on open.
+- Use local search (grep, find, code_search) to locate relevant code, then inject only the needed snippets.
+- Never read Cargo.lock — it is thousands of lines of dependency hashes.
+- Prefer reading specific crate source files over scanning the whole tree.
+
+## Architecture (quick reference)
+This is a Cargo workspace with 4 crates:
+- `crates/openclaw-core/` — config, cron, sessions, skills, paths
+- `crates/openclaw-agent/` — LLM providers, tools, agent runtime, sandbox
+- `crates/openclaw-cli/` — CLI binary (clap)
+- `crates/openclaw-gateway/` — Telegram + Discord bots, HTTP endpoints, metrics
+
+## Build & Test
+- Build: `nix-shell -p gcc --run "cargo build --release"`
+- Test: `nix-shell -p gcc --run "cargo test --release"`
+- Push: `GIT_SSH_COMMAND="ssh -i /home/shawaz/.ssh/id_ed25519_aitan -o IdentitiesOnly=yes" git push`
+- Docker: `docker compose -f docker-compose.gateway.yml build`
+
+## Code Style
+- Follow existing patterns in the crate you're editing.
+- Do not add or remove comments unless asked.
+- Keep edits minimal and focused.

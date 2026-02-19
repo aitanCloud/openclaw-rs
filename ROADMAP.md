@@ -774,12 +774,51 @@
 - ✅ **`human_uptime` unit suffix test** — verifies all outputs contain s/m/h/d across 9 boundary values
 - ✅ **211 tests** — 111 agent + 7 core + 93 gateway (was 91) — **pre-1.0 milestone!**
 
-## v1.0.0 — Stable Release
+## v1.0.0 — LLM Activity Log (in progress)
 
-- 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
+- 🚧 **LLM activity log module** — `llm_log.rs` in openclaw-agent: thread-safe ring buffer capturing every LLM request/response with timestamps, model, tokens, request messages, response content, tool calls, latency
+- 🚧 **Logging wired into providers** — both `complete()` and `complete_streaming()` record entries via global log
+- 🚧 **`/logs` command** — show recent LLM interactions on both Telegram and Discord (with embed)
+- 🚧 **`GET /logs` HTTP endpoint** — JSON array of recent LLM activity for dashboard/CLI consumption
+- 🚧 **`GET /logs/:id` HTTP endpoint** — full detail of a single log entry
+- 📋 **23 commands on both channels** — added `/logs`
+- 📋 **13 HTTP endpoints** — added `/logs`
+
+## v1.1.0 — CLI Gateway Client
+
+- 📋 **`openclaw status`** — CLI subcommand that queries `GET /health` from running gateway
+- 📋 **`openclaw logs`** — CLI subcommand that queries `GET /logs` and pretty-prints LLM activity
+- 📋 **`openclaw doctor`** — CLI subcommand that queries `GET /doctor/json`
+- 📋 **Gateway URL config** — `OPENCLAW_GATEWAY_URL` env var or config key
+
+## v1.2.0 — CLI Session & Model Commands
+
+- 📋 **`openclaw sessions`** — list sessions from gateway
+- 📋 **`openclaw model`** — show current model/fallback chain
+- 📋 **`openclaw cron`** — list/enable/disable cron jobs
+- 📋 **`openclaw config`** — show sanitized config
+
+## v1.3.0 — Channel Plugin Abstraction
+
+- 📋 **`Channel` trait** — abstract interface for message channels (send, edit, upload, typing)
+- 📋 **Telegram channel plugin** — refactor handler.rs to implement Channel trait
+- 📋 **Discord channel plugin** — refactor discord_handler.rs to implement Channel trait
+- 📋 **Plugin loader** — dynamic channel registration from config
+
+## v1.4.0 — WebSocket Protocol
+
+- 📋 **WS endpoint** — `ws://gateway:3100/ws` for CLI↔Gateway real-time communication
+- 📋 **CLI connect mode** — `openclaw chat` opens interactive WS session
+- 📋 **TUI** — terminal UI with streaming responses
+
+## v1.5.0+ — Extended Features
+
+- 📋 **Multi-agent routing** — per-agent workspaces, auth, routing
+- 📋 **Device pairing** — QR codes, setup codes, token management
 - 📋 **Slack integration**
 - 📋 **Grafana dashboard template** — JSON dashboard for gateway metrics
 - 💡 **WhatsApp integration**
+- 💡 **Unix socket daemon mode**
 
 ---
 
@@ -788,16 +827,28 @@
 ```
 openclaw-rs/
 ├── crates/
-│   ├── openclaw-core/       # Config, paths, cron, sessions, shared types (7 tests)
-│   ├── openclaw-agent/      # LLM providers, 15 tools, runtime, sessions, sandbox (92 tests)
-│   ├── openclaw-cli/        # Terminal interface with streaming
-│   └── openclaw-gateway/    # Telegram + Discord bots, HTTP endpoints, metrics (21 tests)
-│       ├── handler.rs       # Telegram: 8 commands, streaming, photo/vision, /voice TTS
+│   ├── openclaw-core/       # Config, paths, cron, sessions, skills, shared types (7 tests)
+│   ├── openclaw-agent/      # LLM providers, 17 tools, runtime, sessions, sandbox, llm_log (111 tests)
+│   │   └── src/
+│   │       ├── llm/         # mod.rs, streaming.rs, fallback.rs
+│   │       ├── llm_log.rs   # LLM activity ring buffer (NEW in v1.0.0)
+│   │       ├── runtime.rs   # Agent turn loop (parallel tools, token-aware history, CancellationToken)
+│   │       ├── subagent.rs  # Subagent system with cancellation propagation
+│   │       ├── sandbox.rs   # SandboxPolicy
+│   │       ├── sessions.rs  # SQLite persistence
+│   │       ├── tools/       # 17 tools
+│   │       └── workspace.rs # System prompt + skills injection + mtime cache
+│   ├── openclaw-cli/        # CLI binary (clap) — expanding with gateway client subcommands
+│   └── openclaw-gateway/    # Telegram + Discord bots, HTTP endpoints, metrics (93 tests)
+│       ├── handler.rs       # Telegram: 22+ commands, streaming, photo/vision, /voice TTS
 │       ├── discord.rs       # Discord WebSocket Gateway, auto-reconnect, file upload
-│       ├── discord_handler.rs # Discord: 8 commands, streaming, photo/vision, /voice TTS
-│       ├── metrics.rs       # Atomic counters, Prometheus + JSON format
+│       ├── discord_handler.rs # Discord: 22+ commands, streaming, photo/vision, /voice TTS
+│       ├── metrics.rs       # Atomic counters, Prometheus + JSON format (24 metrics)
+│       ├── doctor.rs        # 15 health checks
+│       ├── task_registry.rs # CancellationToken per chat
+│       ├── config.rs        # Gateway config + JSON parsing
 │       ├── telegram.rs      # Bot API client, voice upload, photo download
-│       └── main.rs          # Polling + WS, /health, /status, /metrics, graceful shutdown
+│       └── main.rs          # Polling + WS, 12+ HTTP endpoints, graceful shutdown
 ├── Dockerfile
 ├── docker-compose.gateway.yml
 └── ROADMAP.md
@@ -816,6 +867,19 @@ LLM SSE stream
   → Final edit with stats footer
 ```
 
+### LLM Activity Log Pipeline (NEW in v1.0.0)
+
+```
+LLM request
+  → Provider.complete() / complete_streaming()
+  → LlmLogEntry { id, timestamp, model, messages_count, request_tokens_est,
+                   response_content, response_tool_calls, usage, latency_ms, error }
+  → Global ring buffer (100 entries, thread-safe)
+  → /logs command (Telegram/Discord) shows last 5-10
+  → GET /logs (HTTP) returns full buffer as JSON
+  → GET /logs/:id returns single entry detail
+```
+
 ### Voice Pipeline
 
 ```
@@ -831,10 +895,19 @@ LLM SSE stream
 ### HTTP Endpoints
 
 ```
-GET /health          → "ok" (plain text)
-GET /status          → JSON (version, uptime, sessions, channels, metrics, tools, commands)
-GET /metrics         → Prometheus text/plain exposition format
-GET /metrics/json    → JSON metrics
+GET  /health          → JSON (45+ fields, full system overview)
+GET  /health/lite     → JSON (8 fields, lightweight check)
+GET  /version         → JSON (version, agent, built, boot_time, rust_version)
+GET  /ping            → "pong" (plaintext, load balancer)
+GET  /ready           → JSON (readiness probe, runs doctor checks)
+GET  /status          → JSON (version, uptime, sessions, channels, metrics, tools, commands)
+GET  /metrics         → Prometheus text/plain exposition format (24 metrics)
+GET  /metrics/json    → JSON metrics (22 fields)
+GET  /metrics/summary → plaintext one-liner
+GET  /doctor          → JSON (15 health checks)
+GET  /doctor/json     → JSON (structured check array)
+POST /webhook         → JSON (agent turn trigger with bearer auth)
+GET  /logs            → JSON (LLM activity log) — NEW in v1.0.0
 ```
 
 ### Fallback Chain

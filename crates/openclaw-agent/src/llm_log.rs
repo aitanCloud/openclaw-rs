@@ -1,0 +1,331 @@
+use serde::{Deserialize, Serialize};
+use std::collections::VecDeque;
+use std::sync::{Mutex, OnceLock};
+
+/// Maximum entries in the ring buffer
+const MAX_LOG_ENTRIES: usize = 100;
+
+/// Global LLM activity log
+static GLOBAL_LOG: OnceLock<Mutex<LlmActivityLog>> = OnceLock::new();
+
+/// Initialize the global log (call once at startup)
+pub fn init_global() {
+    let _ = GLOBAL_LOG.get_or_init(|| Mutex::new(LlmActivityLog::new(MAX_LOG_ENTRIES)));
+}
+
+/// Record an LLM interaction
+pub fn record(entry: LlmLogEntry) {
+    if let Some(log) = GLOBAL_LOG.get() {
+        if let Ok(mut log) = log.lock() {
+            log.push(entry);
+        }
+    }
+}
+
+/// Get recent log entries (newest first)
+pub fn recent(limit: usize) -> Vec<LlmLogEntry> {
+    GLOBAL_LOG
+        .get()
+        .and_then(|log| log.lock().ok())
+        .map(|log| log.recent(limit))
+        .unwrap_or_default()
+}
+
+/// Get all log entries (newest first)
+pub fn all_entries() -> Vec<LlmLogEntry> {
+    GLOBAL_LOG
+        .get()
+        .and_then(|log| log.lock().ok())
+        .map(|log| log.all())
+        .unwrap_or_default()
+}
+
+/// Get a single entry by ID
+pub fn get_by_id(id: &str) -> Option<LlmLogEntry> {
+    GLOBAL_LOG
+        .get()
+        .and_then(|log| log.lock().ok())
+        .and_then(|log| log.find_by_id(id))
+}
+
+/// Get total number of entries ever recorded
+pub fn total_count() -> u64 {
+    GLOBAL_LOG
+        .get()
+        .and_then(|log| log.lock().ok())
+        .map(|log| log.total_count)
+        .unwrap_or(0)
+}
+
+/// A single LLM API interaction log entry
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LlmLogEntry {
+    /// Unique ID for this entry
+    pub id: String,
+    /// ISO 8601 timestamp
+    pub timestamp: String,
+    /// Model name (e.g. "moonshot/kimi-k2.5")
+    pub model: String,
+    /// Number of messages in the request
+    pub messages_count: usize,
+    /// Estimated request tokens
+    pub request_tokens_est: u32,
+    /// Whether this was a streaming request
+    pub streaming: bool,
+    /// Response content (truncated for display)
+    pub response_content: Option<String>,
+    /// Response reasoning content (if any)
+    pub response_reasoning: Option<String>,
+    /// Number of tool calls in response
+    pub response_tool_calls: usize,
+    /// Tool call names (if any)
+    pub tool_call_names: Vec<String>,
+    /// Token usage from API
+    pub usage_prompt_tokens: u32,
+    pub usage_completion_tokens: u32,
+    pub usage_total_tokens: u32,
+    /// Latency in milliseconds
+    pub latency_ms: u64,
+    /// Error message if the request failed
+    pub error: Option<String>,
+    /// Which provider attempt this was (1-based, for fallback chains)
+    pub provider_attempt: u32,
+    /// Session key (if available from context)
+    pub session_key: Option<String>,
+}
+
+impl LlmLogEntry {
+    /// Create a new entry with auto-generated ID and timestamp
+    pub fn new(model: &str) -> Self {
+        Self {
+            id: uuid::Uuid::new_v4().to_string(),
+            timestamp: chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+            model: model.to_string(),
+            messages_count: 0,
+            request_tokens_est: 0,
+            streaming: false,
+            response_content: None,
+            response_reasoning: None,
+            response_tool_calls: 0,
+            tool_call_names: Vec::new(),
+            usage_prompt_tokens: 0,
+            usage_completion_tokens: 0,
+            usage_total_tokens: 0,
+            latency_ms: 0,
+            error: None,
+            provider_attempt: 1,
+            session_key: None,
+        }
+    }
+
+    /// Truncated summary for display (one-liner)
+    pub fn summary(&self) -> String {
+        let status = if self.error.is_some() { "❌" } else { "✅" };
+        let content_preview = self
+            .response_content
+            .as_deref()
+            .map(|c| {
+                if c.len() > 80 {
+                    format!("{}...", &c[..77])
+                } else {
+                    c.to_string()
+                }
+            })
+            .unwrap_or_else(|| {
+                if self.response_tool_calls > 0 {
+                    format!("[{} tool call(s): {}]", self.response_tool_calls, self.tool_call_names.join(", "))
+                } else {
+                    "(no content)".to_string()
+                }
+            });
+        format!(
+            "{} {} | {}ms | {}tok | {}",
+            status, self.model, self.latency_ms, self.usage_total_tokens, content_preview
+        )
+    }
+}
+
+/// Thread-safe ring buffer for LLM activity log entries
+struct LlmActivityLog {
+    entries: VecDeque<LlmLogEntry>,
+    capacity: usize,
+    total_count: u64,
+}
+
+impl LlmActivityLog {
+    fn new(capacity: usize) -> Self {
+        Self {
+            entries: VecDeque::with_capacity(capacity),
+            capacity,
+            total_count: 0,
+        }
+    }
+
+    fn push(&mut self, entry: LlmLogEntry) {
+        if self.entries.len() >= self.capacity {
+            self.entries.pop_front();
+        }
+        self.entries.push_back(entry);
+        self.total_count += 1;
+    }
+
+    fn recent(&self, limit: usize) -> Vec<LlmLogEntry> {
+        self.entries
+            .iter()
+            .rev()
+            .take(limit)
+            .cloned()
+            .collect()
+    }
+
+    fn all(&self) -> Vec<LlmLogEntry> {
+        self.entries.iter().rev().cloned().collect()
+    }
+
+    fn find_by_id(&self, id: &str) -> Option<LlmLogEntry> {
+        self.entries.iter().find(|e| e.id == id).cloned()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_llm_log_entry_new() {
+        let entry = LlmLogEntry::new("moonshot/kimi-k2.5");
+        assert_eq!(entry.model, "moonshot/kimi-k2.5");
+        assert!(!entry.id.is_empty());
+        assert!(!entry.timestamp.is_empty());
+        assert_eq!(entry.messages_count, 0);
+        assert!(entry.error.is_none());
+        assert!(entry.response_content.is_none());
+    }
+
+    #[test]
+    fn test_llm_log_entry_summary_success() {
+        let mut entry = LlmLogEntry::new("test/model");
+        entry.response_content = Some("Hello, world!".to_string());
+        entry.latency_ms = 150;
+        entry.usage_total_tokens = 42;
+        let summary = entry.summary();
+        assert!(summary.contains("✅"));
+        assert!(summary.contains("test/model"));
+        assert!(summary.contains("150ms"));
+        assert!(summary.contains("42tok"));
+        assert!(summary.contains("Hello, world!"));
+    }
+
+    #[test]
+    fn test_llm_log_entry_summary_error() {
+        let mut entry = LlmLogEntry::new("test/model");
+        entry.error = Some("connection refused".to_string());
+        entry.latency_ms = 50;
+        let summary = entry.summary();
+        assert!(summary.contains("❌"));
+    }
+
+    #[test]
+    fn test_llm_log_entry_summary_tool_calls() {
+        let mut entry = LlmLogEntry::new("test/model");
+        entry.response_tool_calls = 2;
+        entry.tool_call_names = vec!["exec".to_string(), "read_file".to_string()];
+        entry.latency_ms = 200;
+        entry.usage_total_tokens = 100;
+        let summary = entry.summary();
+        assert!(summary.contains("2 tool call(s)"));
+        assert!(summary.contains("exec"));
+        assert!(summary.contains("read_file"));
+    }
+
+    #[test]
+    fn test_llm_log_entry_summary_long_content_truncated() {
+        let mut entry = LlmLogEntry::new("test/model");
+        entry.response_content = Some("x".repeat(200));
+        entry.latency_ms = 100;
+        entry.usage_total_tokens = 50;
+        let summary = entry.summary();
+        assert!(summary.contains("..."));
+        assert!(summary.len() < 300);
+    }
+
+    #[test]
+    fn test_ring_buffer_push_and_recent() {
+        let mut log = LlmActivityLog::new(3);
+        for i in 0..5 {
+            let mut entry = LlmLogEntry::new("model");
+            entry.latency_ms = i as u64;
+            log.push(entry);
+        }
+        // Should only keep last 3
+        assert_eq!(log.entries.len(), 3);
+        assert_eq!(log.total_count, 5);
+
+        let recent = log.recent(2);
+        assert_eq!(recent.len(), 2);
+        // Newest first
+        assert_eq!(recent[0].latency_ms, 4);
+        assert_eq!(recent[1].latency_ms, 3);
+    }
+
+    #[test]
+    fn test_ring_buffer_find_by_id() {
+        let mut log = LlmActivityLog::new(10);
+        let mut entry = LlmLogEntry::new("model");
+        let id = entry.id.clone();
+        entry.latency_ms = 999;
+        log.push(entry);
+
+        let found = log.find_by_id(&id);
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().latency_ms, 999);
+
+        assert!(log.find_by_id("nonexistent").is_none());
+    }
+
+    #[test]
+    fn test_ring_buffer_all() {
+        let mut log = LlmActivityLog::new(5);
+        for i in 0..3 {
+            let mut entry = LlmLogEntry::new("model");
+            entry.latency_ms = i as u64;
+            log.push(entry);
+        }
+        let all = log.all();
+        assert_eq!(all.len(), 3);
+        // Newest first
+        assert_eq!(all[0].latency_ms, 2);
+        assert_eq!(all[2].latency_ms, 0);
+    }
+
+    #[test]
+    fn test_ring_buffer_capacity_eviction() {
+        let mut log = LlmActivityLog::new(2);
+        let mut e1 = LlmLogEntry::new("model");
+        e1.latency_ms = 1;
+        let mut e2 = LlmLogEntry::new("model");
+        e2.latency_ms = 2;
+        let mut e3 = LlmLogEntry::new("model");
+        e3.latency_ms = 3;
+
+        log.push(e1);
+        log.push(e2);
+        log.push(e3);
+
+        assert_eq!(log.entries.len(), 2);
+        // e1 should be evicted
+        let all = log.all();
+        assert_eq!(all[0].latency_ms, 3);
+        assert_eq!(all[1].latency_ms, 2);
+    }
+
+    #[test]
+    fn test_llm_log_entry_serialization() {
+        let entry = LlmLogEntry::new("test/model");
+        let json = serde_json::to_string(&entry).unwrap();
+        assert!(json.contains("test/model"));
+        let deserialized: LlmLogEntry = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.model, "test/model");
+        assert_eq!(deserialized.id, entry.id);
+    }
+}

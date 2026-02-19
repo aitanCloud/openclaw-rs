@@ -444,9 +444,9 @@ async fn handle_command(
                 &[
                     ("Session", "`/new` `/clear` `/sessions` `/export`", false),
                     ("Info", "`/status` `/model` `/version` `/whoami` `/db`", false),
-                    ("Monitoring", "`/stats` `/ping` `/history [N]` `/doctor`", false),
+                    ("Monitoring", "`/stats` `/ping` `/history [N]` `/doctor` `/logs [N]`", false),
                     ("Control", "`/cancel` `/stop` `/voice` `/cron` `/tools` `/skills` `/config` `/runtime`", false),
-                    ("Commands", "22", true),
+                    ("Commands", "23", true),
                 ],
             ).await?;
         }
@@ -1183,6 +1183,55 @@ async fn handle_command(
                         }
                     }
                 }
+            }
+        }
+        "logs" => {
+            let count: usize = text.split_whitespace().nth(1)
+                .and_then(|n| n.parse().ok())
+                .unwrap_or(5)
+                .min(20);
+            let entries = openclaw_agent::llm_log::recent(count);
+            let total = openclaw_agent::llm_log::total_count();
+
+            if entries.is_empty() {
+                bot.send_embed(
+                    channel_id, Some(reply_to),
+                    "📋 LLM Activity Log",
+                    "No LLM activity recorded yet.",
+                    0x5865F2,
+                    &[],
+                ).await?;
+            } else {
+                let mut fields: Vec<(String, String, bool)> = Vec::new();
+                for (i, entry) in entries.iter().enumerate() {
+                    let status = if entry.error.is_some() { "❌" } else { "✅" };
+                    let content_preview = entry.response_content.as_deref()
+                        .map(|c| if c.len() > 80 { format!("{}…", &c[..77]) } else { c.to_string() })
+                        .unwrap_or_else(|| {
+                            if entry.response_tool_calls > 0 {
+                                format!("[{} tool(s): {}]", entry.response_tool_calls, entry.tool_call_names.join(", "))
+                            } else if let Some(ref err) = entry.error {
+                                format!("ERR: {}", &err[..err.len().min(60)])
+                            } else {
+                                "(no content)".to_string()
+                            }
+                        });
+                    fields.push((
+                        format!("{}. {} `{}`", i + 1, status, entry.model),
+                        format!("{}ms · {}tok · {}", entry.latency_ms, entry.usage_total_tokens, content_preview),
+                        false,
+                    ));
+                }
+                let field_refs: Vec<(&str, &str, bool)> = fields.iter()
+                    .map(|(n, d, i)| (n.as_str(), d.as_str(), *i))
+                    .collect();
+                bot.send_embed(
+                    channel_id, Some(reply_to),
+                    "📋 LLM Activity Log",
+                    &format!("Showing {} of {} total · Use `/logs N` for more (max 20)", entries.len(), total),
+                    0x2ECC71, // Green
+                    &field_refs,
+                ).await?;
             }
         }
         _ => {

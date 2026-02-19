@@ -464,6 +464,7 @@ async fn handle_command(
                 /skills — list available workspace skills\n\
                 /config — show gateway config (sanitized)\n\
                 /runtime — build and runtime info\n\
+                /logs [N] — show recent LLM activity (default 5)\n\
                 /doctor — run health checks\n\
                 /help — show this help\n\n\
                 You can also send voice messages — I'll transcribe and respond.",
@@ -550,7 +551,7 @@ async fn handle_command(
                 "🦀 *openclaw-gateway* v{}\n\
                 Uptime: {}\n\
                 Agent: {}\n\
-                Commands: 22",
+                Commands: 23",
                 env!("CARGO_PKG_VERSION"), uptime_str, config.agent.name,
             )).await?;
         }
@@ -1077,6 +1078,47 @@ async fn handle_command(
                             }
                         }
                     }
+                }
+            }
+        }
+        "/logs" => {
+            let count: usize = text.split_whitespace().nth(1)
+                .and_then(|n| n.parse().ok())
+                .unwrap_or(5)
+                .min(20);
+            let entries = openclaw_agent::llm_log::recent(count);
+            let total = openclaw_agent::llm_log::total_count();
+
+            if entries.is_empty() {
+                bot.send_message(chat_id, "📋 No LLM activity recorded yet.").await?;
+            } else {
+                let mut msg_text = format!(
+                    "📋 *LLM Activity Log* (last {} of {} total)\n\n",
+                    entries.len(), total,
+                );
+                for (i, entry) in entries.iter().enumerate() {
+                    let status = if entry.error.is_some() { "❌" } else { "✅" };
+                    let content_preview = entry.response_content.as_deref()
+                        .map(|c| if c.len() > 60 { format!("{}…", &c[..57]) } else { c.to_string() })
+                        .unwrap_or_else(|| {
+                            if entry.response_tool_calls > 0 {
+                                format!("[{} tool(s): {}]", entry.response_tool_calls, entry.tool_call_names.join(", "))
+                            } else if let Some(ref err) = entry.error {
+                                format!("ERR: {}", &err[..err.len().min(50)])
+                            } else {
+                                "(no content)".to_string()
+                            }
+                        });
+                    msg_text.push_str(&format!(
+                        "{}. {} `{}` {}ms {}tok\n   {}\n\n",
+                        i + 1, status, entry.model, entry.latency_ms,
+                        entry.usage_total_tokens, content_preview,
+                    ));
+                }
+                msg_text.push_str("_Use /logs N to show more (max 20)_");
+                let chunks = split_for_telegram(&msg_text, 4000);
+                for chunk in chunks {
+                    bot.send_message(chat_id, &chunk).await?;
                 }
             }
         }

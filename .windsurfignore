@@ -1,0 +1,40 @@
+# Rust build artifacts
+/target/
+**/*.rs.bk
+
+# Lockfile (huge, never useful in context)
+Cargo.lock
+
+# Nix / direnv
+.direnv/
+result
+result-*
+
+# Docker build context artifacts
+.dockerignore
+
+# Git internals
+.git/
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Generated / large files
+*.min.js
+*.map
+*.wasm
+*.so
+*.dylib
+*.d
+
+# CI artifacts
+coverage/
+logs/
+*.log
+
+# Upstream drift notes (auto-generated)
+UPSTREAM-DRIFT.md

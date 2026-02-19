@@ -36,7 +36,7 @@ async fn main() -> anyhow::Result<()> {
     if let Some(ref dc) = config.discord {
         info!("Discord enabled | allowed users: {:?}", dc.allowed_user_ids);
     }
-    info!("Commands: 22 (/help /new /status /model /sessions /export /voice /ping /history /clear /db /version /stats /whoami /cancel /stop /cron /tools /skills /config /runtime /doctor)");
+    info!("Commands: 23 (/help /new /status /model /sessions /export /voice /ping /history /clear /db /version /stats /whoami /cancel /stop /cron /tools /skills /config /runtime /doctor /logs)");
 
     // ── Verify bot token ──
     let bot = telegram::TelegramBot::new(&config.telegram.bot_token);
@@ -77,6 +77,9 @@ async fn main() -> anyhow::Result<()> {
         }
         Err(e) => warn!("Could not open session store for maintenance: {}", e),
     }
+
+    // ── Initialize LLM activity log ──
+    openclaw_agent::llm_log::init_global();
 
     // ── Start cron executor ──
     let cron_bot = Arc::new(telegram::TelegramBot::new(&config.telegram.bot_token));
@@ -147,6 +150,7 @@ async fn main() -> anyhow::Result<()> {
             }),
         )
         .route("/doctor/json", get(doctor_json_handler))
+        .route("/logs", get(logs_handler))
         .route(
             "/webhook",
             axum::routing::post({
@@ -595,6 +599,21 @@ async fn metrics_summary_handler(
         m.webhook_requests(),
         uptime,
     )
+}
+
+async fn logs_handler(
+    query: axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Json<serde_json::Value> {
+    let limit: usize = query.get("limit")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(50);
+    let entries = openclaw_agent::llm_log::recent(limit);
+    let total = openclaw_agent::llm_log::total_count();
+    Json(serde_json::json!({
+        "total_recorded": total,
+        "showing": entries.len(),
+        "entries": entries,
+    }))
 }
 
 async fn doctor_json_handler() -> Json<serde_json::Value> {

@@ -364,6 +364,14 @@ impl LlmProvider for OpenAiCompatibleProvider {
             tools: tools.to_vec(),
         };
 
+        let t_start = std::time::Instant::now();
+        let mut log_entry = crate::llm_log::LlmLogEntry::new(&self.model);
+        log_entry.messages_count = messages.len();
+        log_entry.streaming = false;
+        log_entry.request_tokens_est = messages.iter()
+            .map(|m| m.content.as_deref().unwrap_or("").len() as u32 / 4)
+            .sum::<u32>().max(1);
+
         // Retry with exponential backoff for transient errors (429, 502, 503, 504)
         let max_retries = 3;
         let mut last_error = None;
@@ -402,6 +410,9 @@ impl LlmProvider for OpenAiCompatibleProvider {
                     last_error = Some(anyhow::anyhow!("LLM API returned {}: {}", status, body));
                     continue;
                 }
+                log_entry.latency_ms = t_start.elapsed().as_millis() as u64;
+                log_entry.error = Some(format!("HTTP {}: {}", status, &body[..body.len().min(500)]));
+                crate::llm_log::record(log_entry);
                 anyhow::bail!("LLM API returned {}: {}", status, body);
             }
 
@@ -410,9 +421,38 @@ impl LlmProvider for OpenAiCompatibleProvider {
                 .await
                 .context("Failed to parse LLM response")?;
 
-            return self.process_chat_response(chat_response);
+            let result = self.process_chat_response(chat_response);
+
+            // Log the successful response
+            if let Ok((ref completion, ref usage)) = result {
+                log_entry.latency_ms = t_start.elapsed().as_millis() as u64;
+                log_entry.usage_prompt_tokens = usage.prompt_tokens;
+                log_entry.usage_completion_tokens = usage.completion_tokens;
+                log_entry.usage_total_tokens = usage.total_tokens;
+                match completion {
+                    Completion::Text { content, reasoning } => {
+                        log_entry.response_content = Some(content.clone());
+                        log_entry.response_reasoning = reasoning.clone();
+                    }
+                    Completion::ToolCalls { calls, reasoning } => {
+                        log_entry.response_tool_calls = calls.len();
+                        log_entry.tool_call_names = calls.iter().map(|c| c.function.name.clone()).collect();
+                        log_entry.response_reasoning = reasoning.clone();
+                    }
+                }
+                crate::llm_log::record(log_entry);
+            } else if let Err(ref e) = result {
+                log_entry.latency_ms = t_start.elapsed().as_millis() as u64;
+                log_entry.error = Some(format!("{}", e));
+                crate::llm_log::record(log_entry);
+            }
+
+            return result;
         }
 
+        log_entry.latency_ms = t_start.elapsed().as_millis() as u64;
+        log_entry.error = last_error.as_ref().map(|e| format!("{}", e));
+        crate::llm_log::record(log_entry);
         Err(last_error.unwrap_or_else(|| anyhow::anyhow!("LLM request failed after retries")))
     }
 
@@ -422,7 +462,15 @@ impl LlmProvider for OpenAiCompatibleProvider {
         tools: &[ToolDefinition],
         event_tx: tokio::sync::mpsc::UnboundedSender<streaming::StreamEvent>,
     ) -> Result<(Completion, UsageStats)> {
-        streaming::stream_completion(
+        let t_start = std::time::Instant::now();
+        let mut log_entry = crate::llm_log::LlmLogEntry::new(&self.model);
+        log_entry.messages_count = messages.len();
+        log_entry.streaming = true;
+        log_entry.request_tokens_est = messages.iter()
+            .map(|m| m.content.as_deref().unwrap_or("").len() as u32 / 4)
+            .sum::<u32>().max(1);
+
+        let result = streaming::stream_completion(
             &self.client,
             &self.base_url,
             &self.api_key,
@@ -432,7 +480,33 @@ impl LlmProvider for OpenAiCompatibleProvider {
             self.max_tokens,
             Some(event_tx),
         )
-        .await
+        .await;
+
+        log_entry.latency_ms = t_start.elapsed().as_millis() as u64;
+        match &result {
+            Ok((completion, usage)) => {
+                log_entry.usage_prompt_tokens = usage.prompt_tokens;
+                log_entry.usage_completion_tokens = usage.completion_tokens;
+                log_entry.usage_total_tokens = usage.total_tokens;
+                match completion {
+                    Completion::Text { content, reasoning } => {
+                        log_entry.response_content = Some(content.clone());
+                        log_entry.response_reasoning = reasoning.clone();
+                    }
+                    Completion::ToolCalls { calls, reasoning } => {
+                        log_entry.response_tool_calls = calls.len();
+                        log_entry.tool_call_names = calls.iter().map(|c| c.function.name.clone()).collect();
+                        log_entry.response_reasoning = reasoning.clone();
+                    }
+                }
+            }
+            Err(e) => {
+                log_entry.error = Some(format!("{}", e));
+            }
+        }
+        crate::llm_log::record(log_entry);
+
+        result
     }
 }
 
