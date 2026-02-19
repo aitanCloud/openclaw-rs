@@ -17,6 +17,10 @@ use crate::telegram::{TelegramBot, TgMessage};
 pub static BOOT_TIME: std::sync::LazyLock<std::time::Instant> =
     std::sync::LazyLock::new(std::time::Instant::now);
 
+/// ISO 8601 boot timestamp for /health and /status
+pub static BOOT_TIMESTAMP: std::sync::LazyLock<String> =
+    std::sync::LazyLock::new(|| chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string());
+
 /// Minimum chars between Telegram message edits (avoid rate limits)
 const EDIT_MIN_CHARS: usize = 80;
 /// Minimum ms between Telegram message edits

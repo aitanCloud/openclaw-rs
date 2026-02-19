@@ -266,6 +266,7 @@ impl GatewayMetrics {
                 .and_then(|s| s.db_stats("main").ok())
                 .map(|stats| stats.session_count)
                 .unwrap_or(0),
+            "doctor_checks_total": 12,
         })
     }
 }

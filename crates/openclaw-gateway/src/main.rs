@@ -408,6 +408,7 @@ async fn health_handler() -> Json<serde_json::Value> {
         "status": "ok",
         "version": env!("CARGO_PKG_VERSION"),
         "built": env!("BUILD_TIMESTAMP"),
+        "boot_time": *handler::BOOT_TIMESTAMP,
         "active_tasks": task_registry::active_count(),
         "uptime": human_uptime(uptime_secs),
         "uptime_seconds": uptime_secs,
@@ -677,6 +678,7 @@ async fn status_handler(
         "active_tasks": task_registry::active_count(),
         "webhook_configured": config.webhook.is_some(),
         "built": env!("BUILD_TIMESTAMP"),
+        "boot_time": *handler::BOOT_TIMESTAMP,
         "http_endpoints": ["/health", "/ready", "/status", "/metrics", "/metrics/json", "/doctor", "/webhook"],
         "http_endpoint_count": 7,
         "commands": {

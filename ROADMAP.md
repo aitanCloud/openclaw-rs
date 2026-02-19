@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.72.0
+**Version:** 0.73.0
 **Last updated:** 2026-02-19
 **Maintainer:** Cascade + Shawaz
 
@@ -567,7 +567,13 @@
 - ✅ **21 Prometheus metrics** — comprehensive test updated to verify all 21
 - ✅ **180 tests** — 111 agent + 7 core + 62 gateway
 
-## v0.73.0 — Daemon & Polish
+## v0.73.0 — Boot Timestamp & JSON Metrics Parity (shipped)
+
+- ✅ **`boot_time` ISO 8601** — `BOOT_TIMESTAMP` LazyLock stores gateway start time, shown in `/health` and `/status` JSON
+- ✅ **`doctor_checks_total` in JSON metrics** — parity with Prometheus gauge
+- ✅ **180 tests** — 111 agent + 7 core + 62 gateway
+
+## v0.74.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**
