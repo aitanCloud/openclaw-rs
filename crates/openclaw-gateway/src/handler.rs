@@ -485,14 +485,18 @@ async fn handle_command(
                 let uptime = crate::handler::BOOT_TIME.elapsed();
                 let hours = uptime.as_secs() / 3600;
                 let mins = (uptime.as_secs() % 3600) / 60;
+                let cancelled = m.tasks_cancelled.load(std::sync::atomic::Ordering::Relaxed);
                 bot.send_message(chat_id, &format!(
                     "📊 *Gateway Stats* ({}h {}m uptime)\n\n\
                     Telegram: {} requests, {} errors\n\
                     Discord: {} requests, {} errors\n\
                     Rate limited: {}\n\
                     Completed: {}\n\
+                    Cancelled: {}\n\
+                    Active tasks: {}\n\
                     Avg latency: {}ms",
-                    hours, mins, tg_req, tg_err, dc_req, dc_err, rl, completed, avg,
+                    hours, mins, tg_req, tg_err, dc_req, dc_err, rl, completed,
+                    cancelled, crate::task_registry::active_count(), avg,
                 )).await?;
             } else {
                 bot.send_message(chat_id, "📊 Metrics not available.").await?;

@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.37.0
+**Version:** 0.38.0
 **Last updated:** 2026-02-18
 **Maintainer:** Cascade + Shawaz
 
@@ -303,7 +303,14 @@
 - ✅ **`test_tasks_cancelled_metric`** — verifies `tasks_cancelled` counter in Prometheus + JSON output
 - ✅ **134 tests** — 95 agent + 7 core + 32 gateway (+1 new)
 
-## v0.38.0 — Daemon & Polish
+## v0.38.0 — Stats Parity (shipped)
+
+- ✅ **Telegram `/stats` parity** — added cancelled count and active tasks to Telegram /stats (was Discord-only)
+- ✅ **Discord `/stats` active tasks** — added Active Tasks field to Discord /stats embed
+- ✅ **Full Telegram↔Discord parity** — both channels now show identical stats: requests, errors, rate limited, completed, cancelled, active tasks, avg latency
+- ✅ **134 tests** — 95 agent + 7 core + 32 gateway
+
+## v0.39.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**

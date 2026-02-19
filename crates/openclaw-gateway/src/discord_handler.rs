@@ -501,6 +501,7 @@ async fn handle_command(
                         ("Completed", &completed.to_string(), true),
                         ("Avg Latency", &format!("{}ms", avg), true),
                         ("Cancelled", &cancelled.to_string(), true),
+                        ("Active Tasks", &crate::task_registry::active_count().to_string(), true),
                     ],
                 ).await?;
             } else {
