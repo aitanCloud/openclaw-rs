@@ -292,6 +292,10 @@ impl GatewayMetrics {
         out.push_str("# TYPE openclaw_gateway_doctor_checks_total gauge\n");
         out.push_str("openclaw_gateway_doctor_checks_total 15\n");
 
+        out.push_str("# HELP openclaw_gateway_pid Process ID of the gateway\n");
+        out.push_str("# TYPE openclaw_gateway_pid gauge\n");
+        out.push_str(&format!("openclaw_gateway_pid {}\n", std::process::id()));
+
         out.push_str("# HELP openclaw_gateway_hostname_info Host identification\n");
         out.push_str("# TYPE openclaw_gateway_hostname_info gauge\n");
         let hn = std::fs::read_to_string("/etc/hostname").unwrap_or_default().trim().to_string();
@@ -582,6 +586,7 @@ mod tests {
             "openclaw_gateway_uptime_seconds",
             "openclaw_gateway_sessions_total",
             "openclaw_gateway_doctor_checks_total",
+            "openclaw_gateway_pid ",
             "openclaw_gateway_hostname_info{hostname=",
             "openclaw_gateway_info{version=",
         ];
@@ -589,7 +594,7 @@ mod tests {
             assert!(prom.contains(metric),
                 "Prometheus output missing metric: {}", metric);
         }
-        assert_eq!(expected.len(), 23, "Expected 23 Prometheus metric lines");
+        assert_eq!(expected.len(), 24, "Expected 24 Prometheus metric lines");
     }
 
     #[test]

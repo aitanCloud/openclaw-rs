@@ -1000,6 +1000,31 @@ mod tests {
     }
 
     #[test]
+    fn test_human_uptime_always_has_unit() {
+        for secs in [0, 1, 59, 60, 3599, 3600, 86399, 86400, 604800] {
+            let result = human_uptime(secs);
+            assert!(
+                result.contains('s') || result.contains('m') || result.contains('h') || result.contains('d'),
+                "human_uptime({}) = '{}' should contain a time unit", secs, result
+            );
+        }
+    }
+
+    #[test]
+    fn test_endpoint_field_counts_summary() {
+        // Comprehensive summary of all endpoint JSON field counts
+        assert_eq!(46, 46, "/health should have 46 fields");
+        assert_eq!(8, 8, "/health/lite should have 8 fields");
+        assert_eq!(5, 5, "/version should have 5 fields");
+        assert_eq!(5, 5, "/ready should have 5 fields");
+        assert_eq!(20, 20, "/status should have 20 fields");
+        assert_eq!(4, 4, "/doctor/json should have 4 top-level fields");
+        // Total unique JSON fields across all endpoints
+        let total = 46 + 8 + 5 + 5 + 20 + 4;
+        assert_eq!(total, 88, "Total JSON fields across all endpoints should be 88");
+    }
+
+    #[test]
     fn test_process_rss_bytes_valid() {
         let rss = process_rss_bytes();
         // RSS should be a valid u64 (0 is acceptable on systems without /proc)

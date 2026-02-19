@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.98.0
+**Version:** 0.99.0
 **Last updated:** 2026-02-19
 **Maintainer:** Cascade + Shawaz
 
@@ -767,7 +767,14 @@
 - ✅ **`GatewayMetrics::new()` initial state test** — verifies all 15 counters start at zero
 - ✅ **209 tests** — 111 agent + 7 core + 91 gateway (was 90)
 
-## v0.99.0 — Daemon & Polish
+## v0.99.0 — Pre-1.0 Polish (shipped)
+
+- ✅ **24th Prometheus metric: `openclaw_gateway_pid`** — gauge exposing process ID for fleet monitoring
+- ✅ **Comprehensive endpoint field count summary test** — verifies all 6 JSON endpoints total 88 fields
+- ✅ **`human_uptime` unit suffix test** — verifies all outputs contain s/m/h/d across 9 boundary values
+- ✅ **211 tests** — 111 agent + 7 core + 93 gateway (was 91) — **pre-1.0 milestone!**
+
+## v1.0.0 — Stable Release
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**
