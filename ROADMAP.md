@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.65.0
+**Version:** 0.66.0
 **Last updated:** 2026-02-19
 **Maintainer:** Cascade + Shawaz
 
@@ -516,7 +516,14 @@
 - ✅ **Memory in `/health`** — `memory_rss_bytes` and `memory_rss` fields for monitoring/alerting
 - ✅ **173 tests** — 111 agent + 7 core + 55 gateway
 
-## v0.66.0 — Daemon & Polish
+## v0.66.0 — RSS Prometheus Gauge & Metrics Tests (shipped)
+
+- ✅ **`process_rss_bytes` Prometheus gauge** — RSS exposed as `openclaw_gateway_process_rss_bytes` for Grafana/alerting
+- ✅ **RSS in JSON metrics** — `process_rss_bytes` field in `/metrics/json` output
+- ✅ **2 new metrics tests** — verify RSS presence in both Prometheus and JSON output
+- ✅ **175 tests** — 111 agent + 7 core + 57 gateway (was 55)
+
+## v0.67.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**

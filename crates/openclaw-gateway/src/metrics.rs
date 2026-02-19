@@ -213,6 +213,11 @@ impl GatewayMetrics {
         out.push_str(&format!("openclaw_gateway_webhook_requests_total {}\n",
             self.webhook_requests.load(Ordering::Relaxed)));
 
+        out.push_str("# HELP openclaw_gateway_process_rss_bytes Resident set size of the gateway process in bytes\n");
+        out.push_str("# TYPE openclaw_gateway_process_rss_bytes gauge\n");
+        out.push_str(&format!("openclaw_gateway_process_rss_bytes {}\n",
+            crate::process_rss_bytes()));
+
         out
     }
 
@@ -236,6 +241,7 @@ impl GatewayMetrics {
             "tool_calls": self.tool_calls.load(Ordering::Relaxed),
             "webhook_requests": self.webhook_requests.load(Ordering::Relaxed),
             "error_rate_pct": (self.error_rate_pct() * 100.0).round() / 100.0,
+            "process_rss_bytes": crate::process_rss_bytes(),
         })
     }
 }
@@ -441,5 +447,21 @@ mod tests {
 
         let json = m.to_json();
         assert_eq!(json["webhook_requests"], 3);
+    }
+
+    #[test]
+    fn test_process_rss_in_prometheus() {
+        let m = GatewayMetrics::new();
+        let prom = m.to_prometheus();
+        assert!(prom.contains("openclaw_gateway_process_rss_bytes"),
+            "Prometheus output should contain process_rss_bytes gauge");
+    }
+
+    #[test]
+    fn test_process_rss_in_json() {
+        let m = GatewayMetrics::new();
+        let json = m.to_json();
+        assert!(json.get("process_rss_bytes").is_some(),
+            "JSON metrics should contain process_rss_bytes");
     }
 }
