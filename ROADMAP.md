@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.92.0
+**Version:** 0.93.0
 **Last updated:** 2026-02-19
 **Maintainer:** Cascade + Shawaz
 
@@ -721,7 +721,16 @@
 - ✅ **`process_rss_bytes` validity test** — verifies RSS is a reasonable u64 value
 - ✅ **203 tests** — 111 agent + 7 core + 85 gateway (was 83)
 
-## v0.93.0 — Daemon & Polish
+## v0.93.0 — OS Info & Recursion Limit Fix (shipped)
+
+- ✅ **`os_name` and `os_arch` in `/health`** — 42 total fields, shows OS and architecture
+- ✅ **`#![recursion_limit = "256"]`** — fixes serde_json::json! macro expansion for 42+ field JSON
+- ✅ **`human_bytes(1024)` boundary test** — verifies exact 1 KB and 1023 B boundaries
+- ✅ **`human_uptime(0)` test** — verifies zero-second boundary returns "0m 0s"
+- ✅ **`process_rss_bytes` validity test** — verifies RSS is a reasonable u64 value
+- ✅ **205 tests** — 111 agent + 7 core + 87 gateway (was 85)
+
+## v0.94.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**
