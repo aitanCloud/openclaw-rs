@@ -686,15 +686,21 @@ async fn handle_command(
                     let newest = stats.newest_ms
                         .map(|ms| format_duration(now - ms))
                         .unwrap_or_else(|| "n/a".to_string());
+                    let avg_msgs = if stats.session_count > 0 {
+                        format!("{:.1}", stats.message_count as f64 / stats.session_count as f64)
+                    } else {
+                        "0".to_string()
+                    };
                     bot.send_message(chat_id, &format!(
                         "🗄️ *Session Database*\n\n\
                         Sessions: {}\n\
                         Messages: {}\n\
+                        Avg msgs/session: {}\n\
                         Tokens: {}\n\
                         DB size: {}\n\
                         Oldest: {}\n\
                         Newest: {}",
-                        stats.session_count, stats.message_count,
+                        stats.session_count, stats.message_count, avg_msgs,
                         stats.total_tokens, size, oldest, newest,
                     )).await?;
                 }

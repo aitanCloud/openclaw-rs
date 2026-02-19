@@ -379,6 +379,11 @@ async fn health_handler() -> Json<serde_json::Value> {
             .map(|s| s.len())
             .unwrap_or(0)
     };
+    let session_count = openclaw_agent::sessions::SessionStore::open("main")
+        .ok()
+        .and_then(|s| s.db_stats("main").ok())
+        .map(|stats| stats.session_count)
+        .unwrap_or(0);
     Json(serde_json::json!({
         "status": "ok",
         "version": env!("CARGO_PKG_VERSION"),
@@ -387,6 +392,7 @@ async fn health_handler() -> Json<serde_json::Value> {
         "uptime": human_uptime(uptime_secs),
         "uptime_seconds": uptime_secs,
         "skills": skills_count,
+        "sessions": session_count,
         "commands": 22,
     }))
 }

@@ -757,6 +757,11 @@ async fn handle_command(
                     let newest = stats.newest_ms
                         .map(|ms| format_duration(now - ms))
                         .unwrap_or_else(|| "n/a".to_string());
+                    let avg_msgs = if stats.session_count > 0 {
+                        format!("{:.1}", stats.message_count as f64 / stats.session_count as f64)
+                    } else {
+                        "0".to_string()
+                    };
                     bot.send_embed(
                         channel_id, Some(reply_to),
                         "🗄️ Session Database",
@@ -765,6 +770,7 @@ async fn handle_command(
                         &[
                             ("Sessions", &stats.session_count.to_string(), true),
                             ("Messages", &stats.message_count.to_string(), true),
+                            ("Avg/Session", &avg_msgs, true),
                             ("Tokens", &stats.total_tokens.to_string(), true),
                             ("DB Size", &size, true),
                             ("Oldest", &oldest, true),

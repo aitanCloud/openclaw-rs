@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.63.0
+**Version:** 0.64.0
 **Last updated:** 2026-02-19
 **Maintainer:** Cascade + Shawaz
 
@@ -503,7 +503,13 @@
 - ✅ **5 new doctor tests** — `human_bytes` (bytes, KB, MB, GB) and `dir_size_bytes` (nonexistent path)
 - ✅ **173 tests** — 111 agent + 7 core + 55 gateway (was 50)
 
-## v0.64.0 — Daemon & Polish
+## v0.64.0 — Enhanced /db & /health (shipped)
+
+- ✅ **Enhanced `/db`** — added avg messages per session on both Telegram and Discord
+- ✅ **`sessions` in `/health`** — /health endpoint now includes session_count for monitoring
+- ✅ **173 tests** — 111 agent + 7 core + 55 gateway
+
+## v0.65.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**
