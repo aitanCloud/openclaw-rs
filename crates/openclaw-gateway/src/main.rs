@@ -408,6 +408,7 @@ async fn health_lite_handler() -> Json<serde_json::Value> {
         "status": "ok",
         "version": env!("CARGO_PKG_VERSION"),
         "agent": handler::agent_name(),
+        "pid": std::process::id(),
         "uptime": human_uptime(uptime_secs),
         "uptime_seconds": uptime_secs,
         "active_tasks": task_registry::active_count(),
@@ -424,6 +425,7 @@ async fn version_handler() -> Json<serde_json::Value> {
         "agent": handler::agent_name(),
         "built": env!("BUILD_TIMESTAMP"),
         "boot_time": *handler::BOOT_TIMESTAMP,
+        "rust_version": env!("RUST_VERSION"),
     }))
 }
 
@@ -497,6 +499,7 @@ async fn health_handler() -> axum::response::Response {
             "os_name": std::env::consts::OS,
             "os_arch": std::env::consts::ARCH,
             "rust_version": env!("RUST_VERSION"),
+            "pid": std::process::id(),
             "cron_jobs_count": cron_jobs_count,
             "sessions_db_size_bytes": sessions_db_size,
             "sessions_db_size": crate::doctor::human_bytes_pub(sessions_db_size),
@@ -917,7 +920,7 @@ mod tests {
             "status", "version", "agent", "built", "boot_time", "active_tasks",
             "uptime", "uptime_seconds", "memory_rss_bytes", "memory_rss",
             "disk_usage_bytes", "disk_usage",
-            "os_name", "os_arch", "rust_version",
+            "os_name", "os_arch", "rust_version", "pid",
             "cron_jobs_count", "sessions_db_size_bytes", "sessions_db_size",
             "skills", "sessions", "commands",
             "http_endpoint_count", "tool_count",
@@ -930,12 +933,12 @@ mod tests {
             "provider_count", "fallback_chain",
             "doctor_checks_total", "doctor_checks_passed", "response_time_ms",
         ];
-        assert_eq!(expected.len(), 43, "Should have 43 /health JSON fields");
+        assert_eq!(expected.len(), 44, "Should have 44 /health JSON fields");
         // Verify no duplicates
         let mut sorted = expected.to_vec();
         sorted.sort();
         sorted.dedup();
-        assert_eq!(sorted.len(), 43, "/health fields should have no duplicates");
+        assert_eq!(sorted.len(), 44, "/health fields should have no duplicates");
     }
 
     #[test]
@@ -981,6 +984,12 @@ mod tests {
     #[test]
     fn test_human_uptime_zero() {
         assert_eq!(human_uptime(0), "0m 0s");
+    }
+
+    #[test]
+    fn test_human_uptime_seconds_only() {
+        assert_eq!(human_uptime(45), "0m 45s");
+        assert_eq!(human_uptime(59), "0m 59s");
     }
 
     #[test]
@@ -1046,22 +1055,22 @@ mod tests {
 
     #[test]
     fn test_health_lite_expected_fields() {
-        let expected = ["status", "version", "agent", "uptime", "uptime_seconds", "active_tasks"];
-        assert_eq!(expected.len(), 6, "Should have 6 /health/lite JSON fields");
+        let expected = ["status", "version", "agent", "pid", "uptime", "uptime_seconds", "active_tasks"];
+        assert_eq!(expected.len(), 7, "Should have 7 /health/lite JSON fields");
         let mut sorted = expected.to_vec();
         sorted.sort();
         sorted.dedup();
-        assert_eq!(sorted.len(), 6, "/health/lite fields should have no duplicates");
+        assert_eq!(sorted.len(), 7, "/health/lite fields should have no duplicates");
     }
 
     #[test]
     fn test_version_expected_fields() {
-        let expected = ["version", "agent", "built", "boot_time"];
-        assert_eq!(expected.len(), 4, "Should have 4 /version JSON fields");
+        let expected = ["version", "agent", "built", "boot_time", "rust_version"];
+        assert_eq!(expected.len(), 5, "Should have 5 /version JSON fields");
         let mut sorted = expected.to_vec();
         sorted.sort();
         sorted.dedup();
-        assert_eq!(sorted.len(), 4, "/version fields should have no duplicates");
+        assert_eq!(sorted.len(), 5, "/version fields should have no duplicates");
     }
 
     #[test]

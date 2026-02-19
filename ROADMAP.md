@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.94.0
+**Version:** 0.95.0
 **Last updated:** 2026-02-19
 **Maintainer:** Cascade + Shawaz
 
@@ -739,7 +739,14 @@
 - ✅ **Removed duplicate test** — cleaned up duplicate `test_status_expected_fields`
 - ✅ **206 tests** — 111 agent + 7 core + 88 gateway (was 87)
 
-## v0.95.0 — Daemon & Polish
+## v0.95.0 — PID & Version Enrichment (shipped)
+
+- ✅ **`pid` in `/health` and `/health/lite`** — 44 /health fields, 7 /health/lite fields
+- ✅ **`rust_version` in `/version`** — 5 /version fields
+- ✅ **`human_uptime` seconds-only test** — verifies 45s and 59s boundary values
+- ✅ **207 tests** — 111 agent + 7 core + 89 gateway (was 88)
+
+## v0.96.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**
