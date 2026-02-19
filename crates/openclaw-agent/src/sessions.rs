@@ -262,6 +262,21 @@ impl SessionStore {
         Ok(sessions)
     }
 
+    /// Delete a session and all its messages
+    pub fn delete_session(&self, session_key: &str) -> Result<usize> {
+        self.conn.execute_batch("PRAGMA foreign_keys = OFF;")?;
+        let msg_deleted = self.conn.execute(
+            "DELETE FROM messages WHERE session_key = ?1",
+            params![session_key],
+        )?;
+        self.conn.execute(
+            "DELETE FROM sessions WHERE session_key = ?1",
+            params![session_key],
+        )?;
+        self.conn.execute_batch("PRAGMA foreign_keys = ON;")?;
+        Ok(msg_deleted)
+    }
+
     /// Find the latest session key matching a prefix (e.g. "tg:main:123:456")
     /// This handles both exact keys and UUID-suffixed keys (tg:main:123:456:uuid)
     pub fn find_latest_session(&self, key_prefix: &str) -> Result<Option<String>> {

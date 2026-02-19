@@ -418,6 +418,7 @@ async fn handle_command(
                 /voice — get a voice response (TTS)\n\
                 /ping — latency check\n\
                 /history — last 5 messages in session\n\
+                /clear — delete current session\n\
                 /db — session database stats\n\
                 /cron — list and manage cron jobs\n\
                 /help — show this help\n\n\
@@ -428,6 +429,16 @@ async fn handle_command(
         "/ping" => {
             let start = std::time::Instant::now();
             bot.send_message(chat_id, &format!("🏓 Pong! ({}ms)", start.elapsed().as_millis())).await?;
+        }
+        "/clear" => {
+            let store = SessionStore::open(&config.agent.name)?;
+            let session_key = format!("tg:{}:{}:{}", config.agent.name, user_id, chat_id);
+            let active_key = store.find_latest_session(&session_key)?
+                .unwrap_or(session_key);
+            let deleted = store.delete_session(&active_key)?;
+            bot.send_message(chat_id, &format!(
+                "🗑️ Session cleared. Deleted {} message(s).", deleted
+            )).await?;
         }
         "/history" => {
             let store = SessionStore::open(&config.agent.name)?;

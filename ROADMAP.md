@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.25.0
+**Version:** 0.26.0
 **Last updated:** 2026-02-18
 **Maintainer:** Cascade + Shawaz
 
@@ -217,7 +217,14 @@
 - ✅ **11 commands on both channels** — /help, /new, /status, /model, /sessions, /export, /voice, /ping, /history, /db, /cron
 - ✅ **125 tests** — 93 agent + 7 core + 25 gateway
 
-## v0.26.0 — Daemon & Polish
+## v0.26.0 — Session Management (shipped)
+
+- ✅ **`/clear` command** — delete current session and all its messages from SQLite, on both Telegram and Discord
+- ✅ **`delete_session()`** — new SessionStore method for FK-safe session deletion
+- ✅ **12 commands on both channels** — /help, /new, /status, /model, /sessions, /export, /voice, /ping, /history, /clear, /db, /cron
+- ✅ **125 tests** — 93 agent + 7 core + 25 gateway
+
+## v0.27.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**
