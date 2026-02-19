@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.38.0
+**Version:** 0.39.0
 **Last updated:** 2026-02-18
 **Maintainer:** Cascade + Shawaz
 
@@ -310,7 +310,14 @@
 - ✅ **Full Telegram↔Discord parity** — both channels now show identical stats: requests, errors, rate limited, completed, cancelled, active tasks, avg latency
 - ✅ **134 tests** — 95 agent + 7 core + 32 gateway
 
-## v0.39.0 — Daemon & Polish
+## v0.39.0 — Discord Embeds & Cancellation Test (shipped)
+
+- ✅ **Discord `/clear` embed** — green embed with deleted message count and session key
+- ✅ **Discord `/sessions` embed** — blurple embed with session list, total/messages/tokens summary fields
+- ✅ **`test_cancellation_aborts_streaming_turn`** — integration test using SlowMockProvider: verifies CancellationToken aborts agent turn within 50ms instead of waiting 10s
+- ✅ **135 tests** — 96 agent + 7 core + 32 gateway (+1 new)
+
+## v0.40.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**

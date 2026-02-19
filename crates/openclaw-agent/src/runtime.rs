@@ -488,4 +488,66 @@ mod tests {
         assert_eq!(estimate_tokens("hello world!"), 3); // 12 chars / 4
         assert_eq!(estimate_tokens("a".repeat(100).as_str()), 25);
     }
+
+    /// Mock LLM provider that sleeps before responding — used to test cancellation.
+    struct SlowMockProvider;
+
+    #[async_trait::async_trait]
+    impl LlmProvider for SlowMockProvider {
+        fn name(&self) -> &str { "slow-mock" }
+
+        async fn complete(
+            &self,
+            _messages: &[Message],
+            _tools: &[crate::llm::ToolDefinition],
+        ) -> Result<(Completion, UsageStats)> {
+            tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+            Ok((Completion::Text { content: "done".into(), reasoning: None }, UsageStats::default()))
+        }
+
+        async fn complete_streaming(
+            &self,
+            _messages: &[Message],
+            _tools: &[crate::llm::ToolDefinition],
+            _event_tx: tokio::sync::mpsc::UnboundedSender<StreamEvent>,
+        ) -> Result<(Completion, UsageStats)> {
+            tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+            Ok((Completion::Text { content: "done".into(), reasoning: None }, UsageStats::default()))
+        }
+    }
+
+    #[tokio::test]
+    async fn test_cancellation_aborts_streaming_turn() {
+        let provider = SlowMockProvider;
+        let config = AgentTurnConfig {
+            agent_name: "test-cancel".to_string(),
+            session_key: "cancel-test-session".to_string(),
+            workspace_dir: "/tmp".to_string(),
+            minimal_context: true,
+        };
+        let tools = crate::tools::ToolRegistry::new();
+        let (event_tx, _event_rx) = tokio::sync::mpsc::unbounded_channel::<StreamEvent>();
+
+        let cancel_token = tokio_util::sync::CancellationToken::new();
+        let ct = cancel_token.clone();
+
+        // Cancel after 50ms
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            ct.cancel();
+        });
+
+        let result = run_agent_turn_streaming(
+            &provider,
+            "hello",
+            &config,
+            &tools,
+            event_tx,
+            Vec::new(),
+            Some(cancel_token),
+        ).await.unwrap();
+
+        assert!(result.response.contains("Cancelled"));
+        assert!(result.elapsed_ms < 5000); // Should abort quickly, not wait 10s
+    }
 }

@@ -545,11 +545,17 @@ async fn handle_command(
             let store = SessionStore::open(&config.agent.name)?;
             let session_key = format!("dc:{}:{}:{}", config.agent.name, user_id, channel_id);
             let active_key = store.find_latest_session(&session_key)?
-                .unwrap_or(session_key);
+                .unwrap_or(session_key.clone());
             let deleted = store.delete_session(&active_key)?;
-            bot.send_reply(channel_id, reply_to, &format!(
-                "🗑️ Session cleared. Deleted {} message(s).", deleted
-            )).await?;
+            bot.send_embed(
+                channel_id, Some(reply_to),
+                "🗑️ Session Cleared",
+                &format!("Deleted {} message(s)", deleted),
+                0x57F287, // Discord green
+                &[
+                    ("Session", &session_key, false),
+                ],
+            ).await?;
         }
         cmd if cmd == "history" || cmd.starts_with("history ") => {
             let count: usize = text.split_whitespace().nth(1)
@@ -720,10 +726,12 @@ async fn handle_command(
                 bot.send_reply(channel_id, reply_to, "No sessions found.")
                     .await?;
             } else {
-                let mut msg = String::from("📋 **Recent Sessions:**\n\n");
+                let total_msgs: i64 = sessions.iter().map(|s| s.message_count).sum();
+                let total_tokens: i64 = sessions.iter().map(|s| s.total_tokens).sum();
+                let mut desc = String::new();
                 for (i, s) in sessions.iter().enumerate() {
                     let age = chrono::Utc::now().timestamp_millis() - s.updated_at_ms;
-                    msg.push_str(&format!(
+                    desc.push_str(&format!(
                         "{}. `{}` — {} msgs, {} tokens, {}\n",
                         i + 1,
                         &s.session_key[..s.session_key.len().min(30)],
@@ -732,7 +740,17 @@ async fn handle_command(
                         format_duration(age),
                     ));
                 }
-                bot.send_reply(channel_id, reply_to, &msg).await?;
+                bot.send_embed(
+                    channel_id, Some(reply_to),
+                    "📋 Recent Sessions",
+                    &desc,
+                    0x5865F2, // Discord blurple
+                    &[
+                        ("Total", &sessions.len().to_string(), true),
+                        ("Messages", &total_msgs.to_string(), true),
+                        ("Tokens", &total_tokens.to_string(), true),
+                    ],
+                ).await?;
             }
         }
         "export" => {
