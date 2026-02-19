@@ -127,14 +127,17 @@ impl GatewayMetrics {
             + self.discord_requests.load(Ordering::Relaxed)
     }
 
+    pub fn total_errors(&self) -> u64 {
+        self.telegram_errors.load(Ordering::Relaxed)
+            + self.discord_errors.load(Ordering::Relaxed)
+    }
+
     pub fn error_rate_pct(&self) -> f64 {
         let total = self.total_requests();
         if total == 0 {
             return 0.0;
         }
-        let errors = self.telegram_errors.load(Ordering::Relaxed)
-            + self.discord_errors.load(Ordering::Relaxed);
-        (errors as f64 / total as f64) * 100.0
+        (self.total_errors() as f64 / total as f64) * 100.0
     }
 
     /// Prometheus text exposition format
@@ -562,6 +565,7 @@ mod tests {
         // No requests → 0% error rate
         assert_eq!(m.error_rate_pct(), 0.0);
         assert_eq!(m.total_requests(), 0);
+        assert_eq!(m.total_errors(), 0);
 
         // 10 telegram requests, 0 errors → 0%
         for _ in 0..10 {
@@ -573,7 +577,21 @@ mod tests {
         // 2 telegram errors out of 10 → 20%
         m.record_telegram_error();
         m.record_telegram_error();
+        assert_eq!(m.total_errors(), 2);
         assert!((m.error_rate_pct() - 20.0).abs() < 0.01,
             "Expected ~20% error rate, got {}", m.error_rate_pct());
+    }
+
+    #[test]
+    fn test_avg_latency_ms_calculation() {
+        let m = GatewayMetrics::new();
+        // No completions → 0 avg
+        assert_eq!(m.avg_latency_ms(), 0);
+
+        // 3 completions: 100ms, 200ms, 300ms → avg 200ms
+        m.record_completion(100);
+        m.record_completion(200);
+        m.record_completion(300);
+        assert_eq!(m.avg_latency_ms(), 200);
     }
 }

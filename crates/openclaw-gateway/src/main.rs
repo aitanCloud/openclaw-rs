@@ -417,12 +417,13 @@ async fn health_handler() -> axum::response::Response {
         .map(|stats| stats.session_count)
         .unwrap_or(0);
     let rss = process_rss_bytes();
-    let (error_rate, total_requests) = metrics::global()
+    let (error_rate, total_requests, total_errors) = metrics::global()
         .map(|m| (
             (m.error_rate_pct() * 100.0).round() / 100.0,
             m.total_requests(),
+            m.total_errors(),
         ))
-        .unwrap_or((0.0, 0));
+        .unwrap_or((0.0, 0, 0));
     let checks = doctor::run_checks("main").await;
     let checks_total = checks.len();
     let checks_passed = checks.iter().filter(|(_, ok, _)| *ok).count();
@@ -444,6 +445,7 @@ async fn health_handler() -> axum::response::Response {
             "sessions": session_count,
             "commands": 22,
             "total_requests": total_requests,
+            "total_errors": total_errors,
             "error_rate_pct": error_rate,
             "doctor_checks_total": checks_total,
             "doctor_checks_passed": checks_passed,
