@@ -224,4 +224,29 @@ mod tests {
         assert_eq!(json["rate_limited"], 1);
         assert_eq!(json["avg_latency_ms"], 500);
     }
+
+    #[test]
+    fn test_gateway_ws_metrics() {
+        let m = GatewayMetrics::new();
+        assert_eq!(m.gateway_connects.load(Ordering::Relaxed), 0);
+
+        m.record_gateway_connect();
+        m.record_gateway_connect();
+        m.record_gateway_disconnect();
+        m.record_gateway_resume();
+
+        assert_eq!(m.gateway_connects.load(Ordering::Relaxed), 2);
+        assert_eq!(m.gateway_disconnects.load(Ordering::Relaxed), 1);
+        assert_eq!(m.gateway_resumes.load(Ordering::Relaxed), 1);
+
+        let prom = m.to_prometheus();
+        assert!(prom.contains("openclaw_gateway_ws_events_total{event=\"connect\"} 2"));
+        assert!(prom.contains("openclaw_gateway_ws_events_total{event=\"disconnect\"} 1"));
+        assert!(prom.contains("openclaw_gateway_ws_events_total{event=\"resume\"} 1"));
+
+        let json = m.to_json();
+        assert_eq!(json["gateway_connects"], 2);
+        assert_eq!(json["gateway_disconnects"], 1);
+        assert_eq!(json["gateway_resumes"], 1);
+    }
 }

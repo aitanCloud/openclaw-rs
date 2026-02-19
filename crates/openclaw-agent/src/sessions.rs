@@ -673,4 +673,60 @@ mod tests {
         let pruned2 = store.prune_old_sessions(1).unwrap();
         assert_eq!(pruned2, 0);
     }
+
+    #[test]
+    fn test_delete_session() {
+        let store = SessionStore::open_memory().unwrap();
+
+        store.create_session("sess-to-delete", "main", "model").unwrap();
+        store.append_message("sess-to-delete", &Message::user("msg1")).unwrap();
+        store.append_message("sess-to-delete", &Message::user("msg2")).unwrap();
+        store.append_message("sess-to-delete", &Message::user("msg3")).unwrap();
+
+        // Keep another session to verify it's not affected
+        store.create_session("sess-keep", "main", "model").unwrap();
+        store.append_message("sess-keep", &Message::user("keep me")).unwrap();
+
+        let deleted = store.delete_session("sess-to-delete").unwrap();
+        assert_eq!(deleted, 3);
+
+        // Deleted session should be gone
+        let msgs = store.load_messages("sess-to-delete").unwrap();
+        assert!(msgs.is_empty());
+
+        // Other session should be intact
+        let kept = store.load_messages("sess-keep").unwrap();
+        assert_eq!(kept.len(), 1);
+
+        // Deleting non-existent session should return 0
+        let deleted2 = store.delete_session("nonexistent").unwrap();
+        assert_eq!(deleted2, 0);
+    }
+
+    #[test]
+    fn test_find_latest_session() {
+        let store = SessionStore::open_memory().unwrap();
+
+        // Create sessions with UUID-suffixed keys
+        store.create_session("tg:main:123:456:uuid-aaa", "main", "model").unwrap();
+        store.create_session("tg:main:123:456:uuid-bbb", "main", "model").unwrap();
+
+        // Make the second one newer
+        store.conn.execute(
+            "UPDATE sessions SET updated_at_ms = ?1 WHERE session_key = 'tg:main:123:456:uuid-aaa'",
+            params![1_000_000],
+        ).unwrap();
+
+        // Should find the newest matching session
+        let found = store.find_latest_session("tg:main:123:456").unwrap();
+        assert_eq!(found, Some("tg:main:123:456:uuid-bbb".to_string()));
+
+        // Non-matching prefix should return None
+        let not_found = store.find_latest_session("dc:main:999:999").unwrap();
+        assert!(not_found.is_none());
+
+        // Exact key match should also work
+        let exact = store.find_latest_session("tg:main:123:456:uuid-aaa").unwrap();
+        assert_eq!(exact, Some("tg:main:123:456:uuid-aaa".to_string()));
+    }
 }

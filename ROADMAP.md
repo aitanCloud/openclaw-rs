@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.32.0
+**Version:** 0.33.0
 **Last updated:** 2026-02-18
 **Maintainer:** Cascade + Shawaz
 
@@ -265,7 +265,14 @@
 - ✅ **Gateway WS metrics** — `gateway_connects`, `gateway_disconnects`, `gateway_resumes` counters in Prometheus text + JSON
 - ✅ **125 tests** — 93 agent + 7 core + 25 gateway
 
-## v0.33.0 — Daemon & Polish
+## v0.33.0 — Test Coverage (shipped)
+
+- ✅ **`test_delete_session`** — verify session + messages removed, other sessions unaffected, non-existent returns 0
+- ✅ **`test_find_latest_session`** — verify prefix-based lookup returns newest match, exact key match, non-match returns None
+- ✅ **`test_gateway_ws_metrics`** — verify connect/disconnect/resume counters in both Prometheus and JSON output
+- ✅ **128 tests** — 95 agent + 7 core + 26 gateway (+3 new)
+
+## v0.34.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**
