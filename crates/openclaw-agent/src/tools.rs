@@ -1,3 +1,4 @@
+pub mod browser;
 pub mod cron;
 pub mod exec;
 pub mod find;
@@ -8,6 +9,8 @@ pub mod patch;
 pub mod process;
 pub mod read;
 pub mod script_plugin;
+pub mod sessions;
+pub mod tts;
 pub mod web_fetch;
 pub mod web_search;
 pub mod write;
@@ -85,6 +88,9 @@ impl ToolRegistry {
         registry.register(Box::new(process::ProcessTool));
         registry.register(Box::new(image::ImageTool));
         registry.register(Box::new(cron::CronTool));
+        registry.register(Box::new(sessions::SessionsTool));
+        registry.register(Box::new(tts::TtsTool));
+        registry.register(Box::new(browser::BrowserTool));
         registry
     }
 
@@ -193,14 +199,17 @@ mod tests {
         assert!(names.contains(&"process"));
         assert!(names.contains(&"image"));
         assert!(names.contains(&"cron"));
-        assert_eq!(names.len(), 12);
+        assert!(names.contains(&"sessions"));
+        assert!(names.contains(&"tts"));
+        assert!(names.contains(&"browser"));
+        assert_eq!(names.len(), 15);
     }
 
     #[test]
     fn test_definitions_format() {
         let registry = ToolRegistry::with_defaults();
         let defs = registry.definitions();
-        assert_eq!(defs.len(), 12);
+        assert_eq!(defs.len(), 15);
         for def in &defs {
             assert_eq!(def.tool_type, "function");
             assert!(!def.function.name.is_empty());

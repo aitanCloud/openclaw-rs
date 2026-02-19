@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.2.0
+**Version:** 0.13.0
 **Last updated:** 2026-02-18
 **Maintainer:** Cascade + Shawaz
 
@@ -119,11 +119,13 @@
 - ✅ **12 built-in tools** — exec, read, write, list_dir, patch, grep, find, web_search, web_fetch, process, image, cron
 - ✅ **90 tests** — 71 agent + 7 core + 12 gateway
 
-## v0.13.0 — Advanced Tools & Sessions
+## v0.13.0 — Advanced Tools & Sessions (shipped)
 
-- 📋 **Browser tool** — headless browser for web interaction (Playwright/Chromium)
-- 📋 **TTS tool** — text-to-speech via Telegram voice messages
-- 📋 **Session tools** — LLM-callable sessions_list, sessions_history, sessions_send
+- ✅ **`browser` tool** — headless Chromium browser: navigate (fetch page as text with HTML stripping), screenshot (PNG capture), evaluate (JS execution), auto-discovers chromium/chrome/brave
+- ✅ **`tts` tool** — text-to-speech via Piper TTS subprocess, configurable model/speaker/speed, auto-generates WAV files, 30s timeout, AItan pronunciation hint
+- ✅ **`sessions` tool** — LLM-callable session management: list (with stats, current marker), history (with timestamps, truncation), send (inject messages with role control), partial session key matching
+- ✅ **15 built-in tools** — exec, read, write, list_dir, patch, grep, find, web_search, web_fetch, process, image, cron, sessions, tts, browser
+- ✅ **110 tests** — 91 agent + 7 core + 12 gateway
 
 ## v0.14.0 — Multi-Channel & Daemon
 
