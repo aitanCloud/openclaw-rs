@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.60.0
+**Version:** 0.61.0
 **Last updated:** 2026-02-19
 **Maintainer:** Cascade + Shawaz
 
@@ -481,7 +481,15 @@
 - ✅ **Enhanced `/health`** — now includes `uptime` (human-readable), `commands: 21` fields
 - ✅ **163 tests** — 111 agent + 7 core + 45 gateway
 
-## v0.61.0 — Daemon & Polish
+## v0.61.0 — /runtime Command & Webhook Tracing (shipped)
+
+- ✅ **`/runtime` command** — shows build profile, PID, uptime, OS, arch on both Telegram (text) and Discord (green embed)
+- ✅ **Webhook `request_id`** — every successful webhook response now includes a UUID `request_id` for tracing
+- ✅ **22 commands** — added `/runtime`, updated startup banner, /version, /help on both channels
+- ✅ **20/22 Discord embeds** — added `/runtime` embed (remaining: /export file upload, /voice TTS audio)
+- ✅ **163 tests** — 111 agent + 7 core + 45 gateway
+
+## v0.62.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**

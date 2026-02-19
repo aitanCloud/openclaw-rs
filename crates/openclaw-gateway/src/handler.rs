@@ -448,6 +448,7 @@ async fn handle_command(
                 /tools — list all built-in agent tools\n\
                 /skills — list available workspace skills\n\
                 /config — show gateway config (sanitized)\n\
+                /runtime — build and runtime info\n\
                 /doctor — run health checks\n\
                 /help — show this help\n\n\
                 You can also send voice messages — I'll transcribe and respond.",
@@ -538,7 +539,7 @@ async fn handle_command(
                 "🦀 *openclaw-gateway* v{}\n\
                 Uptime: {}h {}m\n\
                 Agent: {}\n\
-                Commands: 21",
+                Commands: 22",
                 env!("CARGO_PKG_VERSION"), hours, mins, config.agent.name,
             )).await?;
         }
@@ -561,6 +562,26 @@ async fn handle_command(
                 msg_text.push_str(&format!("• `{}`\n", name));
             }
             bot.send_message(chat_id, &msg_text).await?;
+        }
+        "/runtime" => {
+            let pid = std::process::id();
+            let uptime_secs = crate::handler::BOOT_TIME.elapsed().as_secs();
+            let uptime_str = crate::human_uptime(uptime_secs);
+            bot.send_message(chat_id, &format!(
+                "🖥️ *Runtime Info*\n\n\
+                Version: v{}\n\
+                Profile: {}\n\
+                PID: {}\n\
+                Uptime: {}\n\
+                OS: {}\n\
+                Arch: {}",
+                env!("CARGO_PKG_VERSION"),
+                if cfg!(debug_assertions) { "debug" } else { "release" },
+                pid,
+                uptime_str,
+                std::env::consts::OS,
+                std::env::consts::ARCH,
+            )).await?;
         }
         "/config" => {
             let mut lines = Vec::new();

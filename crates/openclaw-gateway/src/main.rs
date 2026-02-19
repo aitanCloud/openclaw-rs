@@ -34,7 +34,7 @@ async fn main() -> anyhow::Result<()> {
     if let Some(ref dc) = config.discord {
         info!("Discord enabled | allowed users: {:?}", dc.allowed_user_ids);
     }
-    info!("Commands: 21 (/help /new /status /model /sessions /export /voice /ping /history /clear /db /version /stats /whoami /cancel /stop /cron /tools /skills /config /doctor)");
+    info!("Commands: 22 (/help /new /status /model /sessions /export /voice /ping /history /clear /db /version /stats /whoami /cancel /stop /cron /tools /skills /config /runtime /doctor)");
 
     // ── Verify bot token ──
     let bot = telegram::TelegramBot::new(&config.telegram.bot_token);
@@ -359,8 +359,8 @@ async fn main() -> anyhow::Result<()> {
     }
 }
 
-/// Format uptime with days support
-fn human_uptime(secs: u64) -> String {
+/// Format uptime with days support (pub for use from handler modules)
+pub fn human_uptime(secs: u64) -> String {
     if secs >= 86400 {
         format!("{}d {}h {}m", secs / 86400, (secs % 86400) / 3600, (secs % 3600) / 60)
     } else if secs >= 3600 {
@@ -498,9 +498,11 @@ async fn webhook_handler(
                 m.record_agent_turn(turn_result.tool_calls_made as u64);
                 m.record_completion(elapsed);
             }
+            let request_id = uuid::Uuid::new_v4().to_string();
             (
                 axum::http::StatusCode::OK,
                 Json(serde_json::json!({
+                    "request_id": request_id,
                     "reply": turn_result.response,
                     "session_key": session_key,
                     "model": turn_result.model_name,

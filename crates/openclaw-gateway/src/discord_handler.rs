@@ -445,8 +445,8 @@ async fn handle_command(
                     ("Session", "`/new` `/clear` `/sessions` `/export`", false),
                     ("Info", "`/status` `/model` `/version` `/whoami` `/db`", false),
                     ("Monitoring", "`/stats` `/ping` `/history [N]` `/doctor`", false),
-                    ("Control", "`/cancel` `/stop` `/voice` `/cron` `/tools` `/skills` `/config`", false),
-                    ("Commands", "21", true),
+                    ("Control", "`/cancel` `/stop` `/voice` `/cron` `/tools` `/skills` `/config` `/runtime`", false),
+                    ("Commands", "22", true),
                 ],
             ).await?;
         }
@@ -541,7 +541,7 @@ async fn handle_command(
                 &[
                     ("Uptime", &format!("{}h {}m", hours, mins), true),
                     ("Agent", &config.agent.name, true),
-                    ("Commands", "21", true),
+                    ("Commands", "22", true),
                 ],
             ).await?;
         }
@@ -580,6 +580,25 @@ async fn handle_command(
                 &format!("{} tools available", names.len()),
                 0x5865F2,
                 &[("Tools", &tool_list, false)],
+            ).await?;
+        }
+        "runtime" => {
+            let pid = std::process::id();
+            let uptime_secs = crate::handler::BOOT_TIME.elapsed().as_secs();
+            let uptime_str = crate::human_uptime(uptime_secs);
+            let profile = if cfg!(debug_assertions) { "debug" } else { "release" };
+            bot.send_embed(
+                channel_id, Some(reply_to),
+                "🖥️ Runtime Info",
+                &format!("v{}", env!("CARGO_PKG_VERSION")),
+                0x2ECC71, // Green
+                &[
+                    ("Profile", profile, true),
+                    ("PID", &pid.to_string(), true),
+                    ("Uptime", &uptime_str, true),
+                    ("OS", std::env::consts::OS, true),
+                    ("Arch", std::env::consts::ARCH, true),
+                ],
             ).await?;
         }
         "config" => {
