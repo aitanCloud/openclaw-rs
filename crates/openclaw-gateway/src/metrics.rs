@@ -63,6 +63,51 @@ impl GatewayMetrics {
         self.total_latency_ms.load(Ordering::Relaxed) / completed
     }
 
+    /// Prometheus text exposition format
+    pub fn to_prometheus(&self) -> String {
+        let mut out = String::new();
+        out.push_str("# HELP openclaw_gateway_requests_total Total requests by channel\n");
+        out.push_str("# TYPE openclaw_gateway_requests_total counter\n");
+        out.push_str(&format!("openclaw_gateway_requests_total{{channel=\"telegram\"}} {}\n",
+            self.telegram_requests.load(Ordering::Relaxed)));
+        out.push_str(&format!("openclaw_gateway_requests_total{{channel=\"discord\"}} {}\n",
+            self.discord_requests.load(Ordering::Relaxed)));
+
+        out.push_str("# HELP openclaw_gateway_errors_total Total errors by channel\n");
+        out.push_str("# TYPE openclaw_gateway_errors_total counter\n");
+        out.push_str(&format!("openclaw_gateway_errors_total{{channel=\"telegram\"}} {}\n",
+            self.telegram_errors.load(Ordering::Relaxed)));
+        out.push_str(&format!("openclaw_gateway_errors_total{{channel=\"discord\"}} {}\n",
+            self.discord_errors.load(Ordering::Relaxed)));
+
+        out.push_str("# HELP openclaw_gateway_rate_limited_total Total rate limited requests\n");
+        out.push_str("# TYPE openclaw_gateway_rate_limited_total counter\n");
+        out.push_str(&format!("openclaw_gateway_rate_limited_total {}\n",
+            self.rate_limited.load(Ordering::Relaxed)));
+
+        out.push_str("# HELP openclaw_gateway_concurrency_rejected_total Total concurrency rejected requests\n");
+        out.push_str("# TYPE openclaw_gateway_concurrency_rejected_total counter\n");
+        out.push_str(&format!("openclaw_gateway_concurrency_rejected_total {}\n",
+            self.concurrency_rejected.load(Ordering::Relaxed)));
+
+        out.push_str("# HELP openclaw_gateway_completed_requests_total Total completed requests\n");
+        out.push_str("# TYPE openclaw_gateway_completed_requests_total counter\n");
+        out.push_str(&format!("openclaw_gateway_completed_requests_total {}\n",
+            self.completed_requests.load(Ordering::Relaxed)));
+
+        out.push_str("# HELP openclaw_gateway_latency_ms_total Total latency in milliseconds\n");
+        out.push_str("# TYPE openclaw_gateway_latency_ms_total counter\n");
+        out.push_str(&format!("openclaw_gateway_latency_ms_total {}\n",
+            self.total_latency_ms.load(Ordering::Relaxed)));
+
+        out.push_str("# HELP openclaw_gateway_avg_latency_ms Average request latency in milliseconds\n");
+        out.push_str("# TYPE openclaw_gateway_avg_latency_ms gauge\n");
+        out.push_str(&format!("openclaw_gateway_avg_latency_ms {}\n",
+            self.avg_latency_ms()));
+
+        out
+    }
+
     pub fn to_json(&self) -> serde_json::Value {
         serde_json::json!({
             "telegram_requests": self.telegram_requests.load(Ordering::Relaxed),
@@ -102,6 +147,25 @@ mod tests {
         m.record_completion(300);
         assert_eq!(m.avg_latency_ms(), 200);
         assert_eq!(m.completed_requests.load(Ordering::Relaxed), 3);
+    }
+
+    #[test]
+    fn test_metrics_prometheus() {
+        let m = GatewayMetrics::new();
+        m.record_telegram_request();
+        m.record_telegram_request();
+        m.record_discord_request();
+        m.record_telegram_error();
+        m.record_rate_limited();
+        m.record_completion(500);
+
+        let prom = m.to_prometheus();
+        assert!(prom.contains("openclaw_gateway_requests_total{channel=\"telegram\"} 2"));
+        assert!(prom.contains("openclaw_gateway_requests_total{channel=\"discord\"} 1"));
+        assert!(prom.contains("openclaw_gateway_errors_total{channel=\"telegram\"} 1"));
+        assert!(prom.contains("openclaw_gateway_rate_limited_total 1"));
+        assert!(prom.contains("openclaw_gateway_avg_latency_ms 500"));
+        assert!(prom.contains("# TYPE openclaw_gateway_requests_total counter"));
     }
 
     #[test]

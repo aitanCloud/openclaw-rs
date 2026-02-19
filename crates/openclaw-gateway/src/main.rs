@@ -82,6 +82,13 @@ async fn main() -> anyhow::Result<()> {
                 let m = gateway_metrics.clone();
                 move || metrics_handler(m)
             }),
+        )
+        .route(
+            "/metrics/json",
+            get({
+                let m = gateway_metrics.clone();
+                move || metrics_json_handler(m)
+            }),
         );
 
     let http_port: u16 = std::env::var("HTTP_PORT")
@@ -295,6 +302,16 @@ async fn health_handler() -> &'static str {
 }
 
 async fn metrics_handler(
+    m: Arc<metrics::GatewayMetrics>,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    (
+        [(axum::http::header::CONTENT_TYPE, "text/plain; version=0.0.4; charset=utf-8")],
+        m.to_prometheus(),
+    ).into_response()
+}
+
+async fn metrics_json_handler(
     m: Arc<metrics::GatewayMetrics>,
 ) -> Json<serde_json::Value> {
     Json(m.to_json())

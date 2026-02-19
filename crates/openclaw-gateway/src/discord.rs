@@ -357,28 +357,51 @@ impl DiscordBot {
     }
 }
 
-/// Main Gateway WebSocket loop with reconnection
+/// Main Gateway WebSocket loop with reconnection and exponential backoff
 async fn run_gateway_loop(
     gateway_url: &str,
     token: &str,
     msg_tx: mpsc::UnboundedSender<DiscordMessage>,
 ) -> Result<()> {
     let mut reconnect_delay = 1u64;
+    let mut consecutive_failures = 0u32;
 
     loop {
+        let session_start = std::time::Instant::now();
+
         match run_gateway_session(gateway_url, token, &msg_tx).await {
             Ok(()) => {
-                info!("Discord Gateway session ended cleanly");
-                break;
+                // Clean close — still reconnect (Discord may close for maintenance)
+                info!("Discord Gateway session ended cleanly, reconnecting in 5s...");
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+
+                // Reset backoff if session lasted > 30s (was healthy)
+                if session_start.elapsed().as_secs() > 30 {
+                    reconnect_delay = 1;
+                    consecutive_failures = 0;
+                }
             }
             Err(e) => {
+                consecutive_failures += 1;
                 error!(
-                    "Discord Gateway session error: {}. Reconnecting in {}s...",
-                    e, reconnect_delay
+                    "Discord Gateway session error (attempt {}): {}. Reconnecting in {}s...",
+                    consecutive_failures, e, reconnect_delay
                 );
                 tokio::time::sleep(std::time::Duration::from_secs(reconnect_delay)).await;
-                reconnect_delay = (reconnect_delay * 2).min(60);
+                reconnect_delay = (reconnect_delay * 2).min(120);
+
+                // Reset backoff if session lasted > 60s (was healthy before failing)
+                if session_start.elapsed().as_secs() > 60 {
+                    reconnect_delay = 1;
+                    consecutive_failures = 0;
+                }
             }
+        }
+
+        // Safety: if receiver is closed, stop reconnecting
+        if msg_tx.is_closed() {
+            info!("Discord message channel closed, stopping gateway loop");
+            break;
         }
     }
 

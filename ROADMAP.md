@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.20.0
+**Version:** 0.21.0
 **Last updated:** 2026-02-18
 **Maintainer:** Cascade + Shawaz
 
@@ -178,11 +178,18 @@
 - ✅ **Dockerfile updated** — builds both `openclaw` and `openclaw-gateway` binaries, includes ffmpeg for voice, cleaned up redundant installs
 - ✅ **119 tests** — 92 agent + 7 core + 20 gateway
 
-## v0.21.0 — Daemon & Polish
+## v0.21.0 — Resilience & Observability (shipped)
+
+- ✅ **Discord auto-reconnect improved** — always reconnect on clean close (Discord maintenance), exponential backoff with reset after healthy sessions (>30s clean, >60s error), consecutive failure tracking, stop on channel close
+- ✅ **Prometheus /metrics endpoint** — text/plain exposition format with HELP/TYPE annotations for all counters and gauges, compatible with Prometheus/Grafana scrapers
+- ✅ **/metrics/json endpoint** — JSON format metrics for dashboard consumption
+- ✅ **120 tests** — 92 agent + 7 core + 21 gateway
+
+## v0.22.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**
-- 📋 **Prometheus /metrics format** — text/plain Prometheus exposition format alongside JSON
+- 📋 **Grafana dashboard template** — JSON dashboard for gateway metrics
 - 💡 **WhatsApp integration**
 
 ---
@@ -192,25 +199,53 @@
 ```
 openclaw-rs/
 ├── crates/
-│   ├── openclaw-core/       # Config, paths, shared types
-│   ├── openclaw-agent/      # LLM providers, tools, runtime, sessions
+│   ├── openclaw-core/       # Config, paths, cron, sessions, shared types (7 tests)
+│   ├── openclaw-agent/      # LLM providers, 15 tools, runtime, sessions, sandbox (92 tests)
 │   ├── openclaw-cli/        # Terminal interface with streaming
-│   └── openclaw-gateway/    # Telegram + Discord bots, HTTP health, message handlers
+│   └── openclaw-gateway/    # Telegram + Discord bots, HTTP endpoints, metrics (21 tests)
+│       ├── handler.rs       # Telegram: 8 commands, streaming, photo/vision, /voice TTS
+│       ├── discord.rs       # Discord WebSocket Gateway, auto-reconnect, file upload
+│       ├── discord_handler.rs # Discord: 8 commands, streaming, photo/vision, /voice TTS
+│       ├── metrics.rs       # Atomic counters, Prometheus + JSON format
+│       ├── telegram.rs      # Bot API client, voice upload, photo download
+│       └── main.rs          # Polling + WS, /health, /status, /metrics, graceful shutdown
 ├── Dockerfile
 ├── docker-compose.gateway.yml
-└── ROADMAP.md               # This file
+└── ROADMAP.md
 ```
 
-### Streaming Pipeline
+### Streaming Pipeline (Telegram + Discord)
 
 ```
 LLM SSE stream
   → stream_completion() parses chunks
   → StreamEvent variants (ContentDelta, ToolExec, ToolResult, RoundStart, Done)
   → mpsc::unbounded_channel
-  → Telegram handler accumulates text
-  → editMessageText every 80 chars / 400ms
+  → Handler accumulates text
+  → Telegram: editMessageText every 80 chars / 400ms
+  → Discord: editMessage every 80 chars / 400ms (2000 char limit)
   → Final edit with stats footer
+```
+
+### Voice Pipeline
+
+```
+/voice <text>
+  → LLM response (agent turn with tools)
+  → Piper TTS (WAV, jenny_dioco model)
+  → ffmpeg (OGG/Opus, 64k VBR voip)
+  → Telegram: sendVoice multipart
+  → Discord: file upload with caption
+  → Cleanup temp files
+```
+
+### HTTP Endpoints
+
+```
+GET /health          → "ok" (plain text)
+GET /status          → JSON (version, uptime, sessions, channels, metrics, tools, commands)
+GET /metrics         → Prometheus text/plain exposition format
+GET /metrics/json    → JSON metrics
 ```
 
 ### Fallback Chain
