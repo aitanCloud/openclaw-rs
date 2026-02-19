@@ -41,6 +41,7 @@ pub async fn stream_completion(
         "messages": messages,
         "max_tokens": max_tokens,
         "stream": true,
+        "stream_options": {"include_usage": true},
     });
 
     if !tools.is_empty() {
@@ -138,6 +139,20 @@ pub async fn stream_completion(
                 }
             }
         }
+    }
+
+    // Fallback: estimate tokens if the API didn't report them (common in streaming)
+    if usage.total_tokens == 0 {
+        let msg_chars: usize = messages.iter()
+            .map(|m| m.content.as_deref().unwrap_or("").len())
+            .sum();
+        let prompt_est = (msg_chars / 4).max(1) as u32;
+        let completion_est = ((content.len() + reasoning.len()) / 4).max(1) as u32;
+        usage = UsageStats {
+            prompt_tokens: prompt_est,
+            completion_tokens: completion_est,
+            total_tokens: prompt_est + completion_est,
+        };
     }
 
     if let Some(ref tx) = event_tx {

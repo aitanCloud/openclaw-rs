@@ -82,7 +82,8 @@ pub async fn handle_message(
         }
     }
 
-    // ── Send initial placeholder ──
+    // ── Send typing indicator + initial placeholder ──
+    bot.send_typing(chat_id).await.ok();
     let placeholder_id = bot.send_message_with_id(chat_id, "🧠 ...").await?;
 
     // ── Resolve workspace ──
@@ -306,13 +307,15 @@ pub async fn handle_message(
         "(no response)".to_string()
     };
 
+    // Escape underscores in model name to prevent Telegram Markdown breakage
+    let safe_model = result.model_name.replace('_', "\\_");
     let stats = format!(
         "\n\n_{}ms · {} round(s) · {} tool(s) · {} tokens · {}_",
         elapsed,
         result.total_rounds,
         result.tool_calls_made,
         result.total_usage.total_tokens,
-        result.model_name,
+        safe_model,
     );
 
     let full_response = format!("{}{}", response, stats);
