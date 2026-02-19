@@ -897,20 +897,27 @@
 - ✅ **Use `handler::agent_name()`** — all 6 hardcoded references replaced with dynamic agent name lookup
 - ✅ **233 total tests** — 124 agent + 7 core + 102 gateway (no new tests, bug-fix only)
 
-## v1.14.0 — Channel Plugin Abstraction
+## v1.14.0 — Inline Handler Utils & Cleanup (shipped)
+
+- ✅ **Remove 4 wrapper functions from handler.rs** — `toggle_cron_job`, `resolve_single_provider`, `split_for_telegram`, `format_duration` replaced with direct `crate::handler_utils::*` calls
+- ✅ **Remove 4 wrapper functions from discord_handler.rs** — same 4 wrappers replaced with direct calls
+- ✅ **Clean unused imports** — removed `OpenAiCompatibleProvider`, `Arc`, `error` from handler files
+- ✅ **233 total tests** — 124 agent + 7 core + 102 gateway (no new tests, cleanup only)
+
+## v1.15.0 — Channel Plugin Abstraction
 
 - 📋 **`Channel` trait** — abstract interface for message channels (send, edit, upload, typing)
 - 📋 **Telegram channel plugin** — refactor handler.rs to implement Channel trait
 - 📋 **Discord channel plugin** — refactor discord_handler.rs to implement Channel trait
 - 📋 **Plugin loader** — dynamic channel registration from config
 
-## v1.15.0 — WebSocket Protocol
+## v1.16.0 — WebSocket Protocol
 
 - 📋 **WS endpoint** — `ws://gateway:3100/ws` for CLI↔Gateway real-time communication
 - 📋 **CLI connect mode** — `openclaw chat` opens interactive WS session
 - 📋 **TUI** — terminal UI with streaming responses
 
-## v1.16.0+ — Extended Features
+## v1.17.0+ — Extended Features
 
 - 📋 **Multi-agent routing** — per-agent workspaces, auth, routing
 - 📋 **Device pairing** — QR codes, setup codes, token management

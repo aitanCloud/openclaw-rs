@@ -1,10 +1,10 @@
 use anyhow::Result;
 use tokio::sync::mpsc;
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 
 use openclaw_agent::llm::fallback::FallbackProvider;
 use openclaw_agent::llm::streaming::StreamEvent;
-use openclaw_agent::llm::{LlmProvider, Message, OpenAiCompatibleProvider};
+use openclaw_agent::llm::{LlmProvider, Message};
 use openclaw_agent::runtime::{self, AgentTurnConfig};
 use openclaw_agent::sessions::SessionStore;
 use openclaw_agent::tools::ToolRegistry;
@@ -169,7 +169,7 @@ pub async fn handle_message(
             }
         }
     } else if let Some(ref model) = config.agent.model {
-        match resolve_single_provider(model) {
+        match crate::handler_utils::resolve_single_provider(model) {
             Ok(p) => Box::new(p),
             Err(e) => {
                 bot.edit_message(chat_id, placeholder_id, &format!("❌ Provider error: {}", e))
@@ -409,7 +409,7 @@ pub async fn handle_message(
         if full_response.len() > 4000 {
             let rest = &full_response[4000..];
             let send_bot = TelegramBot::new(&config.telegram.bot_token);
-            for chunk in split_for_telegram(rest, 4000) {
+            for chunk in crate::handler_utils::split_message(rest, 4000) {
                 send_bot.send_message(chat_id, &chunk).await?;
             }
         }
@@ -707,10 +707,10 @@ async fn handle_command(
                     let now = std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64;
                     let oldest = stats.oldest_ms
-                        .map(|ms| format_duration(now - ms))
+                        .map(|ms| crate::handler_utils::format_duration(now - ms))
                         .unwrap_or_else(|| "n/a".to_string());
                     let newest = stats.newest_ms
-                        .map(|ms| format_duration(now - ms))
+                        .map(|ms| crate::handler_utils::format_duration(now - ms))
                         .unwrap_or_else(|| "n/a".to_string());
                     let avg_msgs = if stats.session_count > 0 {
                         format!("{:.1}", stats.message_count as f64 / stats.session_count as f64)
@@ -842,7 +842,7 @@ async fn handle_command(
                 md.push_str(&format!("_Exported {} messages_", messages.len()));
 
                 // Send as chunks if needed
-                let chunks = split_for_telegram(&md, 4000);
+                let chunks = crate::handler_utils::split_message(&md, 4000);
                 for chunk in chunks {
                     bot.send_message(chat_id, &chunk).await?;
                 }
@@ -864,7 +864,7 @@ async fn handle_command(
                         &s.session_key[..s.session_key.len().min(30)],
                         s.message_count,
                         s.total_tokens,
-                        format_duration(age),
+                        crate::handler_utils::format_duration(age),
                     ));
                 }
                 bot.send_message(chat_id, &msg).await?;
@@ -1022,7 +1022,7 @@ async fn handle_command(
                         if target.is_empty() {
                             bot.send_message(chat_id, "Usage: /cron enable <name> or /cron disable <name>").await?;
                         } else {
-                            match toggle_cron_job(&cron_path, target, action == "enable") {
+                            match crate::handler_utils::toggle_cron_job(&cron_path, target, action == "enable") {
                                 Ok(job_name) => {
                                     let icon = if action == "enable" { "✅" } else { "⏸️" };
                                     bot.send_message(chat_id, &format!("{} Cron job '{}' {}d.", icon, job_name, action)).await?;
@@ -1047,7 +1047,7 @@ async fn handle_command(
                                             .and_then(|s| s.last_run_at_ms)
                                             .map(|ms| {
                                                 let age = chrono::Utc::now().timestamp_millis() - ms as i64;
-                                                format_duration(age)
+                                                crate::handler_utils::format_duration(age)
                                             })
                                             .unwrap_or_else(|| "never".to_string());
                                         let last_status = job.state.as_ref()
@@ -1111,7 +1111,7 @@ async fn handle_command(
                     ));
                 }
                 msg_text.push_str("_Use /logs N to show more (max 20)_");
-                let chunks = split_for_telegram(&msg_text, 4000);
+                let chunks = crate::handler_utils::split_message(&msg_text, 4000);
                 for chunk in chunks {
                     bot.send_message(chat_id, &chunk).await?;
                 }
@@ -1124,22 +1124,6 @@ async fn handle_command(
     }
 
     Ok(())
-}
-
-fn toggle_cron_job(path: &std::path::Path, name: &str, enable: bool) -> Result<String> {
-    crate::handler_utils::toggle_cron_job(path, name, enable)
-}
-
-fn resolve_single_provider(model_spec: &str) -> Result<OpenAiCompatibleProvider> {
-    crate::handler_utils::resolve_single_provider(model_spec)
-}
-
-fn split_for_telegram(text: &str, max_len: usize) -> Vec<String> {
-    crate::handler_utils::split_message(text, max_len)
-}
-
-fn format_duration(ms: i64) -> String {
-    crate::handler_utils::format_duration(ms)
 }
 
 /// Download a Telegram voice message and transcribe it via Whisper

@@ -1,11 +1,10 @@
 use anyhow::{Context, Result};
-use std::sync::Arc;
 use tokio::sync::mpsc;
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 
 use openclaw_agent::llm::fallback::FallbackProvider;
 use openclaw_agent::llm::streaming::StreamEvent;
-use openclaw_agent::llm::{LlmProvider, OpenAiCompatibleProvider};
+use openclaw_agent::llm::LlmProvider;
 use openclaw_agent::runtime::{self, AgentTurnConfig};
 use openclaw_agent::sessions::SessionStore;
 use openclaw_agent::tools::ToolRegistry;
@@ -153,7 +152,7 @@ pub async fn handle_discord_message(
             }
         }
     } else if let Some(ref model) = config.agent.model {
-        match resolve_single_provider(model) {
+        match crate::handler_utils::resolve_single_provider(model) {
             Ok(p) => Box::new(p),
             Err(e) => {
                 bot.edit_message(
@@ -399,7 +398,7 @@ pub async fn handle_discord_message(
         if full_response.len() > 2000 {
             let rest = &full_response[2000..];
             let overflow_bot = DiscordBot::new(&stream_bot_token);
-            for chunk in split_for_discord(rest, 2000) {
+            for chunk in crate::handler_utils::split_message(rest, 2000) {
                 overflow_bot.send_message(&stream_channel, &chunk).await?;
             }
         }
@@ -762,10 +761,10 @@ async fn handle_command(
                     let now = std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64;
                     let oldest = stats.oldest_ms
-                        .map(|ms| format_duration(now - ms))
+                        .map(|ms| crate::handler_utils::format_duration(now - ms))
                         .unwrap_or_else(|| "n/a".to_string());
                     let newest = stats.newest_ms
-                        .map(|ms| format_duration(now - ms))
+                        .map(|ms| crate::handler_utils::format_duration(now - ms))
                         .unwrap_or_else(|| "n/a".to_string());
                     let avg_msgs = if stats.session_count > 0 {
                         format!("{:.1}", stats.message_count as f64 / stats.session_count as f64)
@@ -907,7 +906,7 @@ async fn handle_command(
                         &s.session_key[..s.session_key.len().min(30)],
                         s.message_count,
                         s.total_tokens,
-                        format_duration(age),
+                        crate::handler_utils::format_duration(age),
                     ));
                 }
                 bot.send_embed(
@@ -950,7 +949,7 @@ async fn handle_command(
                 }
                 md.push_str(&format!("*Exported {} messages*", messages.len()));
 
-                let chunks = split_for_discord(&md, 2000);
+                let chunks = crate::handler_utils::split_message(&md, 2000);
                 for chunk in chunks {
                     bot.send_message(channel_id, &chunk).await?;
                 }
@@ -1103,7 +1102,7 @@ async fn handle_command(
                             )
                             .await?;
                         } else {
-                            match toggle_cron_job(&cron_path, target, action == "enable") {
+                            match crate::handler_utils::toggle_cron_job(&cron_path, target, action == "enable") {
                                 Ok(job_name) => {
                                     let icon = if action == "enable" { "✅" } else { "⏸️" };
                                     bot.send_reply(
@@ -1146,7 +1145,7 @@ async fn handle_command(
                                             .map(|ms| {
                                                 let age = chrono::Utc::now().timestamp_millis()
                                                     - ms as i64;
-                                                format_duration(age)
+                                                crate::handler_utils::format_duration(age)
                                             })
                                             .unwrap_or_else(|| "never".to_string());
                                         let last_status = job
@@ -1254,10 +1253,6 @@ async fn handle_command(
     Ok(())
 }
 
-fn toggle_cron_job(path: &std::path::Path, name: &str, enable: bool) -> Result<String> {
-    crate::handler_utils::toggle_cron_job(path, name, enable)
-}
-
 /// Strip bot mention from message text (e.g. "<@123456789> hello" -> "hello")
 fn strip_bot_mention(text: &str) -> String {
     let stripped = if text.starts_with("<@") {
@@ -1306,18 +1301,6 @@ async fn download_and_encode_attachment(url: &str, content_type: Option<&str>) -
     Ok(format!("data:{};base64,{}", mime, b64))
 }
 
-fn resolve_single_provider(model_spec: &str) -> Result<OpenAiCompatibleProvider> {
-    crate::handler_utils::resolve_single_provider(model_spec)
-}
-
-fn split_for_discord(text: &str, max_len: usize) -> Vec<String> {
-    crate::handler_utils::split_message(text, max_len)
-}
-
-fn format_duration(ms: i64) -> String {
-    crate::handler_utils::format_duration(ms)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1331,12 +1314,12 @@ mod tests {
     }
 
     #[test]
-    fn test_split_for_discord() {
+    fn test_split_message_discord() {
         let short = "hello";
-        assert_eq!(split_for_discord(short, 2000), vec!["hello"]);
+        assert_eq!(crate::handler_utils::split_message(short, 2000), vec!["hello"]);
 
         let long = "a\n".repeat(1500);
-        let chunks = split_for_discord(&long, 2000);
+        let chunks = crate::handler_utils::split_message(&long, 2000);
         for chunk in &chunks {
             assert!(chunk.len() <= 2000);
         }
