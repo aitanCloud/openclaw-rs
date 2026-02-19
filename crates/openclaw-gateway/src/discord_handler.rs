@@ -488,9 +488,7 @@ async fn handle_command(
                 let rl = m.rate_limited.load(std::sync::atomic::Ordering::Relaxed);
                 let completed = m.completed_requests.load(std::sync::atomic::Ordering::Relaxed);
                 let avg = m.avg_latency_ms();
-                let uptime = crate::handler::BOOT_TIME.elapsed();
-                let hours = uptime.as_secs() / 3600;
-                let mins = (uptime.as_secs() % 3600) / 60;
+                let uptime_str = crate::human_uptime(crate::handler::BOOT_TIME.elapsed().as_secs());
                 let cancelled = m.tasks_cancelled.load(std::sync::atomic::Ordering::Relaxed);
                 let timeouts = m.agent_timeouts.load(std::sync::atomic::Ordering::Relaxed);
                 let turns = m.agent_turns.load(std::sync::atomic::Ordering::Relaxed);
@@ -507,7 +505,7 @@ async fn handle_command(
                 bot.send_embed(
                     channel_id, Some(reply_to),
                     "📊 Gateway Stats",
-                    &format!("Uptime: {}h {}m", hours, mins),
+                    &format!("Uptime: {}", uptime_str),
                     0x5865F2, // Discord blurple
                     &[
                         ("Telegram", &format!("{} req / {} err", tg_req, tg_err), true),
@@ -530,16 +528,14 @@ async fn handle_command(
             }
         }
         "version" => {
-            let uptime = crate::handler::BOOT_TIME.elapsed();
-            let hours = uptime.as_secs() / 3600;
-            let mins = (uptime.as_secs() % 3600) / 60;
+            let uptime_str = crate::human_uptime(crate::handler::BOOT_TIME.elapsed().as_secs());
             bot.send_embed(
                 channel_id, Some(reply_to),
                 "🦀 openclaw-gateway",
                 &format!("v{}", env!("CARGO_PKG_VERSION")),
                 0xF74C00, // Rust orange
                 &[
-                    ("Uptime", &format!("{}h {}m", hours, mins), true),
+                    ("Uptime", &uptime_str, true),
                     ("Agent", &config.agent.name, true),
                     ("Commands", "22", true),
                 ],

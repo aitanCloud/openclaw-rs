@@ -494,9 +494,7 @@ async fn handle_command(
                 let rl = m.rate_limited.load(std::sync::atomic::Ordering::Relaxed);
                 let completed = m.completed_requests.load(std::sync::atomic::Ordering::Relaxed);
                 let avg = m.avg_latency_ms();
-                let uptime = crate::handler::BOOT_TIME.elapsed();
-                let hours = uptime.as_secs() / 3600;
-                let mins = (uptime.as_secs() % 3600) / 60;
+                let uptime_str = crate::human_uptime(crate::handler::BOOT_TIME.elapsed().as_secs());
                 let cancelled = m.tasks_cancelled.load(std::sync::atomic::Ordering::Relaxed);
                 let timeouts = m.agent_timeouts.load(std::sync::atomic::Ordering::Relaxed);
                 let turns = m.agent_turns.load(std::sync::atomic::Ordering::Relaxed);
@@ -509,7 +507,7 @@ async fn handle_command(
                     .map(|stats| stats.session_count)
                     .unwrap_or(0);
                 bot.send_message(chat_id, &format!(
-                    "📊 *Gateway Stats* ({}h {}m uptime)\n\n\
+                    "📊 *Gateway Stats* ({} uptime)\n\n\
                     Telegram: {} requests, {} errors\n\
                     Discord: {} requests, {} errors\n\
                     Webhooks: {}\n\
@@ -523,7 +521,7 @@ async fn handle_command(
                     Active tasks: {}\n\
                     Avg latency: {}ms\n\
                     Error rate: {:.1}%",
-                    hours, mins, tg_req, tg_err, dc_req, dc_err, webhooks, rl, completed,
+                    uptime_str, tg_req, tg_err, dc_req, dc_err, webhooks, rl, completed,
                     turns, tool_calls, session_count, cancelled, timeouts,
                     crate::task_registry::active_count(), avg, err_rate,
                 )).await?;
@@ -532,15 +530,13 @@ async fn handle_command(
             }
         }
         "/version" => {
-            let uptime = crate::handler::BOOT_TIME.elapsed();
-            let hours = uptime.as_secs() / 3600;
-            let mins = (uptime.as_secs() % 3600) / 60;
+            let uptime_str = crate::human_uptime(crate::handler::BOOT_TIME.elapsed().as_secs());
             bot.send_message(chat_id, &format!(
                 "🦀 *openclaw-gateway* v{}\n\
-                Uptime: {}h {}m\n\
+                Uptime: {}\n\
                 Agent: {}\n\
                 Commands: 22",
-                env!("CARGO_PKG_VERSION"), hours, mins, config.agent.name,
+                env!("CARGO_PKG_VERSION"), uptime_str, config.agent.name,
             )).await?;
         }
         "/doctor" => {

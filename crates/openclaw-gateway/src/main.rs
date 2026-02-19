@@ -386,7 +386,7 @@ async fn health_handler() -> Json<serde_json::Value> {
         "uptime": human_uptime(uptime_secs),
         "uptime_seconds": uptime_secs,
         "skills": skills_count,
-        "commands": 21,
+        "commands": 22,
     }))
 }
 
@@ -591,9 +591,9 @@ async fn status_handler(
 
     // Commands
     let tg_commands = ["help", "new", "status", "model", "sessions", "export", "voice", "ping",
-        "history", "clear", "db", "version", "stats", "whoami", "cancel", "stop", "cron", "tools", "skills", "config", "doctor"];
+        "history", "clear", "db", "version", "stats", "whoami", "cancel", "stop", "cron", "tools", "skills", "config", "runtime", "doctor"];
     let dc_commands = ["help", "new", "status", "model", "sessions", "export", "voice", "ping",
-        "history", "clear", "db", "version", "stats", "whoami", "cancel", "stop", "cron", "tools", "skills", "config", "doctor"];
+        "history", "clear", "db", "version", "stats", "whoami", "cancel", "stop", "cron", "tools", "skills", "config", "runtime", "doctor"];
 
     // Provider labels from fallback chain
     let providers: Vec<String> = openclaw_agent::llm::fallback::FallbackProvider::from_config()
@@ -621,4 +621,34 @@ async fn status_handler(
             "discord": dc_commands,
         },
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_human_uptime_seconds() {
+        assert_eq!(human_uptime(45), "0m 45s");
+    }
+
+    #[test]
+    fn test_human_uptime_minutes() {
+        assert_eq!(human_uptime(125), "2m 5s");
+    }
+
+    #[test]
+    fn test_human_uptime_hours() {
+        assert_eq!(human_uptime(7260), "2h 1m");
+    }
+
+    #[test]
+    fn test_human_uptime_days() {
+        assert_eq!(human_uptime(90060), "1d 1h 1m");
+    }
+
+    #[test]
+    fn test_human_uptime_multi_days() {
+        assert_eq!(human_uptime(259200), "3d 0h 0m");
+    }
 }

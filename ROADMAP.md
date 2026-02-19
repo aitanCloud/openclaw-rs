@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.61.0
+**Version:** 0.62.0
 **Last updated:** 2026-02-19
 **Maintainer:** Cascade + Shawaz
 
@@ -489,7 +489,14 @@
 - ✅ **20/22 Discord embeds** — added `/runtime` embed (remaining: /export file upload, /voice TTS audio)
 - ✅ **163 tests** — 111 agent + 7 core + 45 gateway
 
-## v0.62.0 — Daemon & Polish
+## v0.62.0 — Consistent Uptime & Test Coverage (shipped)
+
+- ✅ **Consistent `human_uptime()`** — all uptime displays (/version, /stats, /health, /runtime) now use the same formatter with days support
+- ✅ **`/status` + `/health` fix** — command lists and count updated to 22 (was missing `/runtime`)
+- ✅ **5 new uptime tests** — seconds, minutes, hours, days, multi-days edge cases
+- ✅ **168 tests** — 111 agent + 7 core + 50 gateway (was 45)
+
+## v0.63.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**
