@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.15.0
+**Version:** 0.16.0
 **Last updated:** 2026-02-18
 **Maintainer:** Cascade + Shawaz
 
@@ -144,12 +144,19 @@
 - ✅ **Full command parity** — Discord now has all 7 commands matching Telegram: /help, /new, /status, /model, /sessions, /export, /cron
 - ✅ **115 tests** — 91 agent + 7 core + 17 gateway
 
-## v0.16.0 — Daemon & Polish
+## v0.16.0 — Session Isolation & Voice (shipped)
+
+- ✅ **Per-user session isolation** — session keys now include user ID: `tg:{agent}:{user}:{chat}` and `dc:{agent}:{user}:{channel}`, each user gets their own conversation history even in shared channels
+- ✅ **Telegram voice messages** — `send_voice()` method with multipart OGG/Opus file upload, caption support
+- ✅ **reqwest multipart** — added multipart feature for file uploads across all crates
+- ✅ **115 tests** — 91 agent + 7 core + 17 gateway
+
+## v0.17.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**
-- 📋 **Telegram voice messages** — send TTS output as OGG/Opus voice messages
-- 📋 **Per-user session isolation** — separate session keys per Discord/Telegram user
+- 📋 **Auto-TTS voice replies** — detect /voice command or voice preference, generate and send TTS audio
+- 📋 **Session migration** — migrate old channel-based sessions to new user-based keys
 - 💡 **WhatsApp integration**
 
 ---

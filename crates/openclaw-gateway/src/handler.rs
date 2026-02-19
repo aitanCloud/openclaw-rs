@@ -140,7 +140,7 @@ pub async fn handle_message(
     };
 
     // ── Session ──
-    let session_key = format!("tg:{}:{}", config.agent.name, chat_id);
+    let session_key = format!("tg:{}:{}:{}", config.agent.name, user_id, chat_id);
     let store = match SessionStore::open(&config.agent.name) {
         Ok(s) => s,
         Err(e) => {
@@ -367,7 +367,7 @@ pub async fn handle_message(
 async fn handle_command(
     bot: &TelegramBot,
     chat_id: i64,
-    _user_id: i64,
+    user_id: i64,
     text: &str,
     config: &GatewayConfig,
 ) -> Result<()> {
@@ -392,11 +392,11 @@ async fn handle_command(
         }
         "/new" | "/reset" => {
             let store = SessionStore::open(&config.agent.name)?;
-            let old_key = format!("tg:{}:{}", config.agent.name, chat_id);
+            let old_key = format!("tg:{}:{}:{}", config.agent.name, user_id, chat_id);
             let old_msgs = store.load_messages(&old_key)?;
             let msg_count = old_msgs.len();
 
-            let new_key = format!("tg:{}:{}:{}", config.agent.name, chat_id, uuid::Uuid::new_v4());
+            let new_key = format!("tg:{}:{}:{}:{}", config.agent.name, user_id, chat_id, uuid::Uuid::new_v4());
             store.create_session(&new_key, &config.agent.name, "pending")?;
 
             bot.send_message(
@@ -410,7 +410,7 @@ async fn handle_command(
         }
         "/status" => {
             let store = SessionStore::open(&config.agent.name)?;
-            let session_key = format!("tg:{}:{}", config.agent.name, chat_id);
+            let session_key = format!("tg:{}:{}:{}", config.agent.name, user_id, chat_id);
             let sessions = store.list_sessions(&config.agent.name, 100)?;
             let current = sessions.iter().find(|s| s.session_key == session_key);
 
@@ -470,7 +470,7 @@ async fn handle_command(
         }
         "/export" => {
             let store = SessionStore::open(&config.agent.name)?;
-            let session_key = format!("tg:{}:{}", config.agent.name, chat_id);
+            let session_key = format!("tg:{}:{}:{}", config.agent.name, user_id, chat_id);
             let messages = store.load_messages(&session_key)?;
 
             if messages.is_empty() {

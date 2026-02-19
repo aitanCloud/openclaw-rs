@@ -309,6 +309,45 @@ impl TelegramBot {
         Ok(())
     }
 
+    /// Send a voice message (OGG/Opus file) to a chat
+    pub async fn send_voice(&self, chat_id: i64, voice_path: &std::path::Path, caption: Option<&str>) -> Result<()> {
+        let file_bytes = tokio::fs::read(voice_path).await
+            .context("Failed to read voice file")?;
+
+        let file_name = voice_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("voice.ogg")
+            .to_string();
+
+        let file_part = reqwest::multipart::Part::bytes(file_bytes)
+            .file_name(file_name)
+            .mime_str("audio/ogg")?;
+
+        let mut form = reqwest::multipart::Form::new()
+            .text("chat_id", chat_id.to_string())
+            .part("voice", file_part);
+
+        if let Some(cap) = caption {
+            form = form.text("caption", cap.to_string());
+        }
+
+        let resp = self
+            .client
+            .post(format!("{}/sendVoice", self.api_base))
+            .multipart(form)
+            .send()
+            .await
+            .context("Failed to send voice message")?;
+
+        if !resp.status().is_success() {
+            let err_body = resp.text().await.unwrap_or_default();
+            warn!("sendVoice failed: {}", err_body);
+        }
+
+        Ok(())
+    }
+
     /// Get file info from Telegram (needed to download photos)
     pub async fn get_file(&self, file_id: &str) -> Result<TgFile> {
         let resp: TgResponse<TgFile> = self

@@ -181,7 +181,7 @@ pub async fn handle_discord_message(
     };
 
     // ── Session ──
-    let session_key = format!("dc:{}:{}", config.agent.name, channel_id);
+    let session_key = format!("dc:{}:{}:{}", config.agent.name, user_id, channel_id);
     let store = match SessionStore::open(&config.agent.name) {
         Ok(s) => s,
         Err(e) => {
@@ -410,7 +410,7 @@ async fn handle_command(
     bot: &DiscordBot,
     channel_id: &str,
     reply_to: &str,
-    _user_id: &str,
+    user_id: &str,
     text: &str,
     config: &GatewayConfig,
 ) -> Result<()> {
@@ -439,13 +439,14 @@ async fn handle_command(
         }
         "new" | "reset" => {
             let store = SessionStore::open(&config.agent.name)?;
-            let old_key = format!("dc:{}:{}", config.agent.name, channel_id);
+            let old_key = format!("dc:{}:{}:{}", config.agent.name, user_id, channel_id);
             let old_msgs = store.load_messages(&old_key)?;
             let msg_count = old_msgs.len();
 
             let new_key = format!(
-                "dc:{}:{}:{}",
+                "dc:{}:{}:{}:{}",
                 config.agent.name,
+                user_id,
                 channel_id,
                 uuid::Uuid::new_v4()
             );
@@ -463,7 +464,7 @@ async fn handle_command(
         }
         "status" => {
             let store = SessionStore::open(&config.agent.name)?;
-            let session_key = format!("dc:{}:{}", config.agent.name, channel_id);
+            let session_key = format!("dc:{}:{}:{}", config.agent.name, user_id, channel_id);
             let sessions = store.list_sessions(&config.agent.name, 100)?;
             let current = sessions.iter().find(|s| s.session_key == session_key);
 
@@ -565,7 +566,7 @@ async fn handle_command(
         }
         "export" => {
             let store = SessionStore::open(&config.agent.name)?;
-            let session_key = format!("dc:{}:{}", config.agent.name, channel_id);
+            let session_key = format!("dc:{}:{}:{}", config.agent.name, user_id, channel_id);
             let messages = store.load_messages(&session_key)?;
 
             if messages.is_empty() {
