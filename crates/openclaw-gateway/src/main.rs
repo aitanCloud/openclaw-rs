@@ -401,6 +401,9 @@ async fn health_handler() -> Json<serde_json::Value> {
         .map(|stats| stats.session_count)
         .unwrap_or(0);
     let rss = process_rss_bytes();
+    let checks = doctor::run_checks("main").await;
+    let checks_total = checks.len();
+    let checks_passed = checks.iter().filter(|(_, ok, _)| *ok).count();
     Json(serde_json::json!({
         "status": "ok",
         "version": env!("CARGO_PKG_VERSION"),
@@ -413,6 +416,8 @@ async fn health_handler() -> Json<serde_json::Value> {
         "skills": skills_count,
         "sessions": session_count,
         "commands": 22,
+        "doctor_checks_total": checks_total,
+        "doctor_checks_passed": checks_passed,
     }))
 }
 

@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.71.0
+**Version:** 0.72.0
 **Last updated:** 2026-02-19
 **Maintainer:** Cascade + Shawaz
 
@@ -560,7 +560,14 @@
 - ✅ **Boundary value tests** — `human_bytes` tested at exact KB/MB/GB thresholds
 - ✅ **180 tests** — 111 agent + 7 core + 62 gateway (was 61)
 
-## v0.72.0 — Daemon & Polish
+## v0.72.0 — Doctor Checks in /health & Prometheus (shipped)
+
+- ✅ **Doctor summary in `/health`** — `doctor_checks_total` and `doctor_checks_passed` fields for quick health assessment
+- ✅ **`doctor_checks_total` Prometheus gauge** — 21st metric: static count of doctor checks for alerting
+- ✅ **21 Prometheus metrics** — comprehensive test updated to verify all 21
+- ✅ **180 tests** — 111 agent + 7 core + 62 gateway
+
+## v0.73.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**
