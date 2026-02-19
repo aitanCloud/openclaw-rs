@@ -97,6 +97,7 @@ async fn main() -> anyhow::Result<()> {
     let tool_names = Arc::new(tool_names);
     let app = Router::new()
         .route("/health", get(health_handler))
+        .route("/health/lite", get(health_lite_handler))
         .route("/version", get(version_handler))
         .route("/ping", get(ping_handler))
         .route(
@@ -398,6 +399,18 @@ pub fn human_uptime(secs: u64) -> String {
     }
 }
 
+async fn health_lite_handler() -> Json<serde_json::Value> {
+    let uptime_secs = handler::BOOT_TIME.elapsed().as_secs();
+    Json(serde_json::json!({
+        "status": "ok",
+        "version": env!("CARGO_PKG_VERSION"),
+        "agent": handler::agent_name(),
+        "uptime": human_uptime(uptime_secs),
+        "uptime_seconds": uptime_secs,
+        "active_tasks": task_registry::active_count(),
+    }))
+}
+
 async fn ping_handler() -> &'static str {
     "pong"
 }
@@ -432,22 +445,19 @@ async fn health_handler() -> axum::response::Response {
         .ok()
         .map(|fb| fb.provider_labels().iter().map(|s| s.to_string()).collect())
         .unwrap_or_default();
-    let (error_rate, total_requests, total_errors, avg_latency, webhook_reqs, agent_turns, tool_calls, completed_reqs, rate_limited, concurrency_rejected, agent_timeouts, tasks_cancelled) = metrics::global()
-        .map(|m| (
-            (m.error_rate_pct() * 100.0).round() / 100.0,
-            m.total_requests(),
-            m.total_errors(),
-            m.avg_latency_ms(),
-            m.webhook_requests(),
-            m.agent_turns(),
-            m.tool_calls(),
-            m.completed_requests(),
-            m.rate_limited(),
-            m.concurrency_rejected(),
-            m.agent_timeouts(),
-            m.tasks_cancelled(),
-        ))
-        .unwrap_or((0.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0));
+    let (error_rate, total_requests, total_errors, avg_latency, webhook_reqs,
+         agent_turns, tool_calls, completed_reqs, rate_limited, concurrency_rejected,
+         agent_timeouts, tasks_cancelled, gw_connects, gw_disconnects, gw_resumes) =
+        metrics::global()
+            .map(|m| (
+                (m.error_rate_pct() * 100.0).round() / 100.0,
+                m.total_requests(), m.total_errors(), m.avg_latency_ms(),
+                m.webhook_requests(), m.agent_turns(), m.tool_calls(),
+                m.completed_requests(), m.rate_limited(), m.concurrency_rejected(),
+                m.agent_timeouts(), m.tasks_cancelled(),
+                m.gateway_connects(), m.gateway_disconnects(), m.gateway_resumes(),
+            ))
+            .unwrap_or((0.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0));
     let checks = doctor::run_checks("main").await;
     let checks_total = checks.len();
     let checks_passed = checks.iter().filter(|(_, ok, _)| *ok).count();
@@ -469,7 +479,7 @@ async fn health_handler() -> axum::response::Response {
             "skills": skills_count,
             "sessions": session_count,
             "commands": 22,
-            "http_endpoint_count": 10,
+            "http_endpoint_count": 11,
             "tool_count": 17,
             "total_requests": total_requests,
             "total_errors": total_errors,
@@ -483,6 +493,9 @@ async fn health_handler() -> axum::response::Response {
             "concurrency_rejected": concurrency_rejected,
             "agent_timeouts": agent_timeouts,
             "tasks_cancelled": tasks_cancelled,
+            "gateway_connects": gw_connects,
+            "gateway_disconnects": gw_disconnects,
+            "gateway_resumes": gw_resumes,
             "provider_count": providers.len(),
             "fallback_chain": providers,
             "doctor_checks_total": checks_total,
@@ -771,8 +784,8 @@ async fn status_handler(
         "webhook_configured": config.webhook.is_some(),
         "built": env!("BUILD_TIMESTAMP"),
         "boot_time": *handler::BOOT_TIMESTAMP,
-        "http_endpoints": ["/health", "/version", "/ping", "/ready", "/status", "/metrics", "/metrics/json", "/metrics/summary", "/doctor", "/webhook"],
-        "http_endpoint_count": 10,
+        "http_endpoints": ["/health", "/health/lite", "/version", "/ping", "/ready", "/status", "/metrics", "/metrics/json", "/metrics/summary", "/doctor", "/webhook"],
+        "http_endpoint_count": 11,
         "commands": {
             "telegram": tg_commands,
             "discord": dc_commands,
@@ -868,15 +881,16 @@ mod tests {
             "agent_turns", "tool_calls", "completed_requests",
             "rate_limited", "concurrency_rejected",
             "agent_timeouts", "tasks_cancelled",
+            "gateway_connects", "gateway_disconnects", "gateway_resumes",
             "provider_count", "fallback_chain",
             "doctor_checks_total", "doctor_checks_passed", "response_time_ms",
         ];
-        assert_eq!(expected.len(), 32, "Should have 32 /health JSON fields");
+        assert_eq!(expected.len(), 35, "Should have 35 /health JSON fields");
         // Verify no duplicates
         let mut sorted = expected.to_vec();
         sorted.sort();
         sorted.dedup();
-        assert_eq!(sorted.len(), 32, "/health fields should have no duplicates");
+        assert_eq!(sorted.len(), 35, "/health fields should have no duplicates");
     }
 
     #[test]
@@ -915,13 +929,23 @@ mod tests {
 
     #[test]
     fn test_http_endpoints_count() {
-        let endpoints = ["/health", "/version", "/ping", "/ready", "/status", "/metrics", "/metrics/json", "/metrics/summary", "/doctor", "/webhook"];
-        assert_eq!(endpoints.len(), 10, "Should have 10 HTTP endpoints");
+        let endpoints = ["/health", "/health/lite", "/version", "/ping", "/ready", "/status", "/metrics", "/metrics/json", "/metrics/summary", "/doctor", "/webhook"];
+        assert_eq!(endpoints.len(), 11, "Should have 11 HTTP endpoints");
         // Verify no duplicates
         let mut sorted = endpoints.to_vec();
         sorted.sort();
         sorted.dedup();
-        assert_eq!(sorted.len(), 10, "HTTP endpoints should have no duplicates");
+        assert_eq!(sorted.len(), 11, "HTTP endpoints should have no duplicates");
+    }
+
+    #[test]
+    fn test_health_lite_expected_fields() {
+        let expected = ["status", "version", "agent", "uptime", "uptime_seconds", "active_tasks"];
+        assert_eq!(expected.len(), 6, "Should have 6 /health/lite JSON fields");
+        let mut sorted = expected.to_vec();
+        sorted.sort();
+        sorted.dedup();
+        assert_eq!(sorted.len(), 6, "/health/lite fields should have no duplicates");
     }
 
     #[test]

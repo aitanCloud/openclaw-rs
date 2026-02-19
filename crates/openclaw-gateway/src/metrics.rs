@@ -164,6 +164,18 @@ impl GatewayMetrics {
         self.tasks_cancelled.load(Ordering::Relaxed)
     }
 
+    pub fn gateway_connects(&self) -> u64 {
+        self.gateway_connects.load(Ordering::Relaxed)
+    }
+
+    pub fn gateway_disconnects(&self) -> u64 {
+        self.gateway_disconnects.load(Ordering::Relaxed)
+    }
+
+    pub fn gateway_resumes(&self) -> u64 {
+        self.gateway_resumes.load(Ordering::Relaxed)
+    }
+
     pub fn error_rate_pct(&self) -> f64 {
         let total = self.total_requests();
         if total == 0 {

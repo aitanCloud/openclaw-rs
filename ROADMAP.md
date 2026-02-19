@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.87.0
+**Version:** 0.88.0
 **Last updated:** 2026-02-19
 **Maintainer:** Cascade + Shawaz
 
@@ -682,7 +682,16 @@
 - ✅ **`record_completion` test** — verifies completed_requests count and avg_latency calculation
 - ✅ **195 tests** — 111 agent + 7 core + 77 gateway (was 76)
 
-## v0.88.0 — Daemon & Polish
+## v0.88.0 — /health/lite & WebSocket Stats (shipped)
+
+- ✅ **`GET /health/lite`** — 11th endpoint: lightweight health check without doctor checks (fast response)
+- ✅ **`gateway_connects`, `gateway_disconnects`, `gateway_resumes` in `/health`** — 35 total fields
+- ✅ **`gateway_connects()`, `gateway_disconnects()`, `gateway_resumes()` accessors** — new public methods on GatewayMetrics
+- ✅ **`/health/lite` field completeness test** — verifies all 6 fields with no duplicates
+- ✅ **11 HTTP endpoints** — /health, /health/lite, /version, /ping, /ready, /status, /metrics, /metrics/json, /metrics/summary, /doctor, /webhook
+- ✅ **196 tests** — 111 agent + 7 core + 78 gateway (was 77)
+
+## v0.89.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**
