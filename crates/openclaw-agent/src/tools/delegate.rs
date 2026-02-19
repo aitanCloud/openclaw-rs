@@ -68,6 +68,7 @@ impl Tool for DelegateTool {
             &prompt,
             &ctx.agent_name,
             &ctx.workspace_dir,
+            None, // cancellation token not available through tool interface
         )
         .await;
 

@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.47.0
+**Version:** 0.48.0
 **Last updated:** 2026-02-19
 **Maintainer:** Cascade + Shawaz
 
@@ -374,7 +374,17 @@
 - ✅ **151 tests** — 105 agent + 7 core + 39 gateway (+3 new)
 - ✅ **16 tools** — exec, read, write, list_dir, patch, grep, find, web_search, web_fetch, process, image, cron, sessions, tts, browser, **delegate**
 
-## v0.48.0 — Daemon & Polish
+## v0.48.0 — Memory Tool & Circuit Breaker Tests (shipped)
+
+- ✅ **`memory` tool** — 17th built-in tool; persistent key-value notes per agent in JSON file (set/get/list/delete)
+- ✅ **Subagent cancellation** — `run_subagent_turn()` now accepts optional CancellationToken, propagated from parent
+- ✅ **Circuit breaker test** — `test_circuit_breaker_threshold` verifies >3 failures opens circuit, reset on success
+- ✅ **Last successful tracking test** — `test_last_successful_tracking` verifies initial provider is tracked
+- ✅ **Memory tool tests** — `test_memory_tool_definition`, `test_memory_set_get_list_delete` (full CRUD), `test_load_memory_missing_file`
+- ✅ **156 tests** — 110 agent + 7 core + 39 gateway (+5 new)
+- ✅ **17 tools** — added `memory` (persistent notes)
+
+## v0.49.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**

@@ -6,6 +6,7 @@ pub mod find;
 pub mod grep;
 pub mod image;
 pub mod list_dir;
+pub mod memory;
 pub mod patch;
 pub mod process;
 pub mod read;
@@ -93,6 +94,7 @@ impl ToolRegistry {
         registry.register(Box::new(tts::TtsTool));
         registry.register(Box::new(browser::BrowserTool));
         registry.register(Box::new(delegate::DelegateTool));
+        registry.register(Box::new(memory::MemoryTool));
         registry
     }
 
@@ -216,14 +218,15 @@ mod tests {
         assert!(names.contains(&"tts"));
         assert!(names.contains(&"browser"));
         assert!(names.contains(&"delegate"));
-        assert_eq!(names.len(), 16);
+        assert!(names.contains(&"memory"));
+        assert_eq!(names.len(), 17);
     }
 
     #[test]
     fn test_definitions_format() {
         let registry = ToolRegistry::with_defaults();
         let defs = registry.definitions();
-        assert_eq!(defs.len(), 16);
+        assert_eq!(defs.len(), 17);
         for def in &defs {
             assert_eq!(def.tool_type, "function");
             assert!(!def.function.name.is_empty());
@@ -235,10 +238,10 @@ mod tests {
     fn test_without_tool_removes_delegate() {
         let registry = ToolRegistry::with_defaults();
         assert!(registry.tool_names().contains(&"delegate"));
-        assert_eq!(registry.tool_names().len(), 16);
+        assert_eq!(registry.tool_names().len(), 17);
 
         let filtered = ToolRegistry::without_tool(registry, "delegate");
         assert!(!filtered.tool_names().contains(&"delegate"));
-        assert_eq!(filtered.tool_names().len(), 15);
+        assert_eq!(filtered.tool_names().len(), 16);
     }
 }

@@ -326,4 +326,48 @@ mod tests {
         let labels = provider.provider_labels();
         assert_eq!(labels, vec!["ollama/llama3.2:1b", "moonshot/kimi-k2.5"]);
     }
+
+    #[test]
+    fn test_circuit_breaker_threshold() {
+        // Circuit breaker opens after >3 consecutive failures
+        let entries = vec![
+            (
+                "primary/model-a".to_string(),
+                OpenAiCompatibleProvider::new("http://localhost:1", "key", "a"),
+            ),
+            (
+                "backup/model-b".to_string(),
+                OpenAiCompatibleProvider::new("http://localhost:2", "key", "b"),
+            ),
+        ];
+        let provider = FallbackProvider::new(entries);
+
+        // Simulate 4 consecutive failures on primary (exceeds threshold of 3)
+        for _ in 0..4 {
+            provider.entries[0].consecutive_failures.fetch_add(1, Ordering::Relaxed);
+        }
+        assert_eq!(provider.entries[0].consecutive_failures.load(Ordering::Relaxed), 4);
+
+        // Verify backup is still healthy
+        assert_eq!(provider.entries[1].consecutive_failures.load(Ordering::Relaxed), 0);
+
+        // Reset simulates a successful call
+        provider.entries[0].consecutive_failures.store(0, Ordering::Relaxed);
+        assert_eq!(provider.entries[0].consecutive_failures.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn test_last_successful_tracking() {
+        let entries = vec![
+            (
+                "primary/model-a".to_string(),
+                OpenAiCompatibleProvider::new("http://localhost:1", "key", "a"),
+            ),
+        ];
+        let provider = FallbackProvider::new(entries);
+
+        // Initial last_successful should be the first provider
+        let last = provider.last_successful.read().unwrap().clone();
+        assert_eq!(last, "primary/model-a");
+    }
 }

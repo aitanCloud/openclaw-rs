@@ -20,6 +20,7 @@ pub async fn run_subagent_turn(
     prompt: &str,
     agent_name: &str,
     workspace_dir: &str,
+    cancel_token: Option<tokio_util::sync::CancellationToken>,
 ) -> Result<String> {
     info!("Starting subagent turn for agent={}", agent_name);
 
@@ -55,7 +56,7 @@ pub async fn run_subagent_turn(
         &tools,
         event_tx,
         Vec::new(), // no images for subagent
-        None,       // no cancellation token (inherits parent timeout)
+        cancel_token, // propagate parent's cancellation token
     )
     .await?;
 
