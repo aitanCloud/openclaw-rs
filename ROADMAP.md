@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.44.0
+**Version:** 0.45.0
 **Last updated:** 2026-02-18
 **Maintainer:** Cascade + Shawaz
 
@@ -351,7 +351,14 @@
 - ✅ **`test_prometheus_format_headers`** — verifies all HELP/TYPE headers present in Prometheus output
 - ✅ **141 tests** — 96 agent + 7 core + 38 gateway (+2 new)
 
-## v0.45.0 — Daemon & Polish
+## v0.45.0 — Error Rate Observability (shipped)
+
+- ✅ **`error_rate_pct` in JSON** — added to `to_json()` output, automatically included in /status and /metrics/json HTTP endpoints
+- ✅ **`error_rate_pct` Prometheus gauge** — `openclaw_gateway_error_rate_pct` gauge in /metrics output
+- ✅ **`test_error_rate_in_json_and_prometheus`** — verifies 25% error rate appears correctly in both formats
+- ✅ **142 tests** — 96 agent + 7 core + 39 gateway (+1 new)
+
+## v0.46.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**

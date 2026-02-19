@@ -179,6 +179,10 @@ impl GatewayMetrics {
         out.push_str(&format!("openclaw_gateway_agent_timeouts_total {}\n",
             self.agent_timeouts.load(Ordering::Relaxed)));
 
+        out.push_str("# HELP openclaw_gateway_error_rate_pct Current error rate percentage\n");
+        out.push_str("# TYPE openclaw_gateway_error_rate_pct gauge\n");
+        out.push_str(&format!("openclaw_gateway_error_rate_pct {:.2}\n", self.error_rate_pct()));
+
         out
     }
 
@@ -198,6 +202,7 @@ impl GatewayMetrics {
             "gateway_resumes": self.gateway_resumes.load(Ordering::Relaxed),
             "tasks_cancelled": self.tasks_cancelled.load(Ordering::Relaxed),
             "agent_timeouts": self.agent_timeouts.load(Ordering::Relaxed),
+            "error_rate_pct": (self.error_rate_pct() * 100.0).round() / 100.0,
         })
     }
 }
@@ -351,5 +356,20 @@ mod tests {
         assert!(prom.contains("# HELP openclaw_gateway_ws_events_total"));
         assert!(prom.contains("# HELP openclaw_gateway_tasks_cancelled_total"));
         assert!(prom.contains("# HELP openclaw_gateway_agent_timeouts_total"));
+        assert!(prom.contains("# HELP openclaw_gateway_error_rate_pct"));
+        assert!(prom.contains("# TYPE openclaw_gateway_error_rate_pct gauge"));
+    }
+
+    #[test]
+    fn test_error_rate_in_json_and_prometheus() {
+        let m = GatewayMetrics::new();
+        for _ in 0..4 { m.record_telegram_request(); }
+        m.record_telegram_error();
+
+        let json = m.to_json();
+        assert_eq!(json["error_rate_pct"], 25.0);
+
+        let prom = m.to_prometheus();
+        assert!(prom.contains("openclaw_gateway_error_rate_pct 25.00"));
     }
 }
