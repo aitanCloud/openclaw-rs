@@ -445,8 +445,8 @@ async fn handle_command(
                     ("Session", "`/new` `/clear` `/sessions` `/export`", false),
                     ("Info", "`/status` `/model` `/version` `/whoami` `/db`", false),
                     ("Monitoring", "`/stats` `/ping` `/history [N]` `/doctor`", false),
-                    ("Control", "`/cancel` `/stop` `/voice` `/cron` `/tools`", false),
-                    ("Commands", "19", true),
+                    ("Control", "`/cancel` `/stop` `/voice` `/cron` `/tools` `/skills`", false),
+                    ("Commands", "20", true),
                 ],
             ).await?;
         }
@@ -538,7 +538,7 @@ async fn handle_command(
                 &[
                     ("Uptime", &format!("{}h {}m", hours, mins), true),
                     ("Agent", &config.agent.name, true),
-                    ("Commands", "19", true),
+                    ("Commands", "20", true),
                 ],
             ).await?;
         }
@@ -578,6 +578,36 @@ async fn handle_command(
                 0x5865F2,
                 &[("Tools", &tool_list, false)],
             ).await?;
+        }
+        "skills" => {
+            let workspace_dir = openclaw_agent::workspace::resolve_workspace_dir(&config.agent.name);
+            let skills_dir = workspace_dir.join("skills");
+            let skills = openclaw_core::skills::list_skills(&skills_dir).unwrap_or_default();
+            if skills.is_empty() {
+                bot.send_embed(
+                    channel_id, Some(reply_to),
+                    "📚 Skills",
+                    "No skills found in workspace.",
+                    0x5865F2,
+                    &[],
+                ).await?;
+            } else {
+                let mut fields: Vec<(String, String, bool)> = Vec::new();
+                for skill in &skills {
+                    let desc = skill.description.as_deref().unwrap_or("(no description)");
+                    fields.push((skill.name.clone(), desc.to_string(), true));
+                }
+                let field_refs: Vec<(&str, &str, bool)> = fields.iter()
+                    .map(|(n, d, i)| (n.as_str(), d.as_str(), *i))
+                    .collect();
+                bot.send_embed(
+                    channel_id, Some(reply_to),
+                    "📚 Skills",
+                    &format!("{} skill(s) available", skills.len()),
+                    0x9B59B6, // Purple
+                    &field_refs,
+                ).await?;
+            }
         }
         "whoami" => {
             let session_key = format!("dc:{}:{}:{}", config.agent.name, user_id, channel_id);

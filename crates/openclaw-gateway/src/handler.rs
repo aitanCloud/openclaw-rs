@@ -446,6 +446,7 @@ async fn handle_command(
                 /cancel — stop the running task\n\
                 /cron — list and manage cron jobs\n\
                 /tools — list all built-in agent tools\n\
+                /skills — list available workspace skills\n\
                 /doctor — run health checks\n\
                 /help — show this help\n\n\
                 You can also send voice messages — I'll transcribe and respond.",
@@ -534,7 +535,7 @@ async fn handle_command(
                 "🦀 *openclaw-gateway* v{}\n\
                 Uptime: {}h {}m\n\
                 Agent: {}\n\
-                Commands: 19",
+                Commands: 20",
                 env!("CARGO_PKG_VERSION"), hours, mins, config.agent.name,
             )).await?;
         }
@@ -557,6 +558,21 @@ async fn handle_command(
                 msg_text.push_str(&format!("• `{}`\n", name));
             }
             bot.send_message(chat_id, &msg_text).await?;
+        }
+        "/skills" => {
+            let workspace_dir = openclaw_agent::workspace::resolve_workspace_dir(&config.agent.name);
+            let skills_dir = workspace_dir.join("skills");
+            let skills = openclaw_core::skills::list_skills(&skills_dir).unwrap_or_default();
+            if skills.is_empty() {
+                bot.send_message(chat_id, "📚 No skills found in workspace.").await?;
+            } else {
+                let mut msg_text = format!("📚 *Skills* ({} available)\n\n", skills.len());
+                for skill in &skills {
+                    let desc = skill.description.as_deref().unwrap_or("(no description)");
+                    msg_text.push_str(&format!("• *{}* — {}\n", skill.name, desc));
+                }
+                bot.send_message(chat_id, &msg_text).await?;
+            }
         }
         "/clear" => {
             let store = SessionStore::open(&config.agent.name)?;

@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.54.0
+**Version:** 0.55.0
 **Last updated:** 2026-02-19
 **Maintainer:** Cascade + Shawaz
 
@@ -436,7 +436,14 @@
 - ✅ **16/19 Discord embeds** — added `/tools` embed
 - ✅ **160 tests** — 111 agent + 7 core + 42 gateway
 
-## v0.55.0 — Daemon & Polish
+## v0.55.0 — /skills Command & 20 Commands (shipped)
+
+- ✅ **`/skills` command** — lists available workspace skills with descriptions on both Telegram (bullet list) and Discord (purple embed with per-skill fields)
+- ✅ **20 commands** — added `/skills`, updated startup banner, /version, /help on both channels
+- ✅ **18/20 Discord embeds** — added `/skills` embed (remaining: /export file upload, /voice TTS audio)
+- ✅ **160 tests** — 111 agent + 7 core + 42 gateway
+
+## v0.56.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**
