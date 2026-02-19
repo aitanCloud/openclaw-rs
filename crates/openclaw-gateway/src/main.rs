@@ -444,6 +444,17 @@ async fn health_handler() -> axum::response::Response {
     let rss = process_rss_bytes();
     let ws_dir = openclaw_core::paths::workspace_dir();
     let disk_bytes = crate::doctor::dir_size_bytes_pub(&ws_dir);
+    let cron_jobs_count = {
+        let cron_path = dirs::home_dir().unwrap_or_default().join(".openclaw").join("cron").join("jobs.json");
+        std::fs::read_to_string(&cron_path).ok()
+            .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+            .and_then(|v| v.get("jobs").and_then(|j| j.as_array().map(|a| a.len())))
+            .unwrap_or(0)
+    };
+    let sessions_db_size = {
+        let db_path = openclaw_core::paths::agent_sessions_dir("main").join("sessions.db");
+        std::fs::metadata(&db_path).map(|m| m.len()).unwrap_or(0)
+    };
     let providers: Vec<String> = openclaw_agent::llm::fallback::FallbackProvider::from_config()
         .ok()
         .map(|fb| fb.provider_labels().iter().map(|s| s.to_string()).collect())
@@ -481,6 +492,9 @@ async fn health_handler() -> axum::response::Response {
             "memory_rss": crate::doctor::human_bytes_pub(rss),
             "disk_usage_bytes": disk_bytes,
             "disk_usage": crate::doctor::human_bytes_pub(disk_bytes),
+            "cron_jobs_count": cron_jobs_count,
+            "sessions_db_size_bytes": sessions_db_size,
+            "sessions_db_size": crate::doctor::human_bytes_pub(sessions_db_size),
             "skills": skills_count,
             "sessions": session_count,
             "commands": 22,
@@ -898,6 +912,7 @@ mod tests {
             "status", "version", "agent", "built", "boot_time", "active_tasks",
             "uptime", "uptime_seconds", "memory_rss_bytes", "memory_rss",
             "disk_usage_bytes", "disk_usage",
+            "cron_jobs_count", "sessions_db_size_bytes", "sessions_db_size",
             "skills", "sessions", "commands",
             "http_endpoint_count", "tool_count",
             "total_requests", "total_errors", "error_rate_pct",
@@ -909,12 +924,12 @@ mod tests {
             "provider_count", "fallback_chain",
             "doctor_checks_total", "doctor_checks_passed", "response_time_ms",
         ];
-        assert_eq!(expected.len(), 37, "Should have 37 /health JSON fields");
+        assert_eq!(expected.len(), 40, "Should have 40 /health JSON fields");
         // Verify no duplicates
         let mut sorted = expected.to_vec();
         sorted.sort();
         sorted.dedup();
-        assert_eq!(sorted.len(), 37, "/health fields should have no duplicates");
+        assert_eq!(sorted.len(), 40, "/health fields should have no duplicates");
     }
 
     #[test]
@@ -955,6 +970,18 @@ mod tests {
     fn test_human_uptime_exact_hour() {
         assert_eq!(human_uptime(3600), "1h 0m");
         assert_eq!(human_uptime(7200), "2h 0m");
+    }
+
+    #[test]
+    fn test_human_uptime_zero() {
+        assert_eq!(human_uptime(0), "0m 0s");
+    }
+
+    #[test]
+    fn test_process_rss_bytes_valid() {
+        let rss = process_rss_bytes();
+        // RSS should be a valid u64 (0 is acceptable on systems without /proc)
+        assert!(rss < u64::MAX, "RSS should be a reasonable value");
     }
 
     #[test]
