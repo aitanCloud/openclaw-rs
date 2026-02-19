@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.51.0
+**Version:** 0.52.0
 **Last updated:** 2026-02-19
 **Maintainer:** Cascade + Shawaz
 
@@ -412,7 +412,16 @@
 - ✅ **160 tests** — 111 agent + 7 core + 42 gateway (+2 new)
 - ✅ **13/17 Discord embeds** — added `/doctor`
 
-## v0.52.0 — Daemon & Polish
+## v0.52.0 — Doctor HTTP & More Embeds (shipped)
+
+- ✅ **`/doctor` HTTP endpoint** — JSON health check endpoint at `:3100/doctor` returning `{status, passed, total, checks[]}` for monitoring/safe-restart integration
+- ✅ **Discord `/history` embed** — role-labeled fields (👤 User / 🤖 Assistant / 🔧 Tool) with message count and previews
+- ✅ **Discord `/cron` embed** — orange embed with per-job fields showing schedule, last run, status, duration
+- ✅ **15/17 Discord embeds** — added `/history` and `/cron`
+- ✅ **160 tests** — 111 agent + 7 core + 42 gateway
+- ✅ **HTTP endpoints** — /health, /status, /metrics, /metrics/json, **/doctor**
+
+## v0.53.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**

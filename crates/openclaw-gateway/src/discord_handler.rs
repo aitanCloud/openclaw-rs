@@ -603,26 +603,41 @@ async fn handle_command(
             let recent: Vec<_> = msgs.iter().rev().take(count).collect();
 
             if recent.is_empty() {
-                bot.send_reply(channel_id, reply_to, "📜 No messages in current session.").await?;
+                bot.send_embed(
+                    channel_id, Some(reply_to),
+                    "📜 History",
+                    "No messages in current session.",
+                    0x5865F2,
+                    &[],
+                ).await?;
             } else {
-                let mut text = format!("📜 **Last {} messages:**\n\n", recent.len());
+                let mut fields: Vec<(String, String, bool)> = Vec::new();
                 for msg in recent.iter().rev() {
                     let role = match msg.role.as_str() {
-                        "user" => "👤",
-                        "assistant" => "🤖",
-                        "system" => "⚙️",
-                        "tool" => "🔧",
-                        _ => "❓",
+                        "user" => "👤 User",
+                        "assistant" => "🤖 Assistant",
+                        "system" => "⚙️ System",
+                        "tool" => "🔧 Tool",
+                        _ => "❓ Unknown",
                     };
                     let content = msg.content.as_deref().unwrap_or("[no content]");
-                    let preview = if content.len() > 200 {
-                        format!("{}...", &content[..200])
+                    let preview = if content.len() > 100 {
+                        format!("{}...", &content[..100])
                     } else {
                         content.to_string()
                     };
-                    text.push_str(&format!("{} {}\n", role, preview));
+                    fields.push((role.to_string(), preview, false));
                 }
-                bot.send_reply(channel_id, reply_to, &text).await?;
+                let field_refs: Vec<(&str, &str, bool)> = fields.iter()
+                    .map(|(n, d, i)| (n.as_str(), d.as_str(), *i))
+                    .collect();
+                bot.send_embed(
+                    channel_id, Some(reply_to),
+                    "📜 History",
+                    &format!("Last {} of {} messages", recent.len(), msgs.len()),
+                    0x5865F2, // Discord blurple
+                    &field_refs,
+                ).await?;
             }
         }
         "db" => {
@@ -997,10 +1012,15 @@ async fn handle_command(
                         match openclaw_core::cron::load_cron_jobs(&cron_path) {
                             Ok(cron_file) => {
                                 if cron_file.jobs.is_empty() {
-                                    bot.send_reply(channel_id, reply_to, "No cron jobs configured.")
-                                        .await?;
+                                    bot.send_embed(
+                                        channel_id, Some(reply_to),
+                                        "⏰ Cron Jobs",
+                                        "No cron jobs configured.",
+                                        0x5865F2,
+                                        &[],
+                                    ).await?;
                                 } else {
-                                    let mut msg = String::from("⏰ **Cron Jobs:**\n\n");
+                                    let mut fields: Vec<(String, String, bool)> = Vec::new();
                                     for job in &cron_file.jobs {
                                         let status = if job.enabled { "✅" } else { "⏸️" };
                                         let last_run = job
@@ -1025,16 +1045,22 @@ async fn handle_command(
                                             .map(|ms| format!("{:.1}s", ms as f64 / 1000.0))
                                             .unwrap_or_else(|| "—".to_string());
 
-                                        msg.push_str(&format!(
-                                            "{} **{}**\n  Schedule: `{}`\n  Last: {} ({}), took {}\n\n",
-                                            status, job.name, job.schedule, last_run, last_status,
-                                            duration,
+                                        fields.push((
+                                            format!("{} {}", status, job.name),
+                                            format!("`{}` · Last: {} ({}) · {}", job.schedule, last_run, last_status, duration),
+                                            false,
                                         ));
                                     }
-                                    msg.push_str(
-                                        "*Use `/cron enable <name>` or `/cron disable <name>`*",
-                                    );
-                                    bot.send_reply(channel_id, reply_to, &msg).await?;
+                                    let field_refs: Vec<(&str, &str, bool)> = fields.iter()
+                                        .map(|(n, d, i)| (n.as_str(), d.as_str(), *i))
+                                        .collect();
+                                    bot.send_embed(
+                                        channel_id, Some(reply_to),
+                                        "⏰ Cron Jobs",
+                                        &format!("{} job(s) · Use `/cron enable|disable <name>`", cron_file.jobs.len()),
+                                        0xFA9A28, // Orange
+                                        &field_refs,
+                                    ).await?;
                                 }
                             }
                             Err(e) => {

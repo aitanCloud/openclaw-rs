@@ -116,6 +116,13 @@ async fn main() -> anyhow::Result<()> {
                 let m = gateway_metrics.clone();
                 move || metrics_json_handler(m)
             }),
+        )
+        .route(
+            "/doctor",
+            get({
+                let cfg = health_config.clone();
+                move || doctor_handler(cfg)
+            }),
         );
 
     let http_port: u16 = std::env::var("HTTP_PORT")
@@ -373,6 +380,26 @@ async fn metrics_json_handler(
     m: Arc<metrics::GatewayMetrics>,
 ) -> Json<serde_json::Value> {
     Json(m.to_json())
+}
+
+async fn doctor_handler(
+    config: Arc<config::GatewayConfig>,
+) -> Json<serde_json::Value> {
+    let checks = doctor::run_checks(&config.agent.name).await;
+    let all_ok = checks.iter().all(|(_, ok, _)| *ok);
+    let results: Vec<serde_json::Value> = checks.iter()
+        .map(|(name, ok, detail)| serde_json::json!({
+            "check": name,
+            "passed": ok,
+            "detail": detail,
+        }))
+        .collect();
+    Json(serde_json::json!({
+        "status": if all_ok { "healthy" } else { "degraded" },
+        "passed": checks.iter().filter(|(_, ok, _)| *ok).count(),
+        "total": checks.len(),
+        "checks": results,
+    }))
 }
 
 async fn status_handler(
