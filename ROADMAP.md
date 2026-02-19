@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.90.0
+**Version:** 0.91.0
 **Last updated:** 2026-02-19
 **Maintainer:** Cascade + Shawaz
 
@@ -706,7 +706,15 @@
 - ✅ **Prometheus HELP/TYPE line count test** — verifies matching HELP and TYPE lines (≥15 each)
 - ✅ **201 tests** — 111 agent + 7 core + 83 gateway (was 80) — **200+ test milestone!**
 
-## v0.91.0 — Daemon & Polish
+## v0.91.0 — Disk Usage & 14th Doctor Check (shipped)
+
+- ✅ **`disk_usage_bytes` and `disk_usage` in `/health`** — 37 total fields, shows workspace disk usage
+- ✅ **`dir_size_bytes_pub()` public wrapper** — exposes workspace size calculation for HTTP handlers
+- ✅ **14th doctor check: LLM Providers** — reports configured provider count, fails if zero
+- ✅ **14 doctor checks** — workspace, config, sessions, skills, LLM, metrics, cron, disk, webhook, memory, tasks, LLM providers, HTTP, uptime
+- ✅ **201 tests** — 111 agent + 7 core + 83 gateway
+
+## v0.92.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**

@@ -442,6 +442,8 @@ async fn health_handler() -> axum::response::Response {
         .map(|stats| stats.session_count)
         .unwrap_or(0);
     let rss = process_rss_bytes();
+    let ws_dir = openclaw_core::paths::workspace_dir();
+    let disk_bytes = crate::doctor::dir_size_bytes_pub(&ws_dir);
     let providers: Vec<String> = openclaw_agent::llm::fallback::FallbackProvider::from_config()
         .ok()
         .map(|fb| fb.provider_labels().iter().map(|s| s.to_string()).collect())
@@ -477,6 +479,8 @@ async fn health_handler() -> axum::response::Response {
             "uptime_seconds": uptime_secs,
             "memory_rss_bytes": rss,
             "memory_rss": crate::doctor::human_bytes_pub(rss),
+            "disk_usage_bytes": disk_bytes,
+            "disk_usage": crate::doctor::human_bytes_pub(disk_bytes),
             "skills": skills_count,
             "sessions": session_count,
             "commands": 22,
@@ -893,6 +897,7 @@ mod tests {
         let expected = [
             "status", "version", "agent", "built", "boot_time", "active_tasks",
             "uptime", "uptime_seconds", "memory_rss_bytes", "memory_rss",
+            "disk_usage_bytes", "disk_usage",
             "skills", "sessions", "commands",
             "http_endpoint_count", "tool_count",
             "total_requests", "total_errors", "error_rate_pct",
@@ -904,12 +909,12 @@ mod tests {
             "provider_count", "fallback_chain",
             "doctor_checks_total", "doctor_checks_passed", "response_time_ms",
         ];
-        assert_eq!(expected.len(), 35, "Should have 35 /health JSON fields");
+        assert_eq!(expected.len(), 37, "Should have 37 /health JSON fields");
         // Verify no duplicates
         let mut sorted = expected.to_vec();
         sorted.sort();
         sorted.dedup();
-        assert_eq!(sorted.len(), 35, "/health fields should have no duplicates");
+        assert_eq!(sorted.len(), 37, "/health fields should have no duplicates");
     }
 
     #[test]

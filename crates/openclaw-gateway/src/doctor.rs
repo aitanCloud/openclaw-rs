@@ -38,6 +38,11 @@ pub fn human_bytes_pub(bytes: u64) -> String {
     human_bytes(bytes)
 }
 
+/// Public wrapper for dir_size_bytes (used by main.rs /health endpoint)
+pub fn dir_size_bytes_pub(path: &Path) -> u64 {
+    dir_size_bytes(path)
+}
+
 /// Run all health checks and return a list of (check_name, passed, detail)
 pub async fn run_checks(agent_name: &str) -> Vec<(String, bool, String)> {
     let mut checks = Vec::new();
@@ -182,7 +187,22 @@ pub async fn run_checks(agent_name: &str) -> Vec<(String, bool, String)> {
         format!("{} running", active),
     ));
 
-    // 12. HTTP endpoints
+    // 12. LLM providers
+    let provider_count = openclaw_agent::llm::fallback::FallbackProvider::from_config()
+        .ok()
+        .map(|fb| fb.provider_labels().len())
+        .unwrap_or(0);
+    checks.push((
+        "LLM Providers".to_string(),
+        provider_count > 0,
+        if provider_count > 0 {
+            format!("{} provider(s) configured", provider_count)
+        } else {
+            "No providers configured".to_string()
+        },
+    ));
+
+    // 13. HTTP endpoints
     let http_port = std::env::var("PORT").unwrap_or_else(|_| "3100".to_string());
     checks.push((
         "HTTP".to_string(),
@@ -190,7 +210,7 @@ pub async fn run_checks(agent_name: &str) -> Vec<(String, bool, String)> {
         format!("12 endpoints on port {}", http_port),
     ));
 
-    // 13. Uptime
+    // 14. Uptime
     let uptime_secs = crate::handler::BOOT_TIME.elapsed().as_secs();
     checks.push((
         "Uptime".to_string(),
@@ -213,8 +233,8 @@ mod tests {
     #[tokio::test]
     async fn test_doctor_returns_checks() {
         let checks = run_checks("test-agent").await;
-        // Should always return at least 13 checks
-        assert!(checks.len() >= 13, "Expected >=13 checks, got {}", checks.len());
+        // Should always return at least 14 checks
+        assert!(checks.len() >= 14, "Expected >=14 checks, got {}", checks.len());
 
         // Verify check names are present
         let names: Vec<&str> = checks.iter().map(|(n, _, _)| n.as_str()).collect();
@@ -229,9 +249,10 @@ mod tests {
         assert!(names.contains(&"Webhook"));
         assert!(names.contains(&"Memory"));
         assert!(names.contains(&"Active Tasks"));
+        assert!(names.contains(&"LLM Providers"));
         assert!(names.contains(&"HTTP"));
         assert!(names.contains(&"Uptime"));
-        assert_eq!(names.len(), 13, "Should have exactly 13 doctor checks");
+        assert_eq!(names.len(), 14, "Should have exactly 14 doctor checks");
     }
 
     #[tokio::test]

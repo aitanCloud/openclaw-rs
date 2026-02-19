@@ -290,7 +290,7 @@ impl GatewayMetrics {
 
         out.push_str("# HELP openclaw_gateway_doctor_checks_total Total number of doctor health checks\n");
         out.push_str("# TYPE openclaw_gateway_doctor_checks_total gauge\n");
-        out.push_str("openclaw_gateway_doctor_checks_total 13\n");
+        out.push_str("openclaw_gateway_doctor_checks_total 14\n");
 
         out.push_str("# HELP openclaw_gateway_info Gateway build information\n");
         out.push_str("# TYPE openclaw_gateway_info gauge\n");
@@ -327,7 +327,7 @@ impl GatewayMetrics {
                 .and_then(|s| s.db_stats("main").ok())
                 .map(|stats| stats.session_count)
                 .unwrap_or(0),
-            "doctor_checks_total": 13,
+            "doctor_checks_total": 14,
         })
     }
 }
