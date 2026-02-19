@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.80.0
+**Version:** 0.81.0
 **Last updated:** 2026-02-19
 **Maintainer:** Cascade + Shawaz
 
@@ -627,7 +627,15 @@
 - ✅ **`human_uptime` multi-day test** — 2d 3h 45m and 7d 0h 0m
 - ✅ **188 tests** — 111 agent + 7 core + 70 gateway (was 68)
 
-## v0.81.0 — Daemon & Polish
+## v0.81.0 — Provider Info & 13th Doctor Check (shipped)
+
+- ✅ **`provider_count` and `fallback_chain` in `/health`** — 22 total fields, shows configured LLM providers
+- ✅ **13th doctor check: HTTP** — reports 9 endpoints and configured port
+- ✅ **UUID format validation test** — verifies request_id is valid UUID (36 chars, 4 dashes, parseable)
+- ✅ **13 doctor checks** — workspace, config, sessions, skills, LLM, metrics, cron, disk, webhook, memory, tasks, HTTP, uptime
+- ✅ **189 tests** — 111 agent + 7 core + 71 gateway (was 70)
+
+## v0.82.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**

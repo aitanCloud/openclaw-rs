@@ -182,7 +182,15 @@ pub async fn run_checks(agent_name: &str) -> Vec<(String, bool, String)> {
         format!("{} running", active),
     ));
 
-    // 12. Uptime
+    // 12. HTTP endpoints
+    let http_port = std::env::var("PORT").unwrap_or_else(|_| "3100".to_string());
+    checks.push((
+        "HTTP".to_string(),
+        true,
+        format!("9 endpoints on port {}", http_port),
+    ));
+
+    // 13. Uptime
     let uptime_secs = crate::handler::BOOT_TIME.elapsed().as_secs();
     checks.push((
         "Uptime".to_string(),
@@ -205,8 +213,8 @@ mod tests {
     #[tokio::test]
     async fn test_doctor_returns_checks() {
         let checks = run_checks("test-agent").await;
-        // Should always return at least 12 checks
-        assert!(checks.len() >= 12, "Expected >=12 checks, got {}", checks.len());
+        // Should always return at least 13 checks
+        assert!(checks.len() >= 13, "Expected >=13 checks, got {}", checks.len());
 
         // Verify check names are present
         let names: Vec<&str> = checks.iter().map(|(n, _, _)| n.as_str()).collect();

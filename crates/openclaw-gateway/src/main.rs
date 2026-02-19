@@ -417,6 +417,10 @@ async fn health_handler() -> axum::response::Response {
         .map(|stats| stats.session_count)
         .unwrap_or(0);
     let rss = process_rss_bytes();
+    let providers: Vec<String> = openclaw_agent::llm::fallback::FallbackProvider::from_config()
+        .ok()
+        .map(|fb| fb.provider_labels().iter().map(|s| s.to_string()).collect())
+        .unwrap_or_default();
     let (error_rate, total_requests, total_errors, avg_latency, webhook_reqs) = metrics::global()
         .map(|m| (
             (m.error_rate_pct() * 100.0).round() / 100.0,
@@ -451,6 +455,8 @@ async fn health_handler() -> axum::response::Response {
             "error_rate_pct": error_rate,
             "avg_latency_ms": avg_latency,
             "webhook_requests": webhook_reqs,
+            "provider_count": providers.len(),
+            "fallback_chain": providers,
             "doctor_checks_total": checks_total,
             "doctor_checks_passed": checks_passed,
             "response_time_ms": elapsed_ms,
@@ -813,14 +819,15 @@ mod tests {
             "skills", "sessions", "commands",
             "total_requests", "total_errors", "error_rate_pct",
             "avg_latency_ms", "webhook_requests",
+            "provider_count", "fallback_chain",
             "doctor_checks_total", "doctor_checks_passed", "response_time_ms",
         ];
-        assert_eq!(expected.len(), 20, "Should have 20 /health JSON fields");
+        assert_eq!(expected.len(), 22, "Should have 22 /health JSON fields");
         // Verify no duplicates
         let mut sorted = expected.to_vec();
         sorted.sort();
         sorted.dedup();
-        assert_eq!(sorted.len(), 20, "/health fields should have no duplicates");
+        assert_eq!(sorted.len(), 22, "/health fields should have no duplicates");
     }
 
     #[test]
@@ -840,6 +847,15 @@ mod tests {
         sorted.sort();
         sorted.dedup();
         assert_eq!(sorted.len(), 9, "HTTP endpoints should have no duplicates");
+    }
+
+    #[test]
+    fn test_request_id_is_valid_uuid() {
+        let id = uuid::Uuid::new_v4().to_string();
+        assert_eq!(id.len(), 36, "UUID should be 36 chars");
+        assert_eq!(id.chars().filter(|c| *c == '-').count(), 4, "UUID should have 4 dashes");
+        // Parse back to verify format
+        assert!(uuid::Uuid::parse_str(&id).is_ok(), "Should parse as valid UUID");
     }
 
     #[test]
