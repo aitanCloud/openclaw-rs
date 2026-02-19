@@ -34,6 +34,32 @@ pub struct TgMessage {
     pub date: i64,
     #[serde(default)]
     pub photo: Option<Vec<TgPhotoSize>>,
+    pub voice: Option<TgVoice>,
+    pub audio: Option<TgAudio>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TgVoice {
+    pub file_id: String,
+    pub file_unique_id: String,
+    pub duration: u32,
+    #[serde(default)]
+    pub mime_type: Option<String>,
+    #[serde(default)]
+    pub file_size: Option<u64>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TgAudio {
+    pub file_id: String,
+    pub file_unique_id: String,
+    pub duration: u32,
+    #[serde(default)]
+    pub mime_type: Option<String>,
+    #[serde(default)]
+    pub file_size: Option<u64>,
+    #[serde(default)]
+    pub title: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

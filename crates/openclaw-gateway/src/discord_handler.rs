@@ -432,11 +432,16 @@ async fn handle_command(
                 `/sessions` — list recent sessions\n\
                 `/export` — export current session as markdown\n\
                 `/voice` — get a voice response (TTS)\n\
+                `/ping` — latency check\n\
                 `/cron` — list and manage cron jobs\n\
                 `/help` — show this help\n\n\
                 You can also use `!` prefix instead of `/`. Send images for vision analysis.",
             )
             .await?;
+        }
+        "ping" => {
+            let start = std::time::Instant::now();
+            bot.send_reply(channel_id, reply_to, &format!("🏓 Pong! ({}ms)", start.elapsed().as_millis())).await?;
         }
         "new" | "reset" => {
             let store = SessionStore::open(&config.agent.name)?;

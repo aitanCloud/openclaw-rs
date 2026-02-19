@@ -31,9 +31,39 @@ pub async fn handle_message(
 
     // Extract text from message or photo caption
     let has_photo = msg.photo.as_ref().map(|p| !p.is_empty()).unwrap_or(false);
-    let text = msg.text.clone()
-        .or_else(|| msg.caption.clone())
-        .unwrap_or_default();
+    let has_voice = msg.voice.is_some() || msg.audio.is_some();
+
+    let text = if has_voice {
+        // Voice/audio message — download and transcribe
+        let file_id = msg.voice.as_ref().map(|v| v.file_id.as_str())
+            .or_else(|| msg.audio.as_ref().map(|a| a.file_id.as_str()))
+            .unwrap_or("");
+        let duration = msg.voice.as_ref().map(|v| v.duration)
+            .or_else(|| msg.audio.as_ref().map(|a| a.duration))
+            .unwrap_or(0);
+
+        info!("Voice message from {} ({}): {}s, file_id={}", user_name, user_id, duration, &file_id[..file_id.len().min(20)]);
+
+        match transcribe_voice_message(bot, file_id).await {
+            Ok(transcript) => {
+                if transcript.is_empty() {
+                    bot.send_message(chat_id, "🎤 I couldn't transcribe that voice message. Please try again or send text.").await?;
+                    return Ok(());
+                }
+                bot.send_message(chat_id, &format!("🎤 _{}_", &transcript[..transcript.len().min(200)])).await?;
+                transcript
+            }
+            Err(e) => {
+                warn!("Voice transcription failed: {}", e);
+                bot.send_message(chat_id, "🎤 Voice transcription failed. Please send text instead.").await?;
+                return Ok(());
+            }
+        }
+    } else {
+        msg.text.clone()
+            .or_else(|| msg.caption.clone())
+            .unwrap_or_default()
+    };
 
     // Must have text or photo
     if text.is_empty() && !has_photo {
@@ -386,10 +416,16 @@ async fn handle_command(
                 /sessions — list recent sessions\n\
                 /export — export current session as markdown\n\
                 /voice — get a voice response (TTS)\n\
+                /ping — latency check\n\
                 /cron — list and manage cron jobs\n\
-                /help — show this help",
+                /help — show this help\n\n\
+                You can also send voice messages — I'll transcribe and respond.",
             )
             .await?;
+        }
+        "/ping" => {
+            let start = std::time::Instant::now();
+            bot.send_message(chat_id, &format!("🏓 Pong! ({}ms)", start.elapsed().as_millis())).await?;
         }
         "/new" | "/reset" => {
             let store = SessionStore::open(&config.agent.name)?;
@@ -835,6 +871,135 @@ fn format_duration(ms: i64) -> String {
     else if secs < 3600 { format!("{}m ago", secs / 60) }
     else if secs < 86400 { format!("{}h ago", secs / 3600) }
     else { format!("{}d ago", secs / 86400) }
+}
+
+/// Download a Telegram voice message and transcribe it via Whisper
+async fn transcribe_voice_message(bot: &TelegramBot, file_id: &str) -> Result<String> {
+    let file = bot.get_file(file_id).await?;
+    let file_path = file.file_path
+        .ok_or_else(|| anyhow::anyhow!("Telegram getFile returned no file_path"))?;
+
+    let bytes = bot.download_file(&file_path).await?;
+
+    // Save to temp file
+    let tmp_dir = std::env::temp_dir().join("openclaw-voice");
+    std::fs::create_dir_all(&tmp_dir)?;
+    let ts = chrono::Utc::now().format("%Y%m%d_%H%M%S_%3f");
+    let ogg_path = tmp_dir.join(format!("voice_{}.ogg", ts));
+    let wav_path = tmp_dir.join(format!("voice_{}.wav", ts));
+
+    std::fs::write(&ogg_path, &bytes)?;
+
+    // Convert OGG to WAV via ffmpeg (Whisper needs WAV/MP3)
+    let ffmpeg_status = tokio::process::Command::new("ffmpeg")
+        .args(["-y", "-i"])
+        .arg(&ogg_path)
+        .args(["-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le"])
+        .arg(&wav_path)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .await;
+
+    let _ = std::fs::remove_file(&ogg_path);
+
+    match ffmpeg_status {
+        Ok(status) if status.success() && wav_path.exists() => {}
+        _ => {
+            anyhow::bail!("ffmpeg conversion failed for voice message");
+        }
+    }
+
+    // Try whisper-cpp first, then whisper CLI
+    let transcript = try_whisper_transcribe(&wav_path).await;
+    let _ = std::fs::remove_file(&wav_path);
+
+    transcript
+}
+
+/// Try to transcribe a WAV file using available Whisper implementations
+async fn try_whisper_transcribe(wav_path: &std::path::Path) -> Result<String> {
+    // Try whisper-cpp (whisper-cpp binary)
+    let result = tokio::process::Command::new("whisper-cpp")
+        .arg("--model")
+        .arg(resolve_whisper_model_path()?)
+        .arg("--file")
+        .arg(wav_path)
+        .arg("--no-timestamps")
+        .arg("--output-txt")
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .await;
+
+    if let Ok(output) = result {
+        if output.status.success() {
+            let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !text.is_empty() {
+                return Ok(text);
+            }
+            // whisper-cpp may write to .txt file
+            let txt_path = wav_path.with_extension("wav.txt");
+            if txt_path.exists() {
+                let text = std::fs::read_to_string(&txt_path).unwrap_or_default().trim().to_string();
+                let _ = std::fs::remove_file(&txt_path);
+                if !text.is_empty() {
+                    return Ok(text);
+                }
+            }
+        }
+    }
+
+    // Try Python whisper CLI
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(60),
+        tokio::process::Command::new("whisper")
+            .arg(wav_path)
+            .args(["--model", "base", "--language", "en", "--output_format", "txt"])
+            .arg("--output_dir")
+            .arg(wav_path.parent().unwrap_or(std::path::Path::new("/tmp")))
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .output(),
+    ).await;
+
+    if let Ok(Ok(output)) = result {
+        if output.status.success() {
+            // Python whisper writes to <filename>.txt
+            let txt_path = wav_path.with_extension("txt");
+            if txt_path.exists() {
+                let text = std::fs::read_to_string(&txt_path).unwrap_or_default().trim().to_string();
+                let _ = std::fs::remove_file(&txt_path);
+                if !text.is_empty() {
+                    return Ok(text);
+                }
+            }
+        }
+    }
+
+    anyhow::bail!("No Whisper implementation available (tried whisper-cpp and whisper CLI)")
+}
+
+/// Resolve the Whisper model path
+fn resolve_whisper_model_path() -> Result<String> {
+    let home = dirs::home_dir()
+        .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?;
+
+    // Check common locations
+    let candidates = [
+        home.join(".openclaw/models/ggml-base.en.bin"),
+        home.join(".local/share/whisper-cpp/ggml-base.en.bin"),
+        std::path::PathBuf::from("/usr/share/whisper-cpp/models/ggml-base.en.bin"),
+    ];
+
+    for path in &candidates {
+        if path.exists() {
+            return Ok(path.to_string_lossy().to_string());
+        }
+    }
+
+    // Default — let whisper-cpp handle model resolution
+    Ok("base.en".to_string())
 }
 
 /// Download a Telegram photo and encode it as a base64 data URL

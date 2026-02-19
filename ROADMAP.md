@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.21.0
+**Version:** 0.22.0
 **Last updated:** 2026-02-18
 **Maintainer:** Cascade + Shawaz
 
@@ -185,7 +185,15 @@
 - ✅ **/metrics/json endpoint** — JSON format metrics for dashboard consumption
 - ✅ **120 tests** — 92 agent + 7 core + 21 gateway
 
-## v0.22.0 — Daemon & Polish
+## v0.22.0 — Voice Input & Commands (shipped)
+
+- ✅ **Incoming voice message support** — detect Telegram voice/audio messages, download OGG, convert to 16kHz WAV via ffmpeg, transcribe via whisper-cpp or Python whisper, process transcription as normal text input
+- ✅ **`/ping` command** — lightweight latency check on both Telegram and Discord
+- ✅ **TgVoice + TgAudio types** — Telegram API types for voice and audio message handling
+- ✅ **9 commands on both channels** — /help, /new, /status, /model, /sessions, /export, /voice, /ping, /cron
+- ✅ **120 tests** — 92 agent + 7 core + 21 gateway
+
+## v0.23.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**
