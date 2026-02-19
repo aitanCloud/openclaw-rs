@@ -167,9 +167,10 @@ async fn main() -> anyhow::Result<()> {
         .ok()
         .and_then(|p| p.parse().ok())
         .unwrap_or(3100);
+    let http_bind = std::env::var("HTTP_BIND").unwrap_or_else(|_| "127.0.0.1".to_string());
 
-    let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", http_port)).await?;
-    info!("Health endpoint listening on :{}", http_port);
+    let listener = tokio::net::TcpListener::bind(format!("{}:{}", http_bind, http_port)).await?;
+    info!("Health endpoint listening on {}:{}", http_bind, http_port);
 
     tokio::spawn(async move {
         if let Err(e) = axum::serve(listener, app).await {
