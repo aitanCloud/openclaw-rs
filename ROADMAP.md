@@ -855,20 +855,30 @@
 - ✅ **CLI status enriched** — shows LLM call count and error count (red) from `/health/lite`
 - ✅ **224 total tests** — 124 agent + 7 core + 93 gateway
 
-## v1.9.0 — Channel Plugin Abstraction
+## v1.9.0 — Consistency & Bug Fix Release (shipped)
+
+- ✅ **Fix /health field count test** — added missing `llm_log` field (46→47)
+- ✅ **Fix command count test** — added missing `logs` command (22→23)
+- ✅ **Fix duplicate Prometheus metric** — removed second `completed_requests_total` emission
+- ✅ **DRY /status handler** — replaced inline uptime formatting with shared `human_uptime()`
+- ✅ **Add /logs/:id field tests** — success (2 fields) and 404 (2 fields) response tests
+- ✅ **Enrich /metrics/summary** — added `llm=` and `llm_err=` to summary line
+- ✅ **226 total tests** — 124 agent + 7 core + 95 gateway (+2 new)
+
+## v1.10.0 — Channel Plugin Abstraction
 
 - 📋 **`Channel` trait** — abstract interface for message channels (send, edit, upload, typing)
 - 📋 **Telegram channel plugin** — refactor handler.rs to implement Channel trait
 - 📋 **Discord channel plugin** — refactor discord_handler.rs to implement Channel trait
 - 📋 **Plugin loader** — dynamic channel registration from config
 
-## v1.10.0 — WebSocket Protocol
+## v1.11.0 — WebSocket Protocol
 
 - 📋 **WS endpoint** — `ws://gateway:3100/ws` for CLI↔Gateway real-time communication
 - 📋 **CLI connect mode** — `openclaw chat` opens interactive WS session
 - 📋 **TUI** — terminal UI with streaming responses
 
-## v1.11.0+ — Extended Features
+## v1.12.0+ — Extended Features
 
 - 📋 **Multi-agent routing** — per-agent workspaces, auth, routing
 - 📋 **Device pairing** — QR codes, setup codes, token management

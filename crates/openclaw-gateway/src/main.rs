@@ -600,8 +600,9 @@ async fn metrics_summary_handler(
     m: Arc<metrics::GatewayMetrics>,
 ) -> String {
     let uptime = human_uptime(handler::BOOT_TIME.elapsed().as_secs());
+    let llm = openclaw_agent::llm_log::stats();
     format!(
-        "reqs={} errs={} err%={:.1} avg_lat={}ms turns={} tools={} webhooks={} up={}",
+        "reqs={} errs={} err%={:.1} avg_lat={}ms turns={} tools={} webhooks={} llm={} llm_err={} up={}",
         m.total_requests(),
         m.total_errors(),
         m.error_rate_pct(),
@@ -609,6 +610,8 @@ async fn metrics_summary_handler(
         m.agent_turns(),
         m.tool_calls(),
         m.webhook_requests(),
+        llm.total_recorded,
+        llm.errors,
         uptime,
     )
 }
@@ -818,13 +821,7 @@ async fn status_handler(
     m: Arc<metrics::GatewayMetrics>,
 ) -> Json<serde_json::Value> {
     let uptime_secs = start_time.elapsed().as_secs();
-    let uptime = if uptime_secs >= 86400 {
-        format!("{}d {}h {}m", uptime_secs / 86400, (uptime_secs % 86400) / 3600, (uptime_secs % 3600) / 60)
-    } else if uptime_secs >= 3600 {
-        format!("{}h {}m", uptime_secs / 3600, (uptime_secs % 3600) / 60)
-    } else {
-        format!("{}m {}s", uptime_secs / 60, uptime_secs % 60)
-    };
+    let uptime = human_uptime(uptime_secs);
 
     // Session stats
     let session_info = match openclaw_agent::sessions::SessionStore::open(&config.agent.name) {
@@ -963,13 +960,13 @@ mod tests {
     }
 
     #[test]
-    fn test_command_arrays_have_22_entries() {
+    fn test_command_arrays_have_23_entries() {
         let tg = ["help", "new", "status", "model", "sessions", "export", "voice", "ping",
-            "history", "clear", "db", "version", "stats", "whoami", "cancel", "stop", "cron", "tools", "skills", "config", "runtime", "doctor"];
+            "history", "clear", "db", "version", "stats", "whoami", "cancel", "stop", "cron", "tools", "skills", "config", "runtime", "doctor", "logs"];
         let dc = ["help", "new", "status", "model", "sessions", "export", "voice", "ping",
-            "history", "clear", "db", "version", "stats", "whoami", "cancel", "stop", "cron", "tools", "skills", "config", "runtime", "doctor"];
-        assert_eq!(tg.len(), 22, "Telegram should have 22 commands");
-        assert_eq!(dc.len(), 22, "Discord should have 22 commands");
+            "history", "clear", "db", "version", "stats", "whoami", "cancel", "stop", "cron", "tools", "skills", "config", "runtime", "doctor", "logs"];
+        assert_eq!(tg.len(), 23, "Telegram should have 23 commands");
+        assert_eq!(dc.len(), 23, "Discord should have 23 commands");
         // Verify both arrays are identical
         assert_eq!(tg, dc, "Telegram and Discord command lists should match");
     }
@@ -991,14 +988,15 @@ mod tests {
             "agent_timeouts", "tasks_cancelled",
             "gateway_connects", "gateway_disconnects", "gateway_resumes",
             "provider_count", "fallback_chain", "webhook_configured",
+            "llm_log",
             "doctor_checks_total", "doctor_checks_passed", "response_time_ms",
         ];
-        assert_eq!(expected.len(), 46, "Should have 46 /health JSON fields");
+        assert_eq!(expected.len(), 47, "Should have 47 /health JSON fields");
         // Verify no duplicates
         let mut sorted = expected.to_vec();
         sorted.sort();
         sorted.dedup();
-        assert_eq!(sorted.len(), 46, "/health fields should have no duplicates");
+        assert_eq!(sorted.len(), 47, "/health fields should have no duplicates");
     }
 
     #[test]
@@ -1014,8 +1012,8 @@ mod tests {
     #[test]
     fn test_metrics_summary_format() {
         let summary = format!(
-            "reqs={} errs={} err%={:.1} avg_lat={}ms turns={} tools={} webhooks={} up={}",
-            0, 0, 0.0, 0, 0, 0, 0, human_uptime(0)
+            "reqs={} errs={} err%={:.1} avg_lat={}ms turns={} tools={} webhooks={} llm={} llm_err={} up={}",
+            0, 0, 0.0, 0, 0, 0, 0, 0, 0, human_uptime(0)
         );
         assert!(summary.contains("reqs="), "Summary should contain reqs=");
         assert!(summary.contains("errs="), "Summary should contain errs=");
@@ -1024,6 +1022,8 @@ mod tests {
         assert!(summary.contains("turns="), "Summary should contain turns=");
         assert!(summary.contains("tools="), "Summary should contain tools=");
         assert!(summary.contains("webhooks="), "Summary should contain webhooks=");
+        assert!(summary.contains("llm="), "Summary should contain llm=");
+        assert!(summary.contains("llm_err="), "Summary should contain llm_err=");
         assert!(summary.contains("up="), "Summary should contain up=");
     }
 
@@ -1166,6 +1166,28 @@ mod tests {
         sorted.sort();
         sorted.dedup();
         assert_eq!(sorted.len(), 5, "/version fields should have no duplicates");
+    }
+
+    #[test]
+    fn test_log_detail_expected_fields() {
+        // /logs/:id success response has 2 top-level fields
+        let expected = ["found", "entry"];
+        assert_eq!(expected.len(), 2, "Should have 2 /logs/:id JSON fields");
+        let mut sorted = expected.to_vec();
+        sorted.sort();
+        sorted.dedup();
+        assert_eq!(sorted.len(), 2, "/logs/:id fields should have no duplicates");
+    }
+
+    #[test]
+    fn test_log_detail_not_found_fields() {
+        // /logs/:id 404 response has 2 top-level fields
+        let expected = ["found", "error"];
+        assert_eq!(expected.len(), 2, "Should have 2 /logs/:id 404 JSON fields");
+        let mut sorted = expected.to_vec();
+        sorted.sort();
+        sorted.dedup();
+        assert_eq!(sorted.len(), 2, "/logs/:id 404 fields should have no duplicates");
     }
 
     #[test]

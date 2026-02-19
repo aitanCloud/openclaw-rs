@@ -264,11 +264,6 @@ impl GatewayMetrics {
         out.push_str(&format!("openclaw_gateway_webhook_requests_total {}\n",
             self.webhook_requests.load(Ordering::Relaxed)));
 
-        out.push_str("# HELP openclaw_gateway_completed_requests_total Total completed agent requests\n");
-        out.push_str("# TYPE openclaw_gateway_completed_requests_total counter\n");
-        out.push_str(&format!("openclaw_gateway_completed_requests_total {}\n",
-            self.completed_requests.load(Ordering::Relaxed)));
-
         out.push_str("# HELP openclaw_gateway_process_rss_bytes Resident set size of the gateway process in bytes\n");
         out.push_str("# TYPE openclaw_gateway_process_rss_bytes gauge\n");
         out.push_str(&format!("openclaw_gateway_process_rss_bytes {}\n",
@@ -613,7 +608,7 @@ mod tests {
             assert!(prom.contains(metric),
                 "Prometheus output missing metric: {}", metric);
         }
-        assert_eq!(expected.len(), 27, "Expected 27 Prometheus metric lines");
+        assert_eq!(expected.len(), 27, "Expected 27 unique Prometheus metric strings");
     }
 
     #[test]
