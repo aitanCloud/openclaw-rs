@@ -262,6 +262,22 @@ impl SessionStore {
         Ok(sessions)
     }
 
+    /// Find the latest session key matching a prefix (e.g. "tg:main:123:456")
+    /// This handles both exact keys and UUID-suffixed keys (tg:main:123:456:uuid)
+    pub fn find_latest_session(&self, key_prefix: &str) -> Result<Option<String>> {
+        let pattern = format!("{}%", key_prefix);
+        let result = self.conn.query_row(
+            "SELECT session_key FROM sessions WHERE session_key LIKE ?1 ORDER BY updated_at_ms DESC LIMIT 1",
+            params![pattern],
+            |row| row.get(0),
+        );
+        match result {
+            Ok(key) => Ok(Some(key)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+
     /// Get the most recent session key for an agent (for --continue flag)
     pub fn latest_session_key(&self, agent_name: &str) -> Result<Option<String>> {
         let result = self.conn.query_row(

@@ -433,6 +433,7 @@ async fn handle_command(
                 `/export` — export current session as markdown\n\
                 `/voice` — get a voice response (TTS)\n\
                 `/ping` — latency check\n\
+                `/history` — last 5 messages in session\n\
                 `/db` — session database stats\n\
                 `/cron` — list and manage cron jobs\n\
                 `/help` — show this help\n\n\
@@ -443,6 +444,38 @@ async fn handle_command(
         "ping" => {
             let start = std::time::Instant::now();
             bot.send_reply(channel_id, reply_to, &format!("🏓 Pong! ({}ms)", start.elapsed().as_millis())).await?;
+        }
+        "history" => {
+            let store = SessionStore::open(&config.agent.name)?;
+            let session_key = format!("dc:{}:{}:{}", config.agent.name, user_id, channel_id);
+            let active_key = store.find_latest_session(&session_key)?
+                .unwrap_or(session_key);
+            let msgs = store.load_messages(&active_key)?;
+            let count = 5usize;
+            let recent: Vec<_> = msgs.iter().rev().take(count).collect();
+
+            if recent.is_empty() {
+                bot.send_reply(channel_id, reply_to, "📜 No messages in current session.").await?;
+            } else {
+                let mut text = format!("📜 **Last {} messages:**\n\n", recent.len());
+                for msg in recent.iter().rev() {
+                    let role = match msg.role.as_str() {
+                        "user" => "👤",
+                        "assistant" => "🤖",
+                        "system" => "⚙️",
+                        "tool" => "🔧",
+                        _ => "❓",
+                    };
+                    let content = msg.content.as_deref().unwrap_or("[no content]");
+                    let preview = if content.len() > 200 {
+                        format!("{}...", &content[..200])
+                    } else {
+                        content.to_string()
+                    };
+                    text.push_str(&format!("{} {}\n", role, preview));
+                }
+                bot.send_reply(channel_id, reply_to, &text).await?;
+            }
         }
         "db" => {
             let store = SessionStore::open(&config.agent.name)?;

@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.24.0
+**Version:** 0.25.0
 **Last updated:** 2026-02-18
 **Maintainer:** Cascade + Shawaz
 
@@ -208,7 +208,16 @@
 - ✅ **10 commands on both channels** — /help, /new, /status, /model, /sessions, /export, /voice, /ping, /db, /cron
 - ✅ **125 tests** — 93 agent + 7 core + 25 gateway
 
-## v0.25.0 — Daemon & Polish
+## v0.25.0 — Reliability & History (shipped)
+
+- ✅ **Graceful shutdown enhanced** — handle SIGTERM (systemd) alongside SIGINT, drain active tasks up to 30s timeout
+- ✅ **`/history` command** — show last 5 messages from current session on both Telegram and Discord, with role icons and content preview
+- ✅ **Heartbeat timeout detection** — detect missed Discord Gateway ACKs after 45s, force reconnect with resume state preserved
+- ✅ **`find_latest_session()`** — new SessionStore method for prefix-based session lookup (supports UUID-suffixed keys)
+- ✅ **11 commands on both channels** — /help, /new, /status, /model, /sessions, /export, /voice, /ping, /history, /db, /cron
+- ✅ **125 tests** — 93 agent + 7 core + 25 gateway
+
+## v0.26.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**

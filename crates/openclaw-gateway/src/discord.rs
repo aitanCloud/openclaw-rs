@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
 use tokio::sync::mpsc;
+use tokio::time::Instant;
 use tracing::{debug, error, info, warn};
 
 /// Discord bot client using raw HTTP + WebSocket Gateway
@@ -509,16 +510,35 @@ async fn run_gateway_session(
     let mut resume_gateway_url: Option<String> = None;
     let mut heartbeat_interval =
         tokio::time::interval(std::time::Duration::from_millis(heartbeat_interval));
+    let mut last_heartbeat_ack = Instant::now();
+    let mut awaiting_ack = false;
+    let heartbeat_timeout = std::time::Duration::from_secs(45);
 
     loop {
         tokio::select! {
             _ = heartbeat_interval.tick() => {
+                // Check for missed ACK before sending next heartbeat
+                if awaiting_ack && last_heartbeat_ack.elapsed() > heartbeat_timeout {
+                    warn!("Heartbeat ACK timeout ({}s) — forcing reconnect",
+                        last_heartbeat_ack.elapsed().as_secs());
+                    // Save resume state
+                    if let (Some(sid), Some(seq)) = (&session_id, sequence) {
+                        *resume_state = Some(ResumeState {
+                            session_id: sid.clone(),
+                            sequence: seq,
+                            resume_url: resume_gateway_url.clone(),
+                        });
+                    }
+                    return Err(anyhow::anyhow!("Heartbeat ACK timeout"));
+                }
+
                 let hb = HeartbeatPayload { op: 1, d: sequence };
                 let hb_json = serde_json::to_string(&hb)?;
                 ws_write
                     .send(tokio_tungstenite::tungstenite::Message::Text(hb_json.into()))
                     .await
                     .context("Failed to send heartbeat")?;
+                awaiting_ack = true;
                 debug!("Sent heartbeat (seq: {:?})", sequence);
             }
             msg = ws_read.next() => {
@@ -572,6 +592,8 @@ async fn run_gateway_session(
                                     }
                                     11 => {
                                         // Heartbeat ACK
+                                        last_heartbeat_ack = Instant::now();
+                                        awaiting_ack = false;
                                         debug!("Heartbeat ACK received");
                                     }
                                     7 => {
