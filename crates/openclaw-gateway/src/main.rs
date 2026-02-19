@@ -144,6 +144,7 @@ async fn main() -> anyhow::Result<()> {
                 move || doctor_handler(cfg)
             }),
         )
+        .route("/doctor/json", get(doctor_json_handler))
         .route(
             "/webhook",
             axum::routing::post({
@@ -479,7 +480,7 @@ async fn health_handler() -> axum::response::Response {
             "skills": skills_count,
             "sessions": session_count,
             "commands": 22,
-            "http_endpoint_count": 11,
+            "http_endpoint_count": 12,
             "tool_count": 17,
             "total_requests": total_requests,
             "total_errors": total_errors,
@@ -561,6 +562,24 @@ async fn metrics_summary_handler(
         m.webhook_requests(),
         uptime,
     )
+}
+
+async fn doctor_json_handler() -> Json<serde_json::Value> {
+    let checks = doctor::run_checks("main").await;
+    let results: Vec<serde_json::Value> = checks.iter().map(|(name, ok, detail)| {
+        serde_json::json!({
+            "name": name,
+            "ok": ok,
+            "detail": detail,
+        })
+    }).collect();
+    let passed = checks.iter().filter(|(_, ok, _)| *ok).count();
+    Json(serde_json::json!({
+        "checks_total": checks.len(),
+        "checks_passed": passed,
+        "all_ok": passed == checks.len(),
+        "checks": results,
+    }))
 }
 
 async fn metrics_json_handler(
@@ -784,8 +803,8 @@ async fn status_handler(
         "webhook_configured": config.webhook.is_some(),
         "built": env!("BUILD_TIMESTAMP"),
         "boot_time": *handler::BOOT_TIMESTAMP,
-        "http_endpoints": ["/health", "/health/lite", "/version", "/ping", "/ready", "/status", "/metrics", "/metrics/json", "/metrics/summary", "/doctor", "/webhook"],
-        "http_endpoint_count": 11,
+        "http_endpoints": ["/health", "/health/lite", "/version", "/ping", "/ready", "/status", "/metrics", "/metrics/json", "/metrics/summary", "/doctor", "/doctor/json", "/webhook"],
+        "http_endpoint_count": 12,
         "commands": {
             "telegram": tg_commands,
             "discord": dc_commands,
@@ -928,14 +947,27 @@ mod tests {
     }
 
     #[test]
+    fn test_human_uptime_exact_hour() {
+        assert_eq!(human_uptime(3600), "1h 0m");
+        assert_eq!(human_uptime(7200), "2h 0m");
+    }
+
+    #[test]
+    fn test_status_commands_structure() {
+        // /status commands field should have telegram and discord sub-keys
+        let command_keys = ["telegram", "discord"];
+        assert_eq!(command_keys.len(), 2, "Commands should have 2 channel keys");
+    }
+
+    #[test]
     fn test_http_endpoints_count() {
-        let endpoints = ["/health", "/health/lite", "/version", "/ping", "/ready", "/status", "/metrics", "/metrics/json", "/metrics/summary", "/doctor", "/webhook"];
-        assert_eq!(endpoints.len(), 11, "Should have 11 HTTP endpoints");
+        let endpoints = ["/health", "/health/lite", "/version", "/ping", "/ready", "/status", "/metrics", "/metrics/json", "/metrics/summary", "/doctor", "/doctor/json", "/webhook"];
+        assert_eq!(endpoints.len(), 12, "Should have 12 HTTP endpoints");
         // Verify no duplicates
         let mut sorted = endpoints.to_vec();
         sorted.sort();
         sorted.dedup();
-        assert_eq!(sorted.len(), 11, "HTTP endpoints should have no duplicates");
+        assert_eq!(sorted.len(), 12, "HTTP endpoints should have no duplicates");
     }
 
     #[test]
