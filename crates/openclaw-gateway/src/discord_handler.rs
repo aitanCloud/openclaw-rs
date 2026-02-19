@@ -481,6 +481,7 @@ async fn handle_command(
                 let mins = (uptime.as_secs() % 3600) / 60;
                 let cancelled = m.tasks_cancelled.load(std::sync::atomic::Ordering::Relaxed);
                 let timeouts = m.agent_timeouts.load(std::sync::atomic::Ordering::Relaxed);
+                let err_rate = m.error_rate_pct();
                 bot.send_embed(
                     channel_id, Some(reply_to),
                     "📊 Gateway Stats",
@@ -492,6 +493,7 @@ async fn handle_command(
                         ("Rate Limited", &rl.to_string(), true),
                         ("Completed", &completed.to_string(), true),
                         ("Avg Latency", &format!("{}ms", avg), true),
+                        ("Error Rate", &format!("{:.1}%", err_rate), true),
                         ("Cancelled", &cancelled.to_string(), true),
                         ("Timeouts", &timeouts.to_string(), true),
                         ("Active Tasks", &crate::task_registry::active_count().to_string(), true),

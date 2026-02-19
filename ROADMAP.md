@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.43.0
+**Version:** 0.44.0
 **Last updated:** 2026-02-18
 **Maintainer:** Cascade + Shawaz
 
@@ -344,7 +344,14 @@
 - ✅ **`/health` version** — added `version` field to /health JSON endpoint
 - ✅ **139 tests** — 96 agent + 7 core + 36 gateway
 
-## v0.44.0 — Daemon & Polish
+## v0.44.0 — Error Rate & Prometheus Tests (shipped)
+
+- ✅ **Error rate %** — `error_rate_pct()` method on GatewayMetrics, shown in /stats on both Telegram and Discord
+- ✅ **`test_error_rate_pct`** — verifies error rate calculation (0 requests = 0%, 10 req / 2 err = 20%)
+- ✅ **`test_prometheus_format_headers`** — verifies all HELP/TYPE headers present in Prometheus output
+- ✅ **141 tests** — 96 agent + 7 core + 38 gateway (+2 new)
+
+## v0.45.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**

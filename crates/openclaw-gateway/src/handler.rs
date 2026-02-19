@@ -490,6 +490,7 @@ async fn handle_command(
                 let mins = (uptime.as_secs() % 3600) / 60;
                 let cancelled = m.tasks_cancelled.load(std::sync::atomic::Ordering::Relaxed);
                 let timeouts = m.agent_timeouts.load(std::sync::atomic::Ordering::Relaxed);
+                let err_rate = m.error_rate_pct();
                 bot.send_message(chat_id, &format!(
                     "📊 *Gateway Stats* ({}h {}m uptime)\n\n\
                     Telegram: {} requests, {} errors\n\
@@ -499,9 +500,10 @@ async fn handle_command(
                     Cancelled: {}\n\
                     Timeouts: {}\n\
                     Active tasks: {}\n\
-                    Avg latency: {}ms",
+                    Avg latency: {}ms\n\
+                    Error rate: {:.1}%",
                     hours, mins, tg_req, tg_err, dc_req, dc_err, rl, completed,
-                    cancelled, timeouts, crate::task_registry::active_count(), avg,
+                    cancelled, timeouts, crate::task_registry::active_count(), avg, err_rate,
                 )).await?;
             } else {
                 bot.send_message(chat_id, "📊 Metrics not available.").await?;

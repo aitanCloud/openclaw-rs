@@ -107,6 +107,17 @@ impl GatewayMetrics {
         self.total_latency_ms.load(Ordering::Relaxed) / completed
     }
 
+    pub fn error_rate_pct(&self) -> f64 {
+        let total = self.telegram_requests.load(Ordering::Relaxed)
+            + self.discord_requests.load(Ordering::Relaxed);
+        if total == 0 {
+            return 0.0;
+        }
+        let errors = self.telegram_errors.load(Ordering::Relaxed)
+            + self.discord_errors.load(Ordering::Relaxed);
+        (errors as f64 / total as f64) * 100.0
+    }
+
     /// Prometheus text exposition format
     pub fn to_prometheus(&self) -> String {
         let mut out = String::new();
@@ -307,5 +318,38 @@ mod tests {
 
         let json = m.to_json();
         assert_eq!(json["agent_timeouts"], 2);
+    }
+
+    #[test]
+    fn test_error_rate_pct() {
+        let m = GatewayMetrics::new();
+        assert_eq!(m.error_rate_pct(), 0.0);
+
+        // 10 requests, 2 errors = 20%
+        for _ in 0..8 { m.record_telegram_request(); }
+        for _ in 0..2 { m.record_discord_request(); }
+        m.record_telegram_error();
+        m.record_discord_error();
+
+        let rate = m.error_rate_pct();
+        assert!((rate - 20.0).abs() < 0.1, "Expected ~20%, got {}", rate);
+    }
+
+    #[test]
+    fn test_prometheus_format_headers() {
+        let m = GatewayMetrics::new();
+        m.record_telegram_request();
+        m.record_agent_timeout();
+        m.record_task_cancelled();
+
+        let prom = m.to_prometheus();
+        // Verify all HELP and TYPE headers are present
+        assert!(prom.contains("# HELP openclaw_gateway_requests_total"));
+        assert!(prom.contains("# TYPE openclaw_gateway_requests_total counter"));
+        assert!(prom.contains("# HELP openclaw_gateway_errors_total"));
+        assert!(prom.contains("# HELP openclaw_gateway_latency_ms"));
+        assert!(prom.contains("# HELP openclaw_gateway_ws_events_total"));
+        assert!(prom.contains("# HELP openclaw_gateway_tasks_cancelled_total"));
+        assert!(prom.contains("# HELP openclaw_gateway_agent_timeouts_total"));
     }
 }
