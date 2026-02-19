@@ -247,6 +247,46 @@ impl DiscordBot {
         Ok(())
     }
 
+    /// Send a file (e.g. voice OGG) to a channel with optional text content
+    pub async fn send_file(
+        &self,
+        channel_id: &str,
+        file_path: &std::path::Path,
+        filename: &str,
+        content: Option<&str>,
+    ) -> Result<String> {
+        let file_bytes = tokio::fs::read(file_path).await
+            .context("Failed to read file for Discord upload")?;
+
+        let file_part = reqwest::multipart::Part::bytes(file_bytes)
+            .file_name(filename.to_string());
+
+        let mut form = reqwest::multipart::Form::new()
+            .part("files[0]", file_part);
+
+        if let Some(text) = content {
+            form = form.text("content", text.to_string());
+        }
+
+        let resp = self
+            .client
+            .post(format!("{}/channels/{}/messages", self.api_base, channel_id))
+            .header("Authorization", format!("Bot {}", self.token))
+            .multipart(form)
+            .send()
+            .await
+            .context("Failed to send Discord file")?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let err_body = resp.text().await.unwrap_or_default();
+            anyhow::bail!("Discord file upload failed ({}): {}", status, err_body);
+        }
+
+        let msg: serde_json::Value = resp.json().await?;
+        Ok(msg["id"].as_str().unwrap_or("").to_string())
+    }
+
     /// Send typing indicator
     pub async fn send_typing(&self, channel_id: &str) -> Result<()> {
         let _ = self

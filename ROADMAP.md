@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.17.0
+**Version:** 0.18.0
 **Last updated:** 2026-02-18
 **Maintainer:** Cascade + Shawaz
 
@@ -157,12 +157,19 @@
 - ✅ **8 Telegram commands** — /help, /new, /status, /model, /sessions, /export, /voice, /cron
 - ✅ **115 tests** — 91 agent + 7 core + 17 gateway
 
-## v0.18.0 — Daemon & Polish
+## v0.18.0 — Full Voice Parity (shipped)
+
+- ✅ **Discord /voice command** — same pipeline as Telegram: LLM response → Piper TTS → ffmpeg OGG/Opus → Discord file upload with caption
+- ✅ **Discord send_file()** — multipart file upload method for Discord channels
+- ✅ **8 commands on both channels** — Telegram and Discord now both have: /help, /new, /status, /model, /sessions, /export, /voice, /cron
+- ✅ **115 tests** — 91 agent + 7 core + 17 gateway
+
+## v0.19.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**
 - 📋 **Session migration** — migrate old channel-based sessions to new user-based keys
-- 📋 **Discord /voice command** — port voice pipeline to Discord (file upload)
+- 📋 **Gateway metrics** — Prometheus-compatible /metrics endpoint
 - 💡 **WhatsApp integration**
 
 ---
