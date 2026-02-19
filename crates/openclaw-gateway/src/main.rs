@@ -827,9 +827,9 @@ async fn status_handler(
 
     // Commands
     let tg_commands = ["help", "new", "status", "model", "sessions", "export", "voice", "ping",
-        "history", "clear", "db", "version", "stats", "whoami", "cancel", "stop", "cron", "tools", "skills", "config", "runtime", "doctor"];
+        "history", "clear", "db", "version", "stats", "whoami", "cancel", "stop", "cron", "tools", "skills", "config", "runtime", "doctor", "logs"];
     let dc_commands = ["help", "new", "status", "model", "sessions", "export", "voice", "ping",
-        "history", "clear", "db", "version", "stats", "whoami", "cancel", "stop", "cron", "tools", "skills", "config", "runtime", "doctor"];
+        "history", "clear", "db", "version", "stats", "whoami", "cancel", "stop", "cron", "tools", "skills", "config", "runtime", "doctor", "logs"];
 
     // Provider labels from fallback chain
     let providers: Vec<String> = openclaw_agent::llm::fallback::FallbackProvider::from_config()

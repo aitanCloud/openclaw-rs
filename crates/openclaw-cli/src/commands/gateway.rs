@@ -25,6 +25,14 @@ pub enum GatewayAction {
     Ping,
     /// Show Prometheus metrics summary
     Metrics,
+    /// Show current model and fallback chain
+    Model,
+    /// List recent sessions from the gateway
+    Sessions {
+        /// Maximum number of sessions to show
+        #[arg(short, long, default_value_t = 20)]
+        limit: usize,
+    },
 }
 
 pub async fn run(action: GatewayAction) -> Result<()> {
@@ -40,6 +48,8 @@ pub async fn run(action: GatewayAction) -> Result<()> {
         GatewayAction::Version => version(&client, &base).await,
         GatewayAction::Ping => ping(&client, &base).await,
         GatewayAction::Metrics => metrics(&client, &base).await,
+        GatewayAction::Model => model(&client, &base).await,
+        GatewayAction::Sessions { limit } => sessions(&client, &base, limit).await,
     }
 }
 
@@ -197,6 +207,77 @@ async fn metrics(client: &reqwest::Client, base: &str) -> Result<()> {
     for pair in body.split_whitespace() {
         if let Some((key, val)) = pair.split_once('=') {
             println!("  {} {}", format!("{}:", key).bold(), val);
+        }
+    }
+    Ok(())
+}
+
+async fn model(client: &reqwest::Client, base: &str) -> Result<()> {
+    let resp = client.get(format!("{}/status", base)).send().await
+        .map_err(|e| anyhow::anyhow!("Cannot reach gateway at {}: {}", base, e))?;
+    let json: serde_json::Value = resp.json().await?;
+
+    println!("{}", "═══ Model Info ═══".bold().cyan());
+    println!("  {} {}", "Agent:".bold(), json["agent"].as_str().unwrap_or("?"));
+    println!("  {} {}", "Fallback:".bold(),
+        if json["fallback"].as_bool().unwrap_or(false) { "enabled".green() } else { "disabled".red() });
+
+    if let Some(model) = json["model"].as_str() {
+        println!("  {} {}", "Model:".bold(), model.yellow());
+    }
+
+    if let Some(providers) = json["providers"].as_array() {
+        if !providers.is_empty() {
+            println!("\n  {}", "Fallback Chain:".bold());
+            for (i, p) in providers.iter().enumerate() {
+                let label = p.as_str().unwrap_or("?");
+                let marker = match i {
+                    0 => "🥇",
+                    1 => "🥈",
+                    2 => "🥉",
+                    _ => "  ",
+                };
+                println!("  {} {}", marker, label.yellow());
+            }
+            println!("\n  {}", "Circuit breaker: >3 consecutive failures = provider skipped".dimmed());
+        }
+    }
+    Ok(())
+}
+
+async fn sessions(client: &reqwest::Client, base: &str, limit: usize) -> Result<()> {
+    let resp = client.get(format!("{}/status", base)).send().await
+        .map_err(|e| anyhow::anyhow!("Cannot reach gateway at {}: {}", base, e))?;
+    let json: serde_json::Value = resp.json().await?;
+
+    println!("{}", "═══ Sessions ═══".bold().cyan());
+
+    if let Some(sessions) = json.get("sessions") {
+        let total = sessions["total"].as_u64().unwrap_or(0);
+        let tg = sessions["telegram"].as_u64().unwrap_or(0);
+        let dc = sessions["discord"].as_u64().unwrap_or(0);
+        let msgs = sessions["total_messages"].as_u64().unwrap_or(0);
+        let tokens = sessions["total_tokens"].as_u64().unwrap_or(0);
+
+        println!("  {} {}", "Total:".bold(), total);
+        println!("  {} {}", "Telegram:".bold(), tg);
+        println!("  {} {}", "Discord:".bold(), dc);
+        println!("  {} {}", "Messages:".bold(), msgs);
+        println!("  {} {}", "Tokens:".bold(), tokens);
+    } else {
+        println!("  {}", "Session data not available from gateway.".dimmed());
+    }
+
+    // Also show recent sessions from the detailed list if available
+    if let Some(session_list) = json.get("session_list").and_then(|v| v.as_array()) {
+        println!("\n  {}", "Recent Sessions:".bold());
+        for (i, s) in session_list.iter().take(limit).enumerate() {
+            let key = s["key"].as_str().unwrap_or("?");
+            let msgs = s["messages"].as_u64().unwrap_or(0);
+            let tokens = s["tokens"].as_u64().unwrap_or(0);
+            let short_key = if key.len() > 40 { &key[..40] } else { key };
+            println!("  {}. {} — {} msgs, {} tok",
+                (i + 1).to_string().bold(), short_key.dimmed(), msgs, tokens);
         }
     }
     Ok(())

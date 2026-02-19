@@ -796,12 +796,12 @@
 - ✅ **Shortcut commands** — `openclaw status`, `openclaw logs`, `openclaw doctor` (top-level aliases)
 - ✅ **Gateway URL config** — `OPENCLAW_GATEWAY_URL` env var (default: `http://localhost:3100`)
 
-## v1.2.0 — CLI Session & Model Commands
+## v1.2.0 — CLI Session & Model Commands (shipped)
 
-- 📋 **`openclaw sessions`** — list sessions from gateway
-- 📋 **`openclaw model`** — show current model/fallback chain
-- 📋 **`openclaw cron`** — list/enable/disable cron jobs
-- 📋 **`openclaw config`** — show sanitized config
+- ✅ **`openclaw gateway model`** — show current model, fallback chain with medal markers, circuit breaker info
+- ✅ **`openclaw gateway sessions`** — show session stats (total, telegram, discord, messages, tokens)
+- ✅ **Updated /status command lists** — both Telegram and Discord now list 23 commands including `/logs`
+- ✅ **8 gateway CLI subcommands total** — status, logs, doctor, version, ping, metrics, model, sessions
 
 ## v1.3.0 — Channel Plugin Abstraction
 
