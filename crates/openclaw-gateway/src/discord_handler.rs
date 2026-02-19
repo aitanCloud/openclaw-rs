@@ -502,6 +502,10 @@ async fn handle_command(
                     .unwrap_or(0);
                 let session_str = session_count.to_string();
                 let webhook_str = webhooks.to_string();
+                let llm_stats = openclaw_agent::llm_log::stats();
+                let llm_calls_str = llm_stats.total_recorded.to_string();
+                let llm_errors_str = llm_stats.errors.to_string();
+                let llm_avg_str = format!("{}ms", llm_stats.avg_latency_ms);
                 bot.send_embed(
                     channel_id, Some(reply_to),
                     "📊 Gateway Stats",
@@ -521,6 +525,9 @@ async fn handle_command(
                         ("Cancelled", &cancelled.to_string(), true),
                         ("Timeouts", &timeouts.to_string(), true),
                         ("Active Tasks", &crate::task_registry::active_count().to_string(), true),
+                        ("LLM Calls", &llm_calls_str, true),
+                        ("LLM Errors", &llm_errors_str, true),
+                        ("LLM Avg Latency", &llm_avg_str, true),
                     ],
                 ).await?;
             } else {
@@ -537,7 +544,7 @@ async fn handle_command(
                 &[
                     ("Uptime", &uptime_str, true),
                     ("Agent", &config.agent.name, true),
-                    ("Commands", "22", true),
+                    ("Commands", "23", true),
                 ],
             ).await?;
         }

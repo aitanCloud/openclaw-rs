@@ -522,6 +522,7 @@ async fn handle_command(
                     .and_then(|s| s.db_stats(&config.agent.name).ok())
                     .map(|stats| stats.session_count)
                     .unwrap_or(0);
+                let llm_stats = openclaw_agent::llm_log::stats();
                 bot.send_message(chat_id, &format!(
                     "📊 *Gateway Stats* ({} uptime)\n\n\
                     Telegram: {} requests, {} errors\n\
@@ -536,10 +537,14 @@ async fn handle_command(
                     Timeouts: {}\n\
                     Active tasks: {}\n\
                     Avg latency: {}ms\n\
-                    Error rate: {:.1}%",
+                    Error rate: {:.1}%\n\
+                    LLM calls: {}\n\
+                    LLM errors: {}\n\
+                    LLM avg latency: {}ms",
                     uptime_str, tg_req, tg_err, dc_req, dc_err, webhooks, rl, completed,
                     turns, tool_calls, session_count, cancelled, timeouts,
                     crate::task_registry::active_count(), avg, err_rate,
+                    llm_stats.total_recorded, llm_stats.errors, llm_stats.avg_latency_ms,
                 )).await?;
             } else {
                 bot.send_message(chat_id, "📊 Metrics not available.").await?;
@@ -874,21 +879,11 @@ async fn handle_command(
                 bot.send_typing(chat_id).await.ok();
 
                 // Get LLM response for the text
-                let provider: Box<dyn LlmProvider> = if config.agent.fallback {
-                    match FallbackProvider::from_config() {
-                        Ok(fb) => Box::new(fb),
-                        Err(e) => {
-                            bot.send_message(chat_id, &format!("❌ Provider error: {}", e)).await?;
-                            return Ok(());
-                        }
-                    }
-                } else {
-                    match FallbackProvider::from_config() {
-                        Ok(fb) => Box::new(fb),
-                        Err(e) => {
-                            bot.send_message(chat_id, &format!("❌ Provider error: {}", e)).await?;
-                            return Ok(());
-                        }
+                let provider: Box<dyn LlmProvider> = match FallbackProvider::from_config() {
+                    Ok(fb) => Box::new(fb),
+                    Err(e) => {
+                        bot.send_message(chat_id, &format!("❌ Provider error: {}", e)).await?;
+                        return Ok(());
                     }
                 };
 

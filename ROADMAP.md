@@ -865,20 +865,28 @@
 - ✅ **Enrich /metrics/summary** — added `llm=` and `llm_err=` to summary line
 - ✅ **226 total tests** — 124 agent + 7 core + 95 gateway (+2 new)
 
-## v1.10.0 — Channel Plugin Abstraction
+## v1.10.0 — Stats & Command Polish (shipped)
+
+- ✅ **Fix Discord /version command count** — 22→23 (missing /logs)
+- ✅ **Enrich Telegram /stats** — added LLM calls, LLM errors, LLM avg latency
+- ✅ **Enrich Discord /stats** — added LLM Calls, LLM Errors, LLM Avg Latency embed fields
+- ✅ **Fix Telegram /voice dead code** — removed identical if/else branches (both used FallbackProvider)
+- ✅ **226 total tests** — 124 agent + 7 core + 95 gateway
+
+## v1.11.0 — Channel Plugin Abstraction
 
 - 📋 **`Channel` trait** — abstract interface for message channels (send, edit, upload, typing)
 - 📋 **Telegram channel plugin** — refactor handler.rs to implement Channel trait
 - 📋 **Discord channel plugin** — refactor discord_handler.rs to implement Channel trait
 - 📋 **Plugin loader** — dynamic channel registration from config
 
-## v1.11.0 — WebSocket Protocol
+## v1.12.0 — WebSocket Protocol
 
 - 📋 **WS endpoint** — `ws://gateway:3100/ws` for CLI↔Gateway real-time communication
 - 📋 **CLI connect mode** — `openclaw chat` opens interactive WS session
 - 📋 **TUI** — terminal UI with streaming responses
 
-## v1.12.0+ — Extended Features
+## v1.13.0+ — Extended Features
 
 - 📋 **Multi-agent routing** — per-agent workspaces, auth, routing
 - 📋 **Device pairing** — QR codes, setup codes, token management
