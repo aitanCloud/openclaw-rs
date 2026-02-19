@@ -1,5 +1,5 @@
 # Stage 1: Build all Rust binaries
-FROM rust:1.83-bookworm AS builder
+FROM rust:1.86-bookworm AS builder
 
 WORKDIR /build
 COPY Cargo.toml Cargo.lock* ./
@@ -7,16 +7,11 @@ COPY crates/ crates/
 
 RUN cargo build --release --bin openclaw --bin openclaw-gateway
 
-# Stage 2: Test in a clean Debian environment with Node.js (simulates coexistence)
+# Stage 2: Test in a clean Debian environment
 FROM debian:bookworm-slim AS test
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates curl ffmpeg && \
-    rm -rf /var/lib/apt/lists/*
-
-# Install Node.js 22 for TS gateway coexistence testing
-RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
-    apt-get install -y nodejs && \
     rm -rf /var/lib/apt/lists/*
 
 # Copy the Rust binaries
@@ -31,12 +26,25 @@ RUN mkdir -p /root/.openclaw/cron \
              /root/.openclaw/workspace/skills/github-ops \
              /root/.openclaw/workspace/skills/system-monitor
 
-# Mock openclaw-manual.json
+# Mock openclaw-manual.json (with model providers for models list test)
 RUN echo '{ \
   "meta": {"name": "aitan"}, \
   "env": {}, \
   "browser": {}, \
-  "models": {}, \
+  "models": { \
+    "providers": { \
+      "ollama": { \
+        "baseUrl": "http://127.0.0.1:11434", \
+        "api": "ollama", \
+        "models": [{"id": "llama3.2:1b", "name": "Llama 3.2 1B", "contextWindow": 131072}] \
+      }, \
+      "moonshot": { \
+        "baseUrl": "https://api.moonshot.ai/v1", \
+        "api": "openai-completions", \
+        "models": [{"id": "kimi-k2.5", "name": "Kimi K2.5", "reasoning": true}] \
+      } \
+    } \
+  }, \
   "agents": {"defaults": {"timeoutSeconds": 120, "maxConcurrent": 2}}, \
   "tools": {}, \
   "commands": {}, \

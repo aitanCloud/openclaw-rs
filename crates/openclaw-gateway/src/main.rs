@@ -152,7 +152,7 @@ async fn main() -> anyhow::Result<()> {
         )
         .route("/doctor/json", get(doctor_json_handler))
         .route("/logs", get(logs_handler))
-        .route("/logs/:id", get(log_detail_handler))
+        .route("/logs/{id}", get(log_detail_handler))
         .route(
             "/webhook",
             axum::routing::post({

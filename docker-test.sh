@@ -90,16 +90,21 @@ run_test "cron list shows model" "openclaw cron list" "deepseek-chat"
 run_test "cron list shows status" "openclaw cron list" "ok"
 run_test "cron list count" "openclaw cron list" "2 job"
 
+# ── Models ──
+echo ""
+echo "── Models ──"
+run_test "models list" "openclaw models list" "ollama"
+run_test "models list shows moonshot" "openclaw models list" "moonshot"
+run_test "models list shows model id" "openclaw models list" "llama3.2:1b"
+run_test "models list provider count" "openclaw models list" "2 provider"
+run_test "models fallback" "openclaw models fallback" "Fallback Chain"
+
 # ── Help ──
 echo ""
 echo "── Help ──"
 run_test "help flag" "openclaw --help" "OpenClaw"
 run_test "sessions help" "openclaw sessions --help" "List"
-
-# ── Coexistence ──
-echo ""
-echo "── Node.js Coexistence ──"
-run_test "node available" "node --version" "v22"
+run_test "models help" "openclaw models --help" "scan"
 run_test "rust binary in PATH" "which openclaw" "/usr/local/bin/openclaw"
 
 # ── Summary ──

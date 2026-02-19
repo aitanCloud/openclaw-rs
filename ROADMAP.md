@@ -904,20 +904,30 @@
 - ✅ **Clean unused imports** — removed `OpenAiCompatibleProvider`, `Arc`, `error` from handler files
 - ✅ **233 total tests** — 124 agent + 7 core + 102 gateway (no new tests, cleanup only)
 
-## v1.15.0 — Channel Plugin Abstraction
+## v1.15.0 — Models CLI & Quick Wins (shipped)
+
+- ✅ **`models list` command** — discover all configured providers and models with tags (local, reasoning, context window)
+- ✅ **`models list --all`** — show all models per provider (default shows first 3)
+- ✅ **`models fallback`** — display fallback chain order
+- ✅ **`models scan`** — ping provider base URLs for reachability
+- ✅ **`health` top-level shortcut** — matches Node.js CLI (`openclaw health`)
+- ✅ **`openclaw-core::models` module** — shared provider/model parsing with 3 new tests
+- ✅ **236 total tests** — 124 agent + 10 core + 102 gateway (+3 new)
+
+## v1.16.0 — Channel Plugin Abstraction
 
 - 📋 **`Channel` trait** — abstract interface for message channels (send, edit, upload, typing)
 - 📋 **Telegram channel plugin** — refactor handler.rs to implement Channel trait
 - 📋 **Discord channel plugin** — refactor discord_handler.rs to implement Channel trait
 - 📋 **Plugin loader** — dynamic channel registration from config
 
-## v1.16.0 — WebSocket Protocol
+## v1.17.0 — WebSocket Protocol
 
 - 📋 **WS endpoint** — `ws://gateway:3100/ws` for CLI↔Gateway real-time communication
 - 📋 **CLI connect mode** — `openclaw chat` opens interactive WS session
 - 📋 **TUI** — terminal UI with streaming responses
 
-## v1.17.0+ — Extended Features
+## v1.18.0+ — Extended Features
 
 - 📋 **Multi-agent routing** — per-agent workspaces, auth, routing
 - 📋 **Device pairing** — QR codes, setup codes, token management

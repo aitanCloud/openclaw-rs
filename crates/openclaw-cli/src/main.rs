@@ -81,6 +81,11 @@ enum Commands {
         #[command(subcommand)]
         action: commands::gateway::GatewayAction,
     },
+    /// Discover, scan, and configure models
+    Models {
+        #[command(subcommand)]
+        action: commands::models::ModelAction,
+    },
     /// Shortcut: show gateway health status (same as `gateway status`)
     Status,
     /// Shortcut: show recent LLM activity log (same as `gateway logs`)
@@ -91,6 +96,8 @@ enum Commands {
     },
     /// Shortcut: run gateway doctor checks (same as `gateway doctor`)
     Doctor,
+    /// Shortcut: fetch health from the running gateway (same as `gateway status`)
+    Health,
 }
 
 #[tokio::main]
@@ -122,6 +129,7 @@ async fn main() -> anyhow::Result<()> {
             })?;
             commands::chat::run(&message, &key, &base_url, &model).await
         }
+        Some(Commands::Models { action }) => commands::models::run(action).await,
         Some(Commands::Gateway { action }) => commands::gateway::run(action).await,
         Some(Commands::Status) => {
             commands::gateway::run(commands::gateway::GatewayAction::Status).await
@@ -131,6 +139,9 @@ async fn main() -> anyhow::Result<()> {
         }
         Some(Commands::Doctor) => {
             commands::gateway::run(commands::gateway::GatewayAction::Doctor).await
+        }
+        Some(Commands::Health) => {
+            commands::gateway::run(commands::gateway::GatewayAction::Status).await
         }
         None => {
             println!("openclaw-rs {}", env!("CARGO_PKG_VERSION"));
