@@ -445,8 +445,8 @@ async fn handle_command(
                     ("Session", "`/new` `/clear` `/sessions` `/export`", false),
                     ("Info", "`/status` `/model` `/version` `/whoami` `/db`", false),
                     ("Monitoring", "`/stats` `/ping` `/history [N]` `/doctor`", false),
-                    ("Control", "`/cancel` `/stop` `/voice` `/cron` `/tools` `/skills`", false),
-                    ("Commands", "20", true),
+                    ("Control", "`/cancel` `/stop` `/voice` `/cron` `/tools` `/skills` `/config`", false),
+                    ("Commands", "21", true),
                 ],
             ).await?;
         }
@@ -541,7 +541,7 @@ async fn handle_command(
                 &[
                     ("Uptime", &format!("{}h {}m", hours, mins), true),
                     ("Agent", &config.agent.name, true),
-                    ("Commands", "20", true),
+                    ("Commands", "21", true),
                 ],
             ).await?;
         }
@@ -580,6 +580,35 @@ async fn handle_command(
                 &format!("{} tools available", names.len()),
                 0x5865F2,
                 &[("Tools", &tool_list, false)],
+            ).await?;
+        }
+        "config" => {
+            let discord_status = if config.discord.is_some() { "Enabled" } else { "Disabled" };
+            let webhook_status = if config.webhook.is_some() { "Configured" } else { "Not configured" };
+            let sandbox_info = config.agent.sandbox.as_ref()
+                .map(|sb| format!("timeout={}s, max_concurrent={}",
+                    sb.turn_timeout_secs.unwrap_or(120),
+                    sb.max_concurrent.unwrap_or(4)))
+                .unwrap_or_else(|| "defaults".to_string());
+            let providers = openclaw_agent::llm::fallback::FallbackProvider::from_config()
+                .ok()
+                .map(|fb| fb.provider_labels().iter().map(|s| s.to_string()).collect::<Vec<_>>())
+                .unwrap_or_default();
+            let provider_str = if providers.is_empty() { "none".to_string() } else { providers.join(", ") };
+            bot.send_embed(
+                channel_id, Some(reply_to),
+                "⚙️ Gateway Config",
+                &format!("v{}", env!("CARGO_PKG_VERSION")),
+                0x95A5A6, // Gray
+                &[
+                    ("Agent", &config.agent.name, true),
+                    ("Fallback", &config.agent.fallback.to_string(), true),
+                    ("Model", config.agent.model.as_deref().unwrap_or("(default)"), true),
+                    ("Discord", discord_status, true),
+                    ("Webhook", webhook_status, true),
+                    ("Sandbox", &sandbox_info, true),
+                    ("Providers", &provider_str, false),
+                ],
             ).await?;
         }
         "skills" => {

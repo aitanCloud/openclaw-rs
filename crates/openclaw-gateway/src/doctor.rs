@@ -1,7 +1,37 @@
 //! Doctor module — runs health checks and returns a diagnostic report.
 //! Each check returns (name, passed, detail).
 
+use std::path::Path;
 use tracing::debug;
+
+fn dir_size_bytes(path: &Path) -> u64 {
+    let mut total = 0u64;
+    if let Ok(entries) = std::fs::read_dir(path) {
+        for entry in entries.flatten() {
+            let meta = entry.metadata();
+            if let Ok(m) = meta {
+                if m.is_file() {
+                    total += m.len();
+                } else if m.is_dir() {
+                    total += dir_size_bytes(&entry.path());
+                }
+            }
+        }
+    }
+    total
+}
+
+fn human_bytes(bytes: u64) -> String {
+    if bytes >= 1_073_741_824 {
+        format!("{:.1} GB", bytes as f64 / 1_073_741_824.0)
+    } else if bytes >= 1_048_576 {
+        format!("{:.1} MB", bytes as f64 / 1_048_576.0)
+    } else if bytes >= 1024 {
+        format!("{:.1} KB", bytes as f64 / 1024.0)
+    } else {
+        format!("{} B", bytes)
+    }
+}
 
 /// Run all health checks and return a list of (check_name, passed, detail)
 pub async fn run_checks(agent_name: &str) -> Vec<(String, bool, String)> {
@@ -85,7 +115,47 @@ pub async fn run_checks(agent_name: &str) -> Vec<(String, bool, String)> {
         },
     ));
 
-    // 7. Active tasks
+    // 7. Cron jobs
+    let cron_path = openclaw_core::paths::cron_jobs_path();
+    let cron_detail = if cron_path.exists() {
+        match std::fs::read_to_string(&cron_path) {
+            Ok(content) => {
+                let v: serde_json::Value = serde_json::from_str(&content).unwrap_or_default();
+                let jobs = v.get("jobs").and_then(|j| j.as_array()).map(|a| a.len()).unwrap_or(0);
+                let enabled = v.get("jobs").and_then(|j| j.as_array())
+                    .map(|a| a.iter().filter(|j| j.get("enabled").and_then(|e| e.as_bool()).unwrap_or(false)).count())
+                    .unwrap_or(0);
+                format!("{} job(s), {} enabled", jobs, enabled)
+            }
+            Err(_) => "Failed to read cron/jobs.json".to_string(),
+        }
+    } else {
+        "No cron/jobs.json found".to_string()
+    };
+    checks.push(("Cron Jobs".to_string(), true, cron_detail));
+
+    // 8. Disk usage (workspace + sessions DB)
+    let ws_size = dir_size_bytes(&workspace_dir);
+    let db_path = openclaw_core::paths::agent_sessions_dir(agent_name).join("sessions.db");
+    let db_size = std::fs::metadata(&db_path).map(|m| m.len()).unwrap_or(0);
+    checks.push((
+        "Disk Usage".to_string(),
+        true,
+        format!("workspace: {}, sessions DB: {}", human_bytes(ws_size), human_bytes(db_size)),
+    ));
+
+    // 9. Webhook
+    checks.push((
+        "Webhook".to_string(),
+        true,
+        if std::env::var("WEBHOOK_TOKEN").is_ok() || cron_path.exists() {
+            "Configured".to_string()
+        } else {
+            "Not configured".to_string()
+        },
+    ));
+
+    // 10. Active tasks
     let active = crate::task_registry::active_count();
     checks.push((
         "Active Tasks".to_string(),
@@ -93,7 +163,7 @@ pub async fn run_checks(agent_name: &str) -> Vec<(String, bool, String)> {
         format!("{} running", active),
     ));
 
-    // 8. Uptime
+    // 11. Uptime
     let uptime = crate::handler::BOOT_TIME.elapsed();
     let hours = uptime.as_secs() / 3600;
     let mins = (uptime.as_secs() % 3600) / 60;
@@ -118,8 +188,8 @@ mod tests {
     #[tokio::test]
     async fn test_doctor_returns_checks() {
         let checks = run_checks("test-agent").await;
-        // Should always return at least 8 checks
-        assert!(checks.len() >= 8, "Expected >=8 checks, got {}", checks.len());
+        // Should always return at least 11 checks
+        assert!(checks.len() >= 11, "Expected >=11 checks, got {}", checks.len());
 
         // Verify check names are present
         let names: Vec<&str> = checks.iter().map(|(n, _, _)| n.as_str()).collect();
@@ -129,6 +199,9 @@ mod tests {
         assert!(names.contains(&"Skills"));
         assert!(names.contains(&"LLM Provider"));
         assert!(names.contains(&"Metrics"));
+        assert!(names.contains(&"Cron Jobs"));
+        assert!(names.contains(&"Disk Usage"));
+        assert!(names.contains(&"Webhook"));
         assert!(names.contains(&"Active Tasks"));
         assert!(names.contains(&"Uptime"));
     }

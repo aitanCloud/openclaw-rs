@@ -447,6 +447,7 @@ async fn handle_command(
                 /cron — list and manage cron jobs\n\
                 /tools — list all built-in agent tools\n\
                 /skills — list available workspace skills\n\
+                /config — show gateway config (sanitized)\n\
                 /doctor — run health checks\n\
                 /help — show this help\n\n\
                 You can also send voice messages — I'll transcribe and respond.",
@@ -537,7 +538,7 @@ async fn handle_command(
                 "🦀 *openclaw-gateway* v{}\n\
                 Uptime: {}h {}m\n\
                 Agent: {}\n\
-                Commands: 20",
+                Commands: 21",
                 env!("CARGO_PKG_VERSION"), hours, mins, config.agent.name,
             )).await?;
         }
@@ -560,6 +561,34 @@ async fn handle_command(
                 msg_text.push_str(&format!("• `{}`\n", name));
             }
             bot.send_message(chat_id, &msg_text).await?;
+        }
+        "/config" => {
+            let mut lines = Vec::new();
+            lines.push(format!("⚙️ *Gateway Config*\n"));
+            lines.push(format!("Agent: {}", config.agent.name));
+            lines.push(format!("Fallback: {}", config.agent.fallback));
+            lines.push(format!("Model: {}", config.agent.model.as_deref().unwrap_or("(default)")));
+            lines.push(format!("Telegram users: {}", config.telegram.allowed_user_ids.len()));
+            lines.push(format!("Discord: {}", if config.discord.is_some() { "enabled" } else { "disabled" }));
+            if let Some(ref dc) = config.discord {
+                lines.push(format!("Discord users: {}", dc.allowed_user_ids.len()));
+            }
+            lines.push(format!("Webhook: {}", if config.webhook.is_some() { "configured" } else { "not configured" }));
+            if let Some(ref sb) = config.agent.sandbox {
+                lines.push(format!("Sandbox: timeout={}s, max_concurrent={}",
+                    sb.turn_timeout_secs.unwrap_or(120),
+                    sb.max_concurrent.unwrap_or(4)));
+            } else {
+                lines.push("Sandbox: defaults".to_string());
+            }
+            let providers = openclaw_agent::llm::fallback::FallbackProvider::from_config()
+                .ok()
+                .map(|fb| fb.provider_labels().iter().map(|s| s.to_string()).collect::<Vec<_>>())
+                .unwrap_or_default();
+            if !providers.is_empty() {
+                lines.push(format!("Providers: {}", providers.join(", ")));
+            }
+            bot.send_message(chat_id, &lines.join("\n")).await?;
         }
         "/skills" => {
             let workspace_dir = openclaw_agent::workspace::resolve_workspace_dir(&config.agent.name);

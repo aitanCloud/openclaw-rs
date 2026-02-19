@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.58.0
+**Version:** 0.59.0
 **Last updated:** 2026-02-19
 **Maintainer:** Cascade + Shawaz
 
@@ -466,7 +466,15 @@
 - ✅ **Webhook metric test** — verifies webhook_requests counter in both Prometheus and JSON output
 - ✅ **163 tests** — 111 agent + 7 core + 45 gateway (was 42)
 
-## v0.59.0 — Daemon & Polish
+## v0.59.0 — /config Command & Enhanced Doctor (shipped)
+
+- ✅ **`/config` command** — shows sanitized gateway config (no tokens) on both Telegram (text) and Discord (gray embed with fields)
+- ✅ **Doctor: 11 checks** — added Cron Jobs (count + enabled), Disk Usage (workspace + sessions DB with human-readable sizes), Webhook status
+- ✅ **21 commands** — added `/config`, updated startup banner, /version, /help on both channels
+- ✅ **19/21 Discord embeds** — added `/config` embed (remaining: /export file upload, /voice TTS audio)
+- ✅ **163 tests** — 111 agent + 7 core + 45 gateway
+
+## v0.60.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**
