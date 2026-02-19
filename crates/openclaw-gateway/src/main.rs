@@ -432,7 +432,7 @@ async fn health_handler() -> axum::response::Response {
         .ok()
         .map(|fb| fb.provider_labels().iter().map(|s| s.to_string()).collect())
         .unwrap_or_default();
-    let (error_rate, total_requests, total_errors, avg_latency, webhook_reqs, agent_turns, tool_calls, completed_reqs) = metrics::global()
+    let (error_rate, total_requests, total_errors, avg_latency, webhook_reqs, agent_turns, tool_calls, completed_reqs, rate_limited, concurrency_rejected) = metrics::global()
         .map(|m| (
             (m.error_rate_pct() * 100.0).round() / 100.0,
             m.total_requests(),
@@ -442,8 +442,10 @@ async fn health_handler() -> axum::response::Response {
             m.agent_turns(),
             m.tool_calls(),
             m.completed_requests(),
+            m.rate_limited(),
+            m.concurrency_rejected(),
         ))
-        .unwrap_or((0.0, 0, 0, 0, 0, 0, 0, 0));
+        .unwrap_or((0.0, 0, 0, 0, 0, 0, 0, 0, 0, 0));
     let checks = doctor::run_checks("main").await;
     let checks_total = checks.len();
     let checks_passed = checks.iter().filter(|(_, ok, _)| *ok).count();
@@ -475,6 +477,8 @@ async fn health_handler() -> axum::response::Response {
             "agent_turns": agent_turns,
             "tool_calls": tool_calls,
             "completed_requests": completed_reqs,
+            "rate_limited": rate_limited,
+            "concurrency_rejected": concurrency_rejected,
             "provider_count": providers.len(),
             "fallback_chain": providers,
             "doctor_checks_total": checks_total,
@@ -858,15 +862,16 @@ mod tests {
             "total_requests", "total_errors", "error_rate_pct",
             "avg_latency_ms", "webhook_requests",
             "agent_turns", "tool_calls", "completed_requests",
+            "rate_limited", "concurrency_rejected",
             "provider_count", "fallback_chain",
             "doctor_checks_total", "doctor_checks_passed", "response_time_ms",
         ];
-        assert_eq!(expected.len(), 28, "Should have 28 /health JSON fields");
+        assert_eq!(expected.len(), 30, "Should have 30 /health JSON fields");
         // Verify no duplicates
         let mut sorted = expected.to_vec();
         sorted.sort();
         sorted.dedup();
-        assert_eq!(sorted.len(), 28, "/health fields should have no duplicates");
+        assert_eq!(sorted.len(), 30, "/health fields should have no duplicates");
     }
 
     #[test]

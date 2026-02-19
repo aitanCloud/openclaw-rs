@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.85.0
+**Version:** 0.86.0
 **Last updated:** 2026-02-19
 **Maintainer:** Cascade + Shawaz
 
@@ -667,7 +667,15 @@
 - ✅ **`/metrics/summary` format test** — verifies all 8 key=value pairs present
 - ✅ **193 tests** — 111 agent + 7 core + 75 gateway (was 73)
 
-## v0.86.0 — Daemon & Polish
+## v0.86.0 — Prometheus Completions & Rate Limiting (shipped)
+
+- ✅ **`openclaw_gateway_completed_requests_total` Prometheus metric** — 23rd metric: completed agent requests counter
+- ✅ **`rate_limited` and `concurrency_rejected` in `/health`** — 30 total fields for complete system overview
+- ✅ **`rate_limited()` and `concurrency_rejected()` accessors** — new public methods on GatewayMetrics
+- ✅ **`record_agent_turn` test** — verifies turns and tool_calls accumulate correctly
+- ✅ **194 tests** — 111 agent + 7 core + 76 gateway (was 75)
+
+## v0.87.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**

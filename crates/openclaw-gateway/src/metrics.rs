@@ -148,6 +148,14 @@ impl GatewayMetrics {
         self.completed_requests.load(Ordering::Relaxed)
     }
 
+    pub fn rate_limited(&self) -> u64 {
+        self.rate_limited.load(Ordering::Relaxed)
+    }
+
+    pub fn concurrency_rejected(&self) -> u64 {
+        self.concurrency_rejected.load(Ordering::Relaxed)
+    }
+
     pub fn error_rate_pct(&self) -> f64 {
         let total = self.total_requests();
         if total == 0 {
@@ -235,6 +243,11 @@ impl GatewayMetrics {
         out.push_str("# TYPE openclaw_gateway_webhook_requests_total counter\n");
         out.push_str(&format!("openclaw_gateway_webhook_requests_total {}\n",
             self.webhook_requests.load(Ordering::Relaxed)));
+
+        out.push_str("# HELP openclaw_gateway_completed_requests_total Total completed agent requests\n");
+        out.push_str("# TYPE openclaw_gateway_completed_requests_total counter\n");
+        out.push_str(&format!("openclaw_gateway_completed_requests_total {}\n",
+            self.completed_requests.load(Ordering::Relaxed)));
 
         out.push_str("# HELP openclaw_gateway_process_rss_bytes Resident set size of the gateway process in bytes\n");
         out.push_str("# TYPE openclaw_gateway_process_rss_bytes gauge\n");
@@ -596,6 +609,21 @@ mod tests {
         assert_eq!(m.total_errors(), 2);
         assert!((m.error_rate_pct() - 20.0).abs() < 0.01,
             "Expected ~20% error rate, got {}", m.error_rate_pct());
+    }
+
+    #[test]
+    fn test_record_agent_turn() {
+        let m = GatewayMetrics::new();
+        assert_eq!(m.agent_turns(), 0);
+        assert_eq!(m.tool_calls(), 0);
+
+        m.record_agent_turn(3);
+        assert_eq!(m.agent_turns(), 1);
+        assert_eq!(m.tool_calls(), 3);
+
+        m.record_agent_turn(5);
+        assert_eq!(m.agent_turns(), 2);
+        assert_eq!(m.tool_calls(), 8);
     }
 
     #[test]
