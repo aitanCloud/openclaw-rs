@@ -813,20 +813,28 @@
 - ✅ **3 new tests** — session context set/clear, LogStats default, LogStats serialization
 - ✅ **224 total tests** — 124 agent + 7 core + 93 gateway
 
-## v1.4.0 — Channel Plugin Abstraction
+## v1.4.0 — Fallback Logging & Doctor Enrichment (shipped)
+
+- ✅ **Provider attempt tracking** — `set_provider_attempt()` / `current_provider_attempt()` wired into `FallbackProvider.complete()` and `complete_streaming()`, log entries auto-tagged with attempt number
+- ✅ **16th doctor check: LLM Log** — shows total recorded, buffered, errors, avg latency
+- ✅ **Updated HTTP endpoint count** — 13 endpoints in doctor check and /health
+- ✅ **Updated /health field counts** — commands: 23, http_endpoint_count: 13, llm_log stats object
+- ✅ **224 total tests** — 124 agent + 7 core + 93 gateway
+
+## v1.5.0 — Channel Plugin Abstraction
 
 - 📋 **`Channel` trait** — abstract interface for message channels (send, edit, upload, typing)
 - 📋 **Telegram channel plugin** — refactor handler.rs to implement Channel trait
 - 📋 **Discord channel plugin** — refactor discord_handler.rs to implement Channel trait
 - 📋 **Plugin loader** — dynamic channel registration from config
 
-## v1.5.0 — WebSocket Protocol
+## v1.6.0 — WebSocket Protocol
 
 - 📋 **WS endpoint** — `ws://gateway:3100/ws` for CLI↔Gateway real-time communication
 - 📋 **CLI connect mode** — `openclaw chat` opens interactive WS session
 - 📋 **TUI** — terminal UI with streaming responses
 
-## v1.6.0+ — Extended Features
+## v1.7.0+ — Extended Features
 
 - 📋 **Multi-agent routing** — per-agent workspaces, auth, routing
 - 📋 **Device pairing** — QR codes, setup codes, token management

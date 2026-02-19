@@ -219,6 +219,7 @@ impl LlmProvider for FallbackProvider {
             }
 
             let t_start = Instant::now();
+            crate::llm_log::set_provider_attempt((i + 1) as u32);
             info!("Trying provider {}/{}: {}", i + 1, self.entries.len(), entry.label);
 
             match entry.provider.complete(messages, tools).await {
@@ -266,6 +267,7 @@ impl LlmProvider for FallbackProvider {
             }
 
             let t_start = Instant::now();
+            crate::llm_log::set_provider_attempt((i + 1) as u32);
             info!("Trying streaming provider {}/{}: {}", i + 1, self.entries.len(), entry.label);
 
             match entry.provider.complete_streaming(messages, tools, event_tx.clone()).await {

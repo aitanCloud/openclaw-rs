@@ -60,6 +60,19 @@ pub fn total_count() -> u64 {
 /// Current session context — set before LLM calls so log entries get tagged
 static CURRENT_SESSION: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 
+/// Current provider attempt number (1-based, for fallback chains)
+static CURRENT_PROVIDER_ATTEMPT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
+
+/// Set the current provider attempt number (call before each fallback attempt)
+pub fn set_provider_attempt(attempt: u32) {
+    CURRENT_PROVIDER_ATTEMPT.store(attempt, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Get the current provider attempt number
+pub fn current_provider_attempt() -> u32 {
+    CURRENT_PROVIDER_ATTEMPT.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// Set the current session key (call before running an agent turn)
 pub fn set_session_context(session_key: &str) {
     if let Ok(mut ctx) = CURRENT_SESSION.lock() {
@@ -162,7 +175,7 @@ impl LlmLogEntry {
             usage_total_tokens: 0,
             latency_ms: 0,
             error: None,
-            provider_attempt: 1,
+            provider_attempt: current_provider_attempt(),
             session_key: current_session_key(),
         }
     }

@@ -202,15 +202,24 @@ pub async fn run_checks(agent_name: &str) -> Vec<(String, bool, String)> {
         },
     ));
 
-    // 13. HTTP endpoints
+    // 13. LLM Activity Log
+    let log_stats = openclaw_agent::llm_log::stats();
+    checks.push((
+        "LLM Log".to_string(),
+        true,
+        format!("{} recorded, {} buffered, {} errors, avg {}ms",
+            log_stats.total_recorded, log_stats.buffered, log_stats.errors, log_stats.avg_latency_ms),
+    ));
+
+    // 14. HTTP endpoints
     let http_port = std::env::var("PORT").unwrap_or_else(|_| "3100".to_string());
     checks.push((
         "HTTP".to_string(),
         true,
-        format!("12 endpoints on port {}", http_port),
+        format!("13 endpoints on port {}", http_port),
     ));
 
-    // 14. Hostname
+    // 15. Hostname
     let hostname = std::fs::read_to_string("/etc/hostname")
         .unwrap_or_default().trim().to_string();
     checks.push((
@@ -219,7 +228,7 @@ pub async fn run_checks(agent_name: &str) -> Vec<(String, bool, String)> {
         if hostname.is_empty() { "Unknown".to_string() } else { hostname },
     ));
 
-    // 15. Uptime
+    // 16. Uptime
     let uptime_secs = crate::handler::BOOT_TIME.elapsed().as_secs();
     checks.push((
         "Uptime".to_string(),
@@ -242,8 +251,8 @@ mod tests {
     #[tokio::test]
     async fn test_doctor_returns_checks() {
         let checks = run_checks("test-agent").await;
-        // Should always return at least 15 checks
-        assert!(checks.len() >= 15, "Expected >=15 checks, got {}", checks.len());
+        // Should always return at least 16 checks
+        assert!(checks.len() >= 16, "Expected >=16 checks, got {}", checks.len());
 
         // Verify check names are present
         let names: Vec<&str> = checks.iter().map(|(n, _, _)| n.as_str()).collect();
@@ -259,10 +268,11 @@ mod tests {
         assert!(names.contains(&"Memory"));
         assert!(names.contains(&"Active Tasks"));
         assert!(names.contains(&"LLM Providers"));
+        assert!(names.contains(&"LLM Log"));
         assert!(names.contains(&"HTTP"));
         assert!(names.contains(&"Hostname"));
         assert!(names.contains(&"Uptime"));
-        assert_eq!(names.len(), 15, "Should have exactly 15 doctor checks");
+        assert_eq!(names.len(), 16, "Should have exactly 16 doctor checks");
     }
 
     #[tokio::test]
