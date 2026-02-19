@@ -288,6 +288,63 @@ impl DiscordBot {
         Ok(msg["id"].as_str().unwrap_or("").to_string())
     }
 
+    /// Send a rich embed message (with optional reply)
+    pub async fn send_embed(
+        &self,
+        channel_id: &str,
+        reply_to: Option<&str>,
+        title: &str,
+        description: &str,
+        color: u32,
+        fields: &[(&str, &str, bool)],
+    ) -> Result<String> {
+        let mut embed = serde_json::json!({
+            "title": title,
+            "description": description,
+            "color": color,
+        });
+
+        if !fields.is_empty() {
+            let field_arr: Vec<serde_json::Value> = fields.iter().map(|(name, value, inline)| {
+                serde_json::json!({
+                    "name": name,
+                    "value": value,
+                    "inline": inline,
+                })
+            }).collect();
+            embed["fields"] = serde_json::Value::Array(field_arr);
+        }
+
+        let mut body = serde_json::json!({
+            "embeds": [embed],
+        });
+
+        if let Some(ref_id) = reply_to {
+            body["message_reference"] = serde_json::json!({
+                "message_id": ref_id,
+            });
+        }
+
+        let resp = self
+            .client
+            .post(format!("{}/channels/{}/messages", self.api_base, channel_id))
+            .header("Authorization", format!("Bot {}", self.token))
+            .header("Content-Type", "application/json")
+            .json(&body)
+            .send()
+            .await
+            .context("Failed to send Discord embed")?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let err_body = resp.text().await.unwrap_or_default();
+            anyhow::bail!("Discord embed failed ({}): {}", status, err_body);
+        }
+
+        let msg: Value = resp.json().await?;
+        Ok(msg["id"].as_str().unwrap_or("").to_string())
+    }
+
     /// Send typing indicator
     pub async fn send_typing(&self, channel_id: &str) -> Result<()> {
         let _ = self

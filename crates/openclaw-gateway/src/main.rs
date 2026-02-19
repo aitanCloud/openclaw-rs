@@ -32,7 +32,7 @@ async fn main() -> anyhow::Result<()> {
     if let Some(ref dc) = config.discord {
         info!("Discord enabled | allowed users: {:?}", dc.allowed_user_ids);
     }
-    info!("Commands: 14 (/help /new /status /model /sessions /export /voice /ping /history /clear /db /version /stats /cron)");
+    info!("Commands: 15 (/help /new /status /model /sessions /export /voice /ping /history /clear /db /version /stats /whoami /cron)");
 
     // ── Verify bot token ──
     let bot = telegram::TelegramBot::new(&config.telegram.bot_token);

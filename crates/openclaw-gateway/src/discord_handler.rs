@@ -64,7 +64,7 @@ pub async fn handle_discord_message(
 
     // ── Handle commands ──
     if (text.starts_with('/') || text.starts_with('!')) && !has_image {
-        return handle_command(bot, channel_id, &msg.id, user_id, text, config).await;
+        return handle_command(bot, channel_id, &msg.id, user_id, text, config, msg).await;
     }
 
     // ── Check for bot mention (strip it from text) ──
@@ -413,6 +413,7 @@ async fn handle_command(
     user_id: &str,
     text: &str,
     config: &GatewayConfig,
+    msg: &DiscordMessage,
 ) -> Result<()> {
     let cmd = text.split_whitespace().next().unwrap_or("");
     // Normalize: both /cmd and !cmd work
@@ -438,6 +439,7 @@ async fn handle_command(
                 `/db` — session database stats\n\
                 `/version` — build info and uptime\n\
                 `/stats` — gateway request stats\n\
+                `/whoami` — show your user info\n\
                 `/cron` — list and manage cron jobs\n\
                 `/help` — show this help\n\n\
                 You can also use `!` prefix instead of `/`. Send images for vision analysis.",
@@ -460,15 +462,19 @@ async fn handle_command(
                 let uptime = crate::handler::BOOT_TIME.elapsed();
                 let hours = uptime.as_secs() / 3600;
                 let mins = (uptime.as_secs() % 3600) / 60;
-                bot.send_reply(channel_id, reply_to, &format!(
-                    "📊 **Gateway Stats** ({}h {}m uptime)\n\n\
-                    Telegram: {} requests, {} errors\n\
-                    Discord: {} requests, {} errors\n\
-                    Rate limited: {}\n\
-                    Completed: {}\n\
-                    Avg latency: {}ms",
-                    hours, mins, tg_req, tg_err, dc_req, dc_err, rl, completed, avg,
-                )).await?;
+                bot.send_embed(
+                    channel_id, Some(reply_to),
+                    "📊 Gateway Stats",
+                    &format!("Uptime: {}h {}m", hours, mins),
+                    0x5865F2, // Discord blurple
+                    &[
+                        ("Telegram", &format!("{} req / {} err", tg_req, tg_err), true),
+                        ("Discord", &format!("{} req / {} err", dc_req, dc_err), true),
+                        ("Rate Limited", &rl.to_string(), true),
+                        ("Completed", &completed.to_string(), true),
+                        ("Avg Latency", &format!("{}ms", avg), true),
+                    ],
+                ).await?;
             } else {
                 bot.send_reply(channel_id, reply_to, "📊 Metrics not available.").await?;
             }
@@ -477,13 +483,34 @@ async fn handle_command(
             let uptime = crate::handler::BOOT_TIME.elapsed();
             let hours = uptime.as_secs() / 3600;
             let mins = (uptime.as_secs() % 3600) / 60;
-            bot.send_reply(channel_id, reply_to, &format!(
-                "🦀 **openclaw-gateway** v{}\n\
-                Uptime: {}h {}m\n\
-                Agent: {}\n\
-                Commands: 14",
-                env!("CARGO_PKG_VERSION"), hours, mins, config.agent.name,
-            )).await?;
+            bot.send_embed(
+                channel_id, Some(reply_to),
+                "🦀 openclaw-gateway",
+                &format!("v{}", env!("CARGO_PKG_VERSION")),
+                0xF74C00, // Rust orange
+                &[
+                    ("Uptime", &format!("{}h {}m", hours, mins), true),
+                    ("Agent", &config.agent.name, true),
+                    ("Commands", "15", true),
+                ],
+            ).await?;
+        }
+        "whoami" => {
+            let session_key = format!("dc:{}:{}:{}", config.agent.name, user_id, channel_id);
+            let is_allowed = config.discord.as_ref()
+                .map(|dc| dc.allowed_user_ids.is_empty() || dc.allowed_user_ids.contains(&user_id.parse::<i64>().unwrap_or(0)))
+                .unwrap_or(false);
+            bot.send_embed(
+                channel_id, Some(reply_to),
+                "👤 Who Am I",
+                &format!("**{}** ({})", msg.author.username, user_id),
+                0x57F287, // Green
+                &[
+                    ("Channel", channel_id, true),
+                    ("Session Key", &session_key, false),
+                    ("Authorized", if is_allowed { "✅ Yes" } else { "❌ No" }, true),
+                ],
+            ).await?;
         }
         "clear" => {
             let store = SessionStore::open(&config.agent.name)?;

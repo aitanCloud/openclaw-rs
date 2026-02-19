@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.28.0
+**Version:** 0.29.0
 **Last updated:** 2026-02-18
 **Maintainer:** Cascade + Shawaz
 
@@ -240,7 +240,14 @@
 - ✅ **14 commands on both channels** — /help, /new, /status, /model, /sessions, /export, /voice, /ping, /history, /clear, /db, /version, /stats, /cron
 - ✅ **125 tests** — 93 agent + 7 core + 25 gateway
 
-## v0.29.0 — Daemon & Polish
+## v0.29.0 — Rich UI & Identity (shipped)
+
+- ✅ **Discord embed support** — `send_embed()` method with colored sidebar and fields; /stats (blurple), /version (Rust orange), /whoami (green) use rich embeds
+- ✅ **`/whoami` command** — show user ID, username, session key, authorization status on both channels (embed on Discord)
+- ✅ **15 commands on both channels** — /help, /new, /status, /model, /sessions, /export, /voice, /ping, /history, /clear, /db, /version, /stats, /whoami, /cron
+- ✅ **125 tests** — 93 agent + 7 core + 25 gateway
+
+## v0.30.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**

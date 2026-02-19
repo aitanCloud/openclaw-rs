@@ -90,7 +90,7 @@ pub async fn handle_message(
 
     // ── Handle commands ──
     if text.starts_with('/') && !has_photo {
-        return handle_command(bot, chat_id, user_id, &text, config).await;
+        return handle_command(bot, chat_id, user_id, &text, config, msg).await;
     }
 
     // ── Download photo if present ──
@@ -404,6 +404,7 @@ async fn handle_command(
     user_id: i64,
     text: &str,
     config: &GatewayConfig,
+    msg: &TgMessage,
 ) -> Result<()> {
     let cmd = text.split_whitespace().next().unwrap_or("");
 
@@ -426,6 +427,7 @@ async fn handle_command(
                 /db — session database stats\n\
                 /version — build info and uptime\n\
                 /stats — gateway request stats\n\
+                /whoami — show your user info\n\
                 /cron — list and manage cron jobs\n\
                 /help — show this help\n\n\
                 You can also send voice messages — I'll transcribe and respond.",
@@ -435,6 +437,23 @@ async fn handle_command(
         "/ping" => {
             let start = std::time::Instant::now();
             bot.send_message(chat_id, &format!("🏓 Pong! ({}ms)", start.elapsed().as_millis())).await?;
+        }
+        "/whoami" => {
+            let session_key = format!("tg:{}:{}:{}", config.agent.name, user_id, chat_id);
+            let username = msg.from.as_ref()
+                .and_then(|u| u.username.as_deref())
+                .unwrap_or("unknown");
+            let is_allowed = config.telegram.allowed_user_ids.is_empty()
+                || config.telegram.allowed_user_ids.contains(&user_id);
+            bot.send_message(chat_id, &format!(
+                "👤 *Who Am I*\n\n\
+                User: @{} ({})\n\
+                Chat: {}\n\
+                Session key: `{}`\n\
+                Authorized: {}",
+                username, user_id, chat_id, session_key,
+                if is_allowed { "✅ Yes" } else { "❌ No" },
+            )).await?;
         }
         "/stats" => {
             if let Some(m) = crate::metrics::global() {
@@ -469,7 +488,7 @@ async fn handle_command(
                 "🦀 *openclaw-gateway* v{}\n\
                 Uptime: {}h {}m\n\
                 Agent: {}\n\
-                Commands: 14",
+                Commands: 15",
                 env!("CARGO_PKG_VERSION"), hours, mins, config.agent.name,
             )).await?;
         }
