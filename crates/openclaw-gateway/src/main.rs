@@ -3,6 +3,7 @@ mod cron;
 mod discord;
 mod discord_handler;
 mod handler;
+mod metrics;
 mod ratelimit;
 mod telegram;
 
@@ -55,6 +56,9 @@ async fn main() -> anyhow::Result<()> {
     let cron_config = Arc::new(config.clone());
     cron::spawn_cron_executor(cron_config, cron_bot);
 
+    // ── Metrics ──
+    let gateway_metrics = Arc::new(metrics::GatewayMetrics::new());
+
     // ── Start health check HTTP server ──
     let start_time = std::time::Instant::now();
     let health_config = Arc::new(config.clone());
@@ -68,7 +72,15 @@ async fn main() -> anyhow::Result<()> {
             get({
                 let cfg = health_config.clone();
                 let tnames = tool_names.clone();
-                move || status_handler(cfg, tnames, start_time)
+                let m = gateway_metrics.clone();
+                move || status_handler(cfg, tnames, start_time, m)
+            }),
+        )
+        .route(
+            "/metrics",
+            get({
+                let m = gateway_metrics.clone();
+                move || metrics_handler(m)
             }),
         );
 
@@ -116,6 +128,7 @@ async fn main() -> anyhow::Result<()> {
         let discord_config_clone = config.clone();
         let discord_rate_limiter = rate_limiter.clone();
         let discord_active_tasks = active_tasks.clone();
+        let discord_metrics = gateway_metrics.clone();
 
         tokio::spawn(async move {
             match discord_bot.clone().connect_gateway().await {
@@ -123,9 +136,11 @@ async fn main() -> anyhow::Result<()> {
                     info!("Discord Gateway connected, listening for messages...");
                     while let Some(msg) = msg_rx.recv().await {
                         let user_id: i64 = msg.author.id.parse().unwrap_or(0);
+                        discord_metrics.record_discord_request();
 
                         // Rate limit check
                         if let Err(wait_secs) = discord_rate_limiter.check(user_id) {
+                            discord_metrics.record_rate_limited();
                             let rl_bot = discord::DiscordBot::new(
                                 &discord_config_clone.discord.as_ref().unwrap().bot_token,
                             );
@@ -144,6 +159,7 @@ async fn main() -> anyhow::Result<()> {
                         let permit = match discord_active_tasks.clone().try_acquire_owned() {
                             Ok(p) => p,
                             Err(_) => {
+                                discord_metrics.record_concurrency_rejected();
                                 let busy_bot = discord::DiscordBot::new(
                                     &discord_config_clone.discord.as_ref().unwrap().bot_token,
                                 );
@@ -162,15 +178,19 @@ async fn main() -> anyhow::Result<()> {
                             &discord_config_clone.discord.as_ref().unwrap().bot_token,
                         );
                         let config_clone = discord_config_clone.clone();
+                        let task_metrics = discord_metrics.clone();
 
                         tokio::spawn(async move {
                             let _permit = permit;
+                            let start = std::time::Instant::now();
                             if let Err(e) =
                                 discord_handler::handle_discord_message(&bot_clone, &msg, &config_clone)
                                     .await
                             {
+                                task_metrics.record_discord_error();
                                 error!("Discord handler error: {}", e);
                             }
+                            task_metrics.record_completion(start.elapsed().as_millis() as u64);
                         });
                     }
                 }
@@ -213,9 +233,11 @@ async fn main() -> anyhow::Result<()> {
 
                             if let Some(msg) = update.message {
                                 let user_id = msg.from.as_ref().map(|u| u.id).unwrap_or(0);
+                                gateway_metrics.record_telegram_request();
 
                                 // Rate limit check
                                 if let Err(wait_secs) = rate_limiter.check(user_id) {
+                                    gateway_metrics.record_rate_limited();
                                     let rl_bot = telegram::TelegramBot::new(&config.telegram.bot_token);
                                     let chat_id = msg.chat.id;
                                     warn!("Rate limited user {} for {}s", user_id, wait_secs);
@@ -230,6 +252,7 @@ async fn main() -> anyhow::Result<()> {
                                 let permit = match active_tasks.clone().try_acquire_owned() {
                                     Ok(p) => p,
                                     Err(_) => {
+                                        gateway_metrics.record_concurrency_rejected();
                                         let busy_bot = telegram::TelegramBot::new(&config.telegram.bot_token);
                                         let _ = busy_bot.send_message(
                                             msg.chat.id,
@@ -241,14 +264,18 @@ async fn main() -> anyhow::Result<()> {
 
                                 let bot_clone = telegram::TelegramBot::new(&config.telegram.bot_token);
                                 let config_clone = config.clone();
+                                let tg_metrics = gateway_metrics.clone();
 
                                 tokio::spawn(async move {
                                     let _permit = permit; // held until task completes
+                                    let start = std::time::Instant::now();
                                     if let Err(e) =
                                         handler::handle_message(&bot_clone, &msg, &config_clone).await
                                     {
+                                        tg_metrics.record_telegram_error();
                                         error!("Handler error: {}", e);
                                     }
+                                    tg_metrics.record_completion(start.elapsed().as_millis() as u64);
                                 });
                             }
                         }
@@ -267,10 +294,17 @@ async fn health_handler() -> &'static str {
     "ok"
 }
 
+async fn metrics_handler(
+    m: Arc<metrics::GatewayMetrics>,
+) -> Json<serde_json::Value> {
+    Json(m.to_json())
+}
+
 async fn status_handler(
     config: Arc<config::GatewayConfig>,
     tool_names: Arc<Vec<String>>,
     start_time: std::time::Instant,
+    m: Arc<metrics::GatewayMetrics>,
 ) -> Json<serde_json::Value> {
     let uptime_secs = start_time.elapsed().as_secs();
     let uptime = if uptime_secs >= 86400 {
@@ -328,6 +362,7 @@ async fn status_handler(
         "uptime_seconds": uptime_secs,
         "channels": channels,
         "sessions": session_info,
+        "metrics": m.to_json(),
         "tools": *tool_names,
         "tool_count": tool_names.len(),
         "commands": {

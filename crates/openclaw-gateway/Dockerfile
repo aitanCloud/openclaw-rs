@@ -9,7 +9,7 @@ RUN cargo build --release --bin openclaw-gateway
 FROM debian:bookworm-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates \
+    ca-certificates curl ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /build/target/release/openclaw-gateway /usr/local/bin/openclaw-gateway
@@ -18,7 +18,6 @@ COPY --from=builder /build/target/release/openclaw-gateway /usr/local/bin/opencl
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
     CMD curl -sf http://localhost:3100/health || exit 1
 
-RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
 
 EXPOSE 3100
 

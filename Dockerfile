@@ -1,17 +1,17 @@
-# Stage 1: Build the Rust CLI
+# Stage 1: Build all Rust binaries
 FROM rust:1.83-bookworm AS builder
 
 WORKDIR /build
 COPY Cargo.toml Cargo.lock* ./
 COPY crates/ crates/
 
-RUN cargo build --release
+RUN cargo build --release --bin openclaw --bin openclaw-gateway
 
 # Stage 2: Test in a clean Debian environment with Node.js (simulates coexistence)
 FROM debian:bookworm-slim AS test
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates curl && \
+    ca-certificates curl ffmpeg && \
     rm -rf /var/lib/apt/lists/*
 
 # Install Node.js 22 for TS gateway coexistence testing
@@ -19,8 +19,9 @@ RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
     apt-get install -y nodejs && \
     rm -rf /var/lib/apt/lists/*
 
-# Copy the Rust binary
+# Copy the Rust binaries
 COPY --from=builder /build/target/release/openclaw /usr/local/bin/openclaw
+COPY --from=builder /build/target/release/openclaw-gateway /usr/local/bin/openclaw-gateway
 
 # Create a mock ~/.openclaw structure for testing
 RUN mkdir -p /root/.openclaw/cron \

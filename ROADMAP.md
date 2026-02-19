@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.19.0
+**Version:** 0.20.0
 **Last updated:** 2026-02-18
 **Maintainer:** Cascade + Shawaz
 
@@ -170,12 +170,19 @@
 - ✅ **Session key migration** — auto-migrate old 3-part keys (`prefix:agent:channel`) to new 4-part format (`prefix:agent:0:channel`) on gateway startup, with FK-safe SQLite updates
 - ✅ **116 tests** — 92 agent + 7 core + 17 gateway
 
-## v0.20.0 — Daemon & Polish
+## v0.20.0 — Metrics & Docker (shipped)
+
+- ✅ **Gateway metrics** — atomic counters for telegram/discord requests, errors, rate limits, concurrency rejections, latency tracking with avg calculation, `/metrics` JSON endpoint
+- ✅ **Metrics wired into event loops** — both Telegram and Discord loops record requests, errors, and per-request latency
+- ✅ **Status endpoint enhanced** — `/status` now includes live metrics alongside session stats
+- ✅ **Dockerfile updated** — builds both `openclaw` and `openclaw-gateway` binaries, includes ffmpeg for voice, cleaned up redundant installs
+- ✅ **119 tests** — 92 agent + 7 core + 20 gateway
+
+## v0.21.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**
-- 📋 **Gateway metrics** — Prometheus-compatible /metrics endpoint
-- 📋 **Dockerfile update** — multi-stage build with Discord support
+- 📋 **Prometheus /metrics format** — text/plain Prometheus exposition format alongside JSON
 - 💡 **WhatsApp integration**
 
 ---
