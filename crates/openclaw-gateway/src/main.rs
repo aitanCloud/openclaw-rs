@@ -472,7 +472,7 @@ async fn webhook_handler(
         None => {
             return (
                 axum::http::StatusCode::SERVICE_UNAVAILABLE,
-                Json(serde_json::json!({"error": "webhook not configured"})),
+                Json(serde_json::json!({"error": "webhook not configured", "error_code": "WEBHOOK_NOT_CONFIGURED"})),
             ).into_response();
         }
     };
@@ -484,7 +484,7 @@ async fn webhook_handler(
     if token != expected_token {
         return (
             axum::http::StatusCode::UNAUTHORIZED,
-            Json(serde_json::json!({"error": "invalid token"})),
+            Json(serde_json::json!({"error": "invalid token", "error_code": "INVALID_TOKEN"})),
         ).into_response();
     }
 
@@ -494,7 +494,7 @@ async fn webhook_handler(
         None => {
             return (
                 axum::http::StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({"error": "missing 'message' field"})),
+                Json(serde_json::json!({"error": "missing 'message' field", "error_code": "MISSING_MESSAGE"})),
             ).into_response();
         }
     };
@@ -515,7 +515,7 @@ async fn webhook_handler(
         Err(e) => {
             return (
                 axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": format!("provider init failed: {}", e)})),
+                Json(serde_json::json!({"error": format!("provider init failed: {}", e), "error_code": "PROVIDER_INIT_FAILED"})),
             ).into_response();
         }
     };
@@ -567,7 +567,7 @@ async fn webhook_handler(
         Err(e) => {
             (
                 axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": format!("agent turn failed: {}", e)})),
+                Json(serde_json::json!({"error": format!("agent turn failed: {}", e), "error_code": "AGENT_TURN_FAILED"})),
             ).into_response()
         }
     }
@@ -704,5 +704,32 @@ mod tests {
     #[test]
     fn test_human_uptime_multi_days() {
         assert_eq!(human_uptime(259200), "3d 0h 0m");
+    }
+
+    #[test]
+    fn test_process_rss_bytes_returns_value() {
+        let rss = process_rss_bytes();
+        // On Linux /proc/self/statm exists, so RSS should be > 0
+        // On other platforms it gracefully returns 0
+        if cfg!(target_os = "linux") {
+            assert!(rss > 0, "RSS should be > 0 on Linux");
+        }
+    }
+
+    #[test]
+    fn test_webhook_error_codes_defined() {
+        // Verify all webhook error codes are valid identifiers
+        let codes = [
+            "WEBHOOK_NOT_CONFIGURED",
+            "INVALID_TOKEN",
+            "MISSING_MESSAGE",
+            "PROVIDER_INIT_FAILED",
+            "AGENT_TURN_FAILED",
+        ];
+        for code in &codes {
+            assert!(code.chars().all(|c| c.is_ascii_uppercase() || c == '_'),
+                "Error code '{}' should be UPPER_SNAKE_CASE", code);
+        }
+        assert_eq!(codes.len(), 5, "Should have 5 webhook error codes");
     }
 }

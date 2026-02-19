@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.69.0
+**Version:** 0.70.0
 **Last updated:** 2026-02-19
 **Maintainer:** Cascade + Shawaz
 
@@ -546,7 +546,14 @@
 - ✅ **7 HTTP endpoints** — /health, /ready, /status, /metrics, /metrics/json, /doctor, /webhook
 - ✅ **177 tests** — 111 agent + 7 core + 59 gateway
 
-## v0.70.0 — Daemon & Polish
+## v0.70.0 — Webhook Error Codes & Test Coverage (shipped)
+
+- ✅ **Webhook `error_code` fields** — all 5 webhook error responses now include UPPER_SNAKE_CASE `error_code` for programmatic handling: `WEBHOOK_NOT_CONFIGURED`, `INVALID_TOKEN`, `MISSING_MESSAGE`, `PROVIDER_INIT_FAILED`, `AGENT_TURN_FAILED`
+- ✅ **`process_rss_bytes` test** — verifies RSS > 0 on Linux
+- ✅ **Webhook error codes test** — validates all 5 error codes are UPPER_SNAKE_CASE
+- ✅ **179 tests** — 111 agent + 7 core + 61 gateway (was 59)
+
+## v0.71.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**
