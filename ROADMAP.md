@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.56.0
+**Version:** 0.57.0
 **Last updated:** 2026-02-19
 **Maintainer:** Cascade + Shawaz
 
@@ -450,7 +450,16 @@
 - ✅ **Command lists updated** — `/status` JSON now lists all 20 commands including `/tools`, `/skills`, `/doctor`
 - ✅ **160 tests** — 111 agent + 7 core + 42 gateway
 
-## v0.57.0 — Daemon & Polish
+## v0.57.0 — Webhook Endpoint (shipped)
+
+- ✅ **`POST /webhook`** — HTTP endpoint for external agent turn triggers with bearer token auth
+- ✅ **Webhook auth** — `WebhookConfig { token }` in gateway config, validates `Authorization: Bearer <token>` header
+- ✅ **Full agent turn** — webhook runs complete agent turn with tools, returns JSON `{reply, session_key, model, tool_calls, rounds, elapsed_ms}`
+- ✅ **`webhook_requests` metric** — new counter in Prometheus and JSON metrics output
+- ✅ **6 HTTP endpoints** — /health, /status, /metrics, /metrics/json, /doctor, **/webhook**
+- ✅ **160 tests** — 111 agent + 7 core + 42 gateway
+
+## v0.58.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**

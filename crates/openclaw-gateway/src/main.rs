@@ -123,6 +123,15 @@ async fn main() -> anyhow::Result<()> {
                 let cfg = health_config.clone();
                 move || doctor_handler(cfg)
             }),
+        )
+        .route(
+            "/webhook",
+            axum::routing::post({
+                let cfg = health_config.clone();
+                move |headers: axum::http::HeaderMap, body: Json<serde_json::Value>| {
+                    webhook_handler(cfg, headers, body)
+                }
+            }),
         );
 
     let http_port: u16 = std::env::var("HTTP_PORT")
@@ -382,6 +391,119 @@ async fn metrics_json_handler(
     m: Arc<metrics::GatewayMetrics>,
 ) -> Json<serde_json::Value> {
     Json(m.to_json())
+}
+
+async fn webhook_handler(
+    config: Arc<config::GatewayConfig>,
+    headers: axum::http::HeaderMap,
+    Json(body): Json<serde_json::Value>,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    use openclaw_agent::runtime::{self, AgentTurnConfig};
+
+    // Auth check
+    let expected_token = match &config.webhook {
+        Some(wh) => &wh.token,
+        None => {
+            return (
+                axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                Json(serde_json::json!({"error": "webhook not configured"})),
+            ).into_response();
+        }
+    };
+
+    let auth_header = headers.get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    let token = auth_header.strip_prefix("Bearer ").unwrap_or("");
+    if token != expected_token {
+        return (
+            axum::http::StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"error": "invalid token"})),
+        ).into_response();
+    }
+
+    // Extract message from body
+    let message = match body.get("message").and_then(|m| m.as_str()) {
+        Some(m) => m.to_string(),
+        None => {
+            return (
+                axum::http::StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": "missing 'message' field"})),
+            ).into_response();
+        }
+    };
+
+    let session_key = body.get("session_key")
+        .and_then(|s| s.as_str())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| format!("webhook:{}:{}", config.agent.name, uuid::Uuid::new_v4()));
+
+    // Record metric
+    if let Some(m) = metrics::global() {
+        m.record_webhook_request();
+    }
+
+    // Build provider
+    let provider = match openclaw_agent::llm::fallback::FallbackProvider::from_config() {
+        Ok(p) => p,
+        Err(e) => {
+            return (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": format!("provider init failed: {}", e)})),
+            ).into_response();
+        }
+    };
+
+    let workspace_dir = openclaw_agent::workspace::resolve_workspace_dir(&config.agent.name);
+    let agent_config = AgentTurnConfig {
+        agent_name: config.agent.name.clone(),
+        session_key: session_key.clone(),
+        workspace_dir: workspace_dir.to_string_lossy().to_string(),
+        minimal_context: false,
+    };
+
+    let tools = openclaw_agent::tools::ToolRegistry::with_defaults();
+    let (event_tx, _event_rx) = tokio::sync::mpsc::unbounded_channel();
+
+    let t_start = std::time::Instant::now();
+
+    let result = runtime::run_agent_turn_streaming(
+        &provider,
+        &message,
+        &agent_config,
+        &tools,
+        event_tx,
+        vec![],
+        None,
+    ).await;
+
+    match result {
+        Ok(turn_result) => {
+            let elapsed = t_start.elapsed().as_millis() as u64;
+            if let Some(m) = metrics::global() {
+                m.record_agent_turn(turn_result.tool_calls_made as u64);
+                m.record_completion(elapsed);
+            }
+            (
+                axum::http::StatusCode::OK,
+                Json(serde_json::json!({
+                    "reply": turn_result.response,
+                    "session_key": session_key,
+                    "model": turn_result.model_name,
+                    "tool_calls": turn_result.tool_calls_made,
+                    "rounds": turn_result.total_rounds,
+                    "elapsed_ms": turn_result.elapsed_ms,
+                })),
+            ).into_response()
+        }
+        Err(e) => {
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": format!("agent turn failed: {}", e)})),
+            ).into_response()
+        }
+    }
 }
 
 async fn doctor_handler(

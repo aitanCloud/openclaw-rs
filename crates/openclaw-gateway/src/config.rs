@@ -7,6 +7,13 @@ pub struct GatewayConfig {
     #[serde(default)]
     pub discord: Option<DiscordConfig>,
     pub agent: AgentConfig,
+    #[serde(default)]
+    pub webhook: Option<WebhookConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WebhookConfig {
+    pub token: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -142,6 +149,7 @@ impl GatewayConfig {
                 model,
                 sandbox: None,
             },
+            webhook: None,
         })
     }
 

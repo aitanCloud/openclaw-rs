@@ -31,6 +31,7 @@ pub struct GatewayMetrics {
     pub agent_timeouts: AtomicU64,
     pub agent_turns: AtomicU64,
     pub tool_calls: AtomicU64,
+    pub webhook_requests: AtomicU64,
 }
 
 impl GatewayMetrics {
@@ -51,6 +52,7 @@ impl GatewayMetrics {
             agent_timeouts: AtomicU64::new(0),
             agent_turns: AtomicU64::new(0),
             tool_calls: AtomicU64::new(0),
+            webhook_requests: AtomicU64::new(0),
         }
     }
 
@@ -60,6 +62,10 @@ impl GatewayMetrics {
 
     pub fn record_discord_request(&self) {
         self.discord_requests.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn record_webhook_request(&self) {
+        self.webhook_requests.fetch_add(1, Ordering::Relaxed);
     }
 
     pub fn record_telegram_error(&self) {
@@ -202,6 +208,11 @@ impl GatewayMetrics {
         out.push_str(&format!("openclaw_gateway_tool_calls_total {}\n",
             self.tool_calls.load(Ordering::Relaxed)));
 
+        out.push_str("# HELP openclaw_gateway_webhook_requests_total Total webhook requests received\n");
+        out.push_str("# TYPE openclaw_gateway_webhook_requests_total counter\n");
+        out.push_str(&format!("openclaw_gateway_webhook_requests_total {}\n",
+            self.webhook_requests.load(Ordering::Relaxed)));
+
         out
     }
 
@@ -223,6 +234,7 @@ impl GatewayMetrics {
             "agent_timeouts": self.agent_timeouts.load(Ordering::Relaxed),
             "agent_turns": self.agent_turns.load(Ordering::Relaxed),
             "tool_calls": self.tool_calls.load(Ordering::Relaxed),
+            "webhook_requests": self.webhook_requests.load(Ordering::Relaxed),
             "error_rate_pct": (self.error_rate_pct() * 100.0).round() / 100.0,
         })
     }
