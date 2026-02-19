@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tracing::{error, info, warn};
@@ -30,8 +30,14 @@ pub async fn handle_discord_message(
     let user_name = &msg.author.username;
 
     let text = msg.content.trim();
+    let has_image = msg.attachments.iter().any(|a| {
+        a.content_type
+            .as_deref()
+            .map(|ct| ct.starts_with("image/"))
+            .unwrap_or(false)
+    });
 
-    if text.is_empty() {
+    if text.is_empty() && !has_image {
         return Ok(());
     }
 
@@ -49,22 +55,53 @@ pub async fn handle_discord_message(
     }
 
     info!(
-        "Discord message from {} ({}): {}",
+        "Discord message from {} ({}): {}{}",
         user_name,
         user_id,
-        &text[..text.len().min(100)]
+        &text[..text.len().min(100)],
+        if has_image { " [+image]" } else { "" }
     );
 
     // ── Handle commands ──
-    if text.starts_with('/') || text.starts_with('!') {
+    if (text.starts_with('/') || text.starts_with('!')) && !has_image {
         return handle_command(bot, channel_id, &msg.id, user_id, text, config).await;
     }
 
     // ── Check for bot mention (strip it from text) ──
     let clean_text = strip_bot_mention(text);
-    if clean_text.is_empty() {
+    if clean_text.is_empty() && !has_image {
         return Ok(());
     }
+
+    // ── Download image attachments ──
+    let mut image_urls: Vec<String> = Vec::new();
+    if has_image {
+        for attachment in &msg.attachments {
+            let is_image = attachment
+                .content_type
+                .as_deref()
+                .map(|ct| ct.starts_with("image/"))
+                .unwrap_or(false);
+            if !is_image {
+                continue;
+            }
+            match download_and_encode_attachment(&attachment.url, attachment.content_type.as_deref()).await {
+                Ok(data_url) => {
+                    info!("Downloaded Discord attachment: {} ({} bytes encoded)", attachment.filename, data_url.len());
+                    image_urls.push(data_url);
+                }
+                Err(e) => {
+                    warn!("Failed to download Discord attachment {}: {}", attachment.filename, e);
+                }
+            }
+        }
+    }
+
+    let user_text = if clean_text.is_empty() && has_image {
+        "What's in this image?".to_string()
+    } else {
+        clean_text.clone()
+    };
 
     // ── Send typing indicator + placeholder ──
     bot.send_typing(channel_id).await.ok();
@@ -179,17 +216,17 @@ pub async fn handle_discord_message(
 
     // ── Spawn agent turn ──
     let turn_timeout = std::time::Duration::from_secs(120);
-    let clean_text_owned = clean_text.clone();
+    let user_text_owned = user_text.clone();
     let agent_handle = tokio::spawn(async move {
         match tokio::time::timeout(
             turn_timeout,
             runtime::run_agent_turn_streaming(
                 provider.as_ref(),
-                &clean_text_owned,
+                &user_text_owned,
                 &agent_config,
                 &tools,
                 event_tx,
-                Vec::new(), // no images for now
+                image_urls,
             ),
         )
         .await
@@ -307,7 +344,7 @@ pub async fn handle_discord_message(
     // ── Persist messages ──
     store.append_message(
         &session_key,
-        &openclaw_agent::llm::Message::user(&clean_text),
+        &openclaw_agent::llm::Message::user(&user_text),
     )?;
     if !result.response.is_empty() {
         store.append_message(
@@ -393,7 +430,10 @@ async fn handle_command(
                 `/status` — show bot status\n\
                 `/model` — show current model info\n\
                 `/sessions` — list recent sessions\n\
-                `/help` — show this help",
+                `/export` — export current session as markdown\n\
+                `/cron` — list and manage cron jobs\n\
+                `/help` — show this help\n\n\
+                You can also use `!` prefix instead of `/`. Send images for vision analysis.",
             )
             .await?;
         }
@@ -523,6 +563,137 @@ async fn handle_command(
                 bot.send_reply(channel_id, reply_to, &msg).await?;
             }
         }
+        "export" => {
+            let store = SessionStore::open(&config.agent.name)?;
+            let session_key = format!("dc:{}:{}", config.agent.name, channel_id);
+            let messages = store.load_messages(&session_key)?;
+
+            if messages.is_empty() {
+                bot.send_reply(channel_id, reply_to, "No messages in current session to export.")
+                    .await?;
+            } else {
+                let mut md = String::from("# Session Export\n\n");
+                for msg in &messages {
+                    let role_icon = match msg.role.as_str() {
+                        "user" => "👤",
+                        "assistant" => "🤖",
+                        "system" => "⚙️",
+                        "tool" => "🔧",
+                        _ => "❓",
+                    };
+                    md.push_str(&format!(
+                        "### {} {}\n\n{}\n\n---\n\n",
+                        role_icon,
+                        msg.role,
+                        msg.content.as_deref().unwrap_or("(empty)"),
+                    ));
+                }
+                md.push_str(&format!("*Exported {} messages*", messages.len()));
+
+                let chunks = split_for_discord(&md, 2000);
+                for chunk in chunks {
+                    bot.send_message(channel_id, &chunk).await?;
+                }
+            }
+        }
+        "cron" => {
+            let cron_path = openclaw_core::paths::cron_jobs_path();
+            if !cron_path.exists() {
+                bot.send_reply(channel_id, reply_to, "No cron jobs file found.")
+                    .await?;
+            } else {
+                let parts: Vec<&str> = text.split_whitespace().collect();
+
+                match parts.get(1).map(|s| *s) {
+                    Some("enable") | Some("disable") => {
+                        let action = parts[1];
+                        let target = parts.get(2).map(|s| *s).unwrap_or("");
+                        if target.is_empty() {
+                            bot.send_reply(
+                                channel_id,
+                                reply_to,
+                                "Usage: `/cron enable <name>` or `/cron disable <name>`",
+                            )
+                            .await?;
+                        } else {
+                            match toggle_cron_job(&cron_path, target, action == "enable") {
+                                Ok(job_name) => {
+                                    let icon = if action == "enable" { "✅" } else { "⏸️" };
+                                    bot.send_reply(
+                                        channel_id,
+                                        reply_to,
+                                        &format!("{} Cron job '{}' {}d.", icon, job_name, action),
+                                    )
+                                    .await?;
+                                }
+                                Err(e) => {
+                                    bot.send_reply(
+                                        channel_id,
+                                        reply_to,
+                                        &format!("❌ {}", e),
+                                    )
+                                    .await?;
+                                }
+                            }
+                        }
+                    }
+                    _ => {
+                        match openclaw_core::cron::load_cron_jobs(&cron_path) {
+                            Ok(cron_file) => {
+                                if cron_file.jobs.is_empty() {
+                                    bot.send_reply(channel_id, reply_to, "No cron jobs configured.")
+                                        .await?;
+                                } else {
+                                    let mut msg = String::from("⏰ **Cron Jobs:**\n\n");
+                                    for job in &cron_file.jobs {
+                                        let status = if job.enabled { "✅" } else { "⏸️" };
+                                        let last_run = job
+                                            .state
+                                            .as_ref()
+                                            .and_then(|s| s.last_run_at_ms)
+                                            .map(|ms| {
+                                                let age = chrono::Utc::now().timestamp_millis()
+                                                    - ms as i64;
+                                                format_duration(age)
+                                            })
+                                            .unwrap_or_else(|| "never".to_string());
+                                        let last_status = job
+                                            .state
+                                            .as_ref()
+                                            .and_then(|s| s.last_status.as_deref())
+                                            .unwrap_or("—");
+                                        let duration = job
+                                            .state
+                                            .as_ref()
+                                            .and_then(|s| s.last_duration_ms)
+                                            .map(|ms| format!("{:.1}s", ms as f64 / 1000.0))
+                                            .unwrap_or_else(|| "—".to_string());
+
+                                        msg.push_str(&format!(
+                                            "{} **{}**\n  Schedule: `{}`\n  Last: {} ({}), took {}\n\n",
+                                            status, job.name, job.schedule, last_run, last_status,
+                                            duration,
+                                        ));
+                                    }
+                                    msg.push_str(
+                                        "*Use `/cron enable <name>` or `/cron disable <name>`*",
+                                    );
+                                    bot.send_reply(channel_id, reply_to, &msg).await?;
+                                }
+                            }
+                            Err(e) => {
+                                bot.send_reply(
+                                    channel_id,
+                                    reply_to,
+                                    &format!("❌ Failed to load cron jobs: {}", e),
+                                )
+                                .await?;
+                            }
+                        }
+                    }
+                }
+            }
+        }
         _ => {
             bot.send_reply(
                 channel_id,
@@ -534,6 +705,44 @@ async fn handle_command(
     }
 
     Ok(())
+}
+
+/// Toggle a cron job's enabled state by name (case-insensitive partial match)
+fn toggle_cron_job(path: &std::path::Path, name: &str, enable: bool) -> Result<String> {
+    let content = std::fs::read_to_string(path)?;
+    let mut cron_file: serde_json::Value = serde_json::from_str(&content)?;
+
+    let jobs = cron_file
+        .get_mut("jobs")
+        .and_then(|j| j.as_array_mut())
+        .ok_or_else(|| anyhow::anyhow!("Invalid cron jobs file"))?;
+
+    let name_lower = name.to_lowercase();
+    let mut found = None;
+
+    for job in jobs.iter_mut() {
+        let job_name = job
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        if job_name.to_lowercase().contains(&name_lower) {
+            job.as_object_mut()
+                .unwrap()
+                .insert("enabled".to_string(), serde_json::json!(enable));
+            found = Some(job_name);
+            break;
+        }
+    }
+
+    match found {
+        Some(job_name) => {
+            let updated = serde_json::to_string_pretty(&cron_file)?;
+            std::fs::write(path, updated)?;
+            Ok(job_name)
+        }
+        None => Err(anyhow::anyhow!("No cron job matching '{}' found", name)),
+    }
 }
 
 /// Strip bot mention from message text (e.g. "<@123456789> hello" -> "hello")
@@ -548,6 +757,40 @@ fn strip_bot_mention(text: &str) -> String {
         text.to_string()
     };
     stripped
+}
+
+/// Download a Discord attachment and encode it as a base64 data URL
+async fn download_and_encode_attachment(url: &str, content_type: Option<&str>) -> Result<String> {
+    use base64::Engine;
+
+    let client = reqwest::Client::new();
+    let resp = client
+        .get(url)
+        .timeout(std::time::Duration::from_secs(20))
+        .send()
+        .await
+        .context("Failed to download Discord attachment")?;
+
+    if !resp.status().is_success() {
+        anyhow::bail!("Attachment download failed: {}", resp.status());
+    }
+
+    let bytes = resp.bytes().await.context("Failed to read attachment bytes")?;
+
+    let mime = content_type.unwrap_or_else(|| {
+        if url.ends_with(".png") {
+            "image/png"
+        } else if url.ends_with(".gif") {
+            "image/gif"
+        } else if url.ends_with(".webp") {
+            "image/webp"
+        } else {
+            "image/jpeg"
+        }
+    });
+
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+    Ok(format!("data:{};base64,{}", mime, b64))
 }
 
 fn resolve_single_provider(model_spec: &str) -> Result<OpenAiCompatibleProvider> {

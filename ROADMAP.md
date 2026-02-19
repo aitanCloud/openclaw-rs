@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.14.0
+**Version:** 0.15.0
 **Last updated:** 2026-02-18
 **Maintainer:** Cascade + Shawaz
 
@@ -136,12 +136,20 @@
 - ✅ **Config expansion** — optional `discord` section in gateway config with bot_token and allowed_user_ids
 - ✅ **115 tests** — 91 agent + 7 core + 17 gateway
 
-## v0.15.0 — Daemon & Polish
+## v0.15.0 — Discord Feature Parity (shipped)
 
-- 📋 **Unix socket daemon mode** — long-running agent process
+- ✅ **Discord photo/vision support** — download image attachments, base64 encode, send to vision-capable LLMs, auto-detect MIME type, default "What's in this image?" prompt for image-only messages
+- ✅ **Discord /export command** — export current session as formatted markdown with role icons, chunked delivery
+- ✅ **Discord /cron command** — list all cron jobs with status/schedule/last-run, enable/disable by name (case-insensitive partial match)
+- ✅ **Full command parity** — Discord now has all 7 commands matching Telegram: /help, /new, /status, /model, /sessions, /export, /cron
+- ✅ **115 tests** — 91 agent + 7 core + 17 gateway
+
+## v0.16.0 — Daemon & Polish
+
+- 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**
-- 📋 **Discord photo/vision support** — download attachments, send to vision LLM
-- 📋 **Discord /export and /cron commands**
+- 📋 **Telegram voice messages** — send TTS output as OGG/Opus voice messages
+- 📋 **Per-user session isolation** — separate session keys per Discord/Telegram user
 - 💡 **WhatsApp integration**
 
 ---
