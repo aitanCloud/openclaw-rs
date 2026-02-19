@@ -54,6 +54,63 @@ fn default_true() -> bool {
     true
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_minimal_config() {
+        let json = r#"{
+            "telegram": { "bot_token": "123:ABC", "allowed_user_ids": [42] },
+            "agent": { "name": "test" }
+        }"#;
+        let config: GatewayConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(config.telegram.bot_token, "123:ABC");
+        assert_eq!(config.telegram.allowed_user_ids, vec![42]);
+        assert_eq!(config.agent.name, "test");
+        assert!(config.agent.fallback); // default_true
+        assert!(config.agent.model.is_none());
+        assert!(config.discord.is_none());
+    }
+
+    #[test]
+    fn test_parse_full_config_with_discord() {
+        let json = r#"{
+            "telegram": { "bot_token": "tg-token", "allowed_user_ids": [] },
+            "discord": { "bot_token": "dc-token", "allowed_user_ids": [1, 2] },
+            "agent": { "name": "main", "fallback": false, "model": "gpt-4" }
+        }"#;
+        let config: GatewayConfig = serde_json::from_str(json).unwrap();
+        assert!(!config.agent.fallback);
+        assert_eq!(config.agent.model.as_deref(), Some("gpt-4"));
+        let dc = config.discord.unwrap();
+        assert_eq!(dc.bot_token, "dc-token");
+        assert_eq!(dc.allowed_user_ids, vec![1, 2]);
+    }
+
+    #[test]
+    fn test_parse_sandbox_config() {
+        let json = r#"{
+            "telegram": { "bot_token": "t", "allowed_user_ids": [] },
+            "agent": {
+                "name": "a",
+                "sandbox": {
+                    "blocked_commands": ["rm", "dd"],
+                    "max_exec_timeout_secs": 30,
+                    "turn_timeout_secs": 120,
+                    "max_concurrent": 2
+                }
+            }
+        }"#;
+        let config: GatewayConfig = serde_json::from_str(json).unwrap();
+        let sb = config.agent.sandbox.unwrap();
+        assert_eq!(sb.blocked_commands, vec!["rm", "dd"]);
+        assert_eq!(sb.max_exec_timeout_secs, Some(30));
+        assert_eq!(sb.turn_timeout_secs, Some(120));
+        assert_eq!(sb.max_concurrent, Some(2));
+    }
+}
+
 impl GatewayConfig {
     /// Load from environment variables
     pub fn from_env() -> anyhow::Result<Self> {

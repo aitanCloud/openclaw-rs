@@ -647,15 +647,16 @@ async fn handle_command(
             );
             store.create_session(&new_key, &config.agent.name, "pending")?;
 
-            bot.send_reply(
-                channel_id,
-                reply_to,
-                &format!(
-                    "🔄 **New session started.**\n\nPrevious session had {} messages. Starting fresh.",
-                    msg_count
-                ),
-            )
-            .await?;
+            bot.send_embed(
+                channel_id, Some(reply_to),
+                "🔄 New Session",
+                "Starting fresh with a clean context.",
+                0x57F287, // Discord green
+                &[
+                    ("Previous Messages", &msg_count.to_string(), true),
+                    ("Agent", &config.agent.name, true),
+                ],
+            ).await?;
         }
         "status" => {
             let store = SessionStore::open(&config.agent.name)?;

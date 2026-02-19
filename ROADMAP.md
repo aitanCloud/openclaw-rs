@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.40.0
+**Version:** 0.41.0
 **Last updated:** 2026-02-18
 **Maintainer:** Cascade + Shawaz
 
@@ -325,7 +325,13 @@
 - ✅ **`test_agent_timeouts_metric`** — verifies counter in Prometheus + JSON output
 - ✅ **136 tests** — 96 agent + 7 core + 33 gateway (+1 new)
 
-## v0.41.0 — Daemon & Polish
+## v0.41.0 — Config Tests & New Session Embed (shipped)
+
+- ✅ **Config parsing tests** — 3 new tests: minimal config, full config with Discord, sandbox config (JSON deserialization + defaults)
+- ✅ **Discord `/new` embed** — green embed with previous message count and agent name
+- ✅ **139 tests** — 96 agent + 7 core + 36 gateway (+3 new config tests)
+
+## v0.42.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**
