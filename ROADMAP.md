@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.29.0
+**Version:** 0.30.0
 **Last updated:** 2026-02-18
 **Maintainer:** Cascade + Shawaz
 
@@ -247,7 +247,13 @@
 - ✅ **15 commands on both channels** — /help, /new, /status, /model, /sessions, /export, /voice, /ping, /history, /clear, /db, /version, /stats, /whoami, /cron
 - ✅ **125 tests** — 93 agent + 7 core + 25 gateway
 
-## v0.30.0 — Daemon & Polish
+## v0.30.0 — Polish & UX (shipped)
+
+- ✅ **Discord embed for `/db`** — rich embed with orange sidebar and 6 inline fields (sessions, messages, tokens, size, oldest, newest)
+- ✅ **Configurable `/history N`** — show last N messages (default 5, max 20) on both Telegram and Discord
+- ✅ **125 tests** — 93 agent + 7 core + 25 gateway
+
+## v0.31.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**

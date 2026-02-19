@@ -434,7 +434,7 @@ async fn handle_command(
                 `/export` — export current session as markdown\n\
                 `/voice` — get a voice response (TTS)\n\
                 `/ping` — latency check\n\
-                `/history` — last 5 messages in session\n\
+                `/history [N]` — last N messages (default 5, max 20)\n\
                 `/clear` — delete current session\n\
                 `/db` — session database stats\n\
                 `/version` — build info and uptime\n\
@@ -522,13 +522,16 @@ async fn handle_command(
                 "🗑️ Session cleared. Deleted {} message(s).", deleted
             )).await?;
         }
-        "history" => {
+        cmd if cmd == "history" || cmd.starts_with("history ") => {
+            let count: usize = text.split_whitespace().nth(1)
+                .and_then(|n| n.parse().ok())
+                .unwrap_or(5)
+                .min(20);
             let store = SessionStore::open(&config.agent.name)?;
             let session_key = format!("dc:{}:{}:{}", config.agent.name, user_id, channel_id);
             let active_key = store.find_latest_session(&session_key)?
                 .unwrap_or(session_key);
             let msgs = store.load_messages(&active_key)?;
-            let count = 5usize;
             let recent: Vec<_> = msgs.iter().rev().take(count).collect();
 
             if recent.is_empty() {
@@ -571,17 +574,20 @@ async fn handle_command(
                     let newest = stats.newest_ms
                         .map(|ms| format_duration(now - ms))
                         .unwrap_or_else(|| "n/a".to_string());
-                    bot.send_reply(channel_id, reply_to, &format!(
-                        "🗄️ **Session Database**\n\n\
-                        Sessions: {}\n\
-                        Messages: {}\n\
-                        Tokens: {}\n\
-                        DB size: {}\n\
-                        Oldest: {}\n\
-                        Newest: {}",
-                        stats.session_count, stats.message_count,
-                        stats.total_tokens, size, oldest, newest,
-                    )).await?;
+                    bot.send_embed(
+                        channel_id, Some(reply_to),
+                        "🗄️ Session Database",
+                        &format!("Agent: {}", config.agent.name),
+                        0xE67E22, // Orange
+                        &[
+                            ("Sessions", &stats.session_count.to_string(), true),
+                            ("Messages", &stats.message_count.to_string(), true),
+                            ("Tokens", &stats.total_tokens.to_string(), true),
+                            ("DB Size", &size, true),
+                            ("Oldest", &oldest, true),
+                            ("Newest", &newest, true),
+                        ],
+                    ).await?;
                 }
                 Err(e) => {
                     bot.send_reply(channel_id, reply_to, &format!("❌ Failed to get DB stats: {}", e)).await?;

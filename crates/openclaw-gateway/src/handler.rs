@@ -422,7 +422,7 @@ async fn handle_command(
                 /export — export current session as markdown\n\
                 /voice — get a voice response (TTS)\n\
                 /ping — latency check\n\
-                /history — last 5 messages in session\n\
+                /history [N] — last N messages (default 5, max 20)\n\
                 /clear — delete current session\n\
                 /db — session database stats\n\
                 /version — build info and uptime\n\
@@ -502,13 +502,16 @@ async fn handle_command(
                 "🗑️ Session cleared. Deleted {} message(s).", deleted
             )).await?;
         }
-        "/history" => {
+        cmd if cmd.starts_with("/history") => {
+            let count: usize = text.split_whitespace().nth(1)
+                .and_then(|n| n.parse().ok())
+                .unwrap_or(5)
+                .min(20);
             let store = SessionStore::open(&config.agent.name)?;
             let session_key = format!("tg:{}:{}:{}", config.agent.name, user_id, chat_id);
             let active_key = store.find_latest_session(&session_key)?
                 .unwrap_or(session_key);
             let msgs = store.load_messages(&active_key)?;
-            let count = 5usize; // default last 5 messages
             let recent: Vec<_> = msgs.iter().rev().take(count).collect();
 
             if recent.is_empty() {
