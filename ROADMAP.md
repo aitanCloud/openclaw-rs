@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.13.0
+**Version:** 0.14.0
 **Last updated:** 2026-02-18
 **Maintainer:** Cascade + Shawaz
 
@@ -127,12 +127,21 @@
 - ✅ **15 built-in tools** — exec, read, write, list_dir, patch, grep, find, web_search, web_fetch, process, image, cron, sessions, tts, browser
 - ✅ **110 tests** — 91 agent + 7 core + 12 gateway
 
-## v0.14.0 — Multi-Channel & Daemon
+## v0.14.0 — Multi-Channel Gateway (shipped)
+
+- ✅ **Discord integration** — full Discord bot via WebSocket Gateway API: real-time message streaming, reply threading, typing indicators, auto-reconnect with exponential backoff, bot mention stripping
+- ✅ **Discord commands** — /help, /new, /status, /model, /sessions (both `/` and `!` prefix)
+- ✅ **Discord message handler** — parallel to Telegram handler with streaming edits, tool status indicators, stats footer, 2000-char chunking
+- ✅ **Shared concurrency control** — rate limiter and semaphore shared across Telegram + Discord channels
+- ✅ **Config expansion** — optional `discord` section in gateway config with bot_token and allowed_user_ids
+- ✅ **115 tests** — 91 agent + 7 core + 17 gateway
+
+## v0.15.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process
-- 📋 **Concurrent agent turns** — multiple users/sessions simultaneously
-- 📋 **Discord integration**
 - 📋 **Slack integration**
+- 📋 **Discord photo/vision support** — download attachments, send to vision LLM
+- 📋 **Discord /export and /cron commands**
 - 💡 **WhatsApp integration**
 
 ---
@@ -145,7 +154,7 @@ openclaw-rs/
 │   ├── openclaw-core/       # Config, paths, shared types
 │   ├── openclaw-agent/      # LLM providers, tools, runtime, sessions
 │   ├── openclaw-cli/        # Terminal interface with streaming
-│   └── openclaw-gateway/    # Telegram bot, HTTP health, message handler
+│   └── openclaw-gateway/    # Telegram + Discord bots, HTTP health, message handlers
 ├── Dockerfile
 ├── docker-compose.gateway.yml
 └── ROADMAP.md               # This file

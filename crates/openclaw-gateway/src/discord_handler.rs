@@ -1,0 +1,639 @@
+use anyhow::Result;
+use std::sync::Arc;
+use tokio::sync::mpsc;
+use tracing::{error, info, warn};
+
+use openclaw_agent::llm::fallback::FallbackProvider;
+use openclaw_agent::llm::streaming::StreamEvent;
+use openclaw_agent::llm::{LlmProvider, OpenAiCompatibleProvider};
+use openclaw_agent::runtime::{self, AgentTurnConfig};
+use openclaw_agent::sessions::SessionStore;
+use openclaw_agent::tools::ToolRegistry;
+use openclaw_agent::workspace;
+
+use crate::config::GatewayConfig;
+use crate::discord::{DiscordBot, DiscordMessage};
+
+/// Minimum chars between Discord message edits
+const EDIT_MIN_CHARS: usize = 60;
+/// Minimum ms between Discord message edits
+const EDIT_MIN_MS: u64 = 500;
+
+/// Handle an incoming Discord message
+pub async fn handle_discord_message(
+    bot: &DiscordBot,
+    msg: &DiscordMessage,
+    config: &GatewayConfig,
+) -> Result<()> {
+    let channel_id = &msg.channel_id;
+    let user_id = &msg.author.id;
+    let user_name = &msg.author.username;
+
+    let text = msg.content.trim();
+
+    if text.is_empty() {
+        return Ok(());
+    }
+
+    // ── Access control ──
+    if let Some(ref discord_config) = config.discord {
+        if !discord_config.allowed_user_ids.is_empty() {
+            let user_id_num: i64 = user_id.parse().unwrap_or(0);
+            if !discord_config.allowed_user_ids.contains(&user_id_num) {
+                warn!("Unauthorized Discord user {} ({})", user_id, user_name);
+                bot.send_reply(channel_id, &msg.id, "⛔ Unauthorized. This bot is private.")
+                    .await?;
+                return Ok(());
+            }
+        }
+    }
+
+    info!(
+        "Discord message from {} ({}): {}",
+        user_name,
+        user_id,
+        &text[..text.len().min(100)]
+    );
+
+    // ── Handle commands ──
+    if text.starts_with('/') || text.starts_with('!') {
+        return handle_command(bot, channel_id, &msg.id, user_id, text, config).await;
+    }
+
+    // ── Check for bot mention (strip it from text) ──
+    let clean_text = strip_bot_mention(text);
+    if clean_text.is_empty() {
+        return Ok(());
+    }
+
+    // ── Send typing indicator + placeholder ──
+    bot.send_typing(channel_id).await.ok();
+    let placeholder_id = bot
+        .send_reply(channel_id, &msg.id, "🧠 ...")
+        .await?;
+
+    // ── Keep typing indicator alive ──
+    let typing_token = tokio_util::sync::CancellationToken::new();
+    let typing_cancel = typing_token.clone();
+    let typing_bot_token = config
+        .discord
+        .as_ref()
+        .map(|d| d.bot_token.clone())
+        .unwrap_or_default();
+    let typing_channel = channel_id.to_string();
+    tokio::spawn(async move {
+        let typing_bot = DiscordBot::new(&typing_bot_token);
+        loop {
+            tokio::select! {
+                _ = tokio::time::sleep(std::time::Duration::from_secs(8)) => {
+                    typing_bot.send_typing(&typing_channel).await.ok();
+                }
+                _ = typing_cancel.cancelled() => break,
+            }
+        }
+    });
+
+    // ── Resolve workspace ──
+    let workspace_dir = workspace::resolve_workspace_dir(&config.agent.name);
+    if !workspace_dir.exists() {
+        bot.edit_message(channel_id, &placeholder_id, "❌ Workspace not found.")
+            .await?;
+        return Ok(());
+    }
+
+    // ── Resolve provider ──
+    let provider: Box<dyn LlmProvider> = if config.agent.fallback {
+        match FallbackProvider::from_config() {
+            Ok(fb) => Box::new(fb),
+            Err(e) => {
+                bot.edit_message(
+                    channel_id,
+                    &placeholder_id,
+                    &format!("❌ Provider error: {}", e),
+                )
+                .await?;
+                return Ok(());
+            }
+        }
+    } else if let Some(ref model) = config.agent.model {
+        match resolve_single_provider(model) {
+            Ok(p) => Box::new(p),
+            Err(e) => {
+                bot.edit_message(
+                    channel_id,
+                    &placeholder_id,
+                    &format!("❌ Provider error: {}", e),
+                )
+                .await?;
+                return Ok(());
+            }
+        }
+    } else {
+        match FallbackProvider::from_config() {
+            Ok(fb) => Box::new(fb),
+            Err(e) => {
+                bot.edit_message(
+                    channel_id,
+                    &placeholder_id,
+                    &format!("❌ Provider error: {}", e),
+                )
+                .await?;
+                return Ok(());
+            }
+        }
+    };
+
+    // ── Session ──
+    let session_key = format!("dc:{}:{}", config.agent.name, channel_id);
+    let store = match SessionStore::open(&config.agent.name) {
+        Ok(s) => s,
+        Err(e) => {
+            bot.edit_message(
+                channel_id,
+                &placeholder_id,
+                &format!("❌ Session error: {}", e),
+            )
+            .await?;
+            return Ok(());
+        }
+    };
+    store.create_session(&session_key, &config.agent.name, provider.name())?;
+
+    // ── Tools + config ──
+    let mut tools = ToolRegistry::with_defaults();
+    let plugin_count = tools.load_plugins(&workspace_dir);
+    if plugin_count > 0 {
+        info!("Loaded {} plugin tool(s) from workspace", plugin_count);
+    }
+    let agent_config = AgentTurnConfig {
+        agent_name: config.agent.name.clone(),
+        session_key: session_key.clone(),
+        workspace_dir: workspace_dir.to_string_lossy().to_string(),
+        minimal_context: false,
+    };
+
+    // ── Set up streaming channel ──
+    let (event_tx, mut event_rx) = mpsc::unbounded_channel::<StreamEvent>();
+
+    let t_start = std::time::Instant::now();
+
+    // ── Spawn agent turn ──
+    let turn_timeout = std::time::Duration::from_secs(120);
+    let clean_text_owned = clean_text.clone();
+    let agent_handle = tokio::spawn(async move {
+        match tokio::time::timeout(
+            turn_timeout,
+            runtime::run_agent_turn_streaming(
+                provider.as_ref(),
+                &clean_text_owned,
+                &agent_config,
+                &tools,
+                event_tx,
+                Vec::new(), // no images for now
+            ),
+        )
+        .await
+        {
+            Ok(result) => result,
+            Err(_) => Err(anyhow::anyhow!("Agent turn timed out after 120s")),
+        }
+    });
+
+    // ── Stream loop: receive events, edit Discord message in real-time ──
+    let stream_bot_token = config
+        .discord
+        .as_ref()
+        .map(|d| d.bot_token.clone())
+        .unwrap_or_default();
+    let stream_bot = DiscordBot::new(&stream_bot_token);
+    let stream_channel = channel_id.to_string();
+    let stream_placeholder = placeholder_id.clone();
+
+    let mut accumulated = String::new();
+    let mut last_edit_len: usize = 0;
+    let mut last_edit_time = std::time::Instant::now();
+    let mut tool_status = String::new();
+
+    while let Some(event) = event_rx.recv().await {
+        match event {
+            StreamEvent::ContentDelta(delta) => {
+                accumulated.push_str(&delta);
+
+                let chars_since_edit = accumulated.len() - last_edit_len;
+                let ms_since_edit = last_edit_time.elapsed().as_millis() as u64;
+
+                if chars_since_edit >= EDIT_MIN_CHARS || ms_since_edit >= EDIT_MIN_MS {
+                    let display = if tool_status.is_empty() {
+                        accumulated.clone()
+                    } else {
+                        format!("{}\n\n{}", tool_status, accumulated)
+                    };
+
+                    stream_bot
+                        .edit_message(&stream_channel, &stream_placeholder, &display)
+                        .await
+                        .ok();
+
+                    last_edit_len = accumulated.len();
+                    last_edit_time = std::time::Instant::now();
+                }
+            }
+
+            StreamEvent::ReasoningDelta(_) => {}
+
+            StreamEvent::ToolCallStart { name } => {
+                tool_status = format!("🔧 Calling {}...", name);
+                let display = if accumulated.is_empty() {
+                    tool_status.clone()
+                } else {
+                    format!("{}\n\n{}", accumulated, tool_status)
+                };
+                stream_bot
+                    .edit_message(&stream_channel, &stream_placeholder, &display)
+                    .await
+                    .ok();
+            }
+
+            StreamEvent::ToolExec { name, .. } => {
+                tool_status = format!("⚙️ Running {}...", name);
+                let display = if accumulated.is_empty() {
+                    tool_status.clone()
+                } else {
+                    format!("{}\n\n{}", accumulated, tool_status)
+                };
+                stream_bot
+                    .edit_message(&stream_channel, &stream_placeholder, &display)
+                    .await
+                    .ok();
+            }
+
+            StreamEvent::ToolResult { name, success } => {
+                let icon = if success { "✅" } else { "❌" };
+                tool_status = format!("{} {}", icon, name);
+                let display = if accumulated.is_empty() {
+                    tool_status.clone()
+                } else {
+                    format!("{}\n\n{}", accumulated, tool_status)
+                };
+                stream_bot
+                    .edit_message(&stream_channel, &stream_placeholder, &display)
+                    .await
+                    .ok();
+            }
+
+            StreamEvent::RoundStart { round } => {
+                tool_status = String::new();
+                accumulated.clear();
+                last_edit_len = 0;
+
+                let display = format!("🔄 Round {}...", round);
+                stream_bot
+                    .edit_message(&stream_channel, &stream_placeholder, &display)
+                    .await
+                    .ok();
+            }
+
+            StreamEvent::Done => {
+                break;
+            }
+        }
+    }
+
+    // ── Wait for agent turn to finish ──
+    let result = agent_handle.await??;
+    typing_token.cancel();
+    let elapsed = t_start.elapsed().as_millis();
+
+    // ── Persist messages ──
+    store.append_message(
+        &session_key,
+        &openclaw_agent::llm::Message::user(&clean_text),
+    )?;
+    if !result.response.is_empty() {
+        store.append_message(
+            &session_key,
+            &openclaw_agent::llm::Message::assistant(&result.response),
+        )?;
+    }
+    store.add_tokens(&session_key, result.total_usage.total_tokens as i64)?;
+
+    // ── Final edit with stats footer ──
+    let response = if !result.response.is_empty() {
+        result.response.clone()
+    } else if let Some(ref reasoning) = result.reasoning {
+        reasoning.clone()
+    } else {
+        "(no response)".to_string()
+    };
+
+    let stats = format!(
+        "\n\n*{}ms · {} round(s) · {} tool(s) · {} tokens · {}*",
+        elapsed,
+        result.total_rounds,
+        result.tool_calls_made,
+        result.total_usage.total_tokens,
+        result.model_name,
+    );
+
+    let full_response = format!("{}{}", response, stats);
+
+    // Discord max is 2000 chars per message
+    if full_response.len() <= 2000 {
+        stream_bot
+            .edit_message(&stream_channel, &stream_placeholder, &full_response)
+            .await?;
+    } else {
+        // Edit first 2000 chars, send rest as new messages
+        let first = &full_response[..2000.min(full_response.len())];
+        stream_bot
+            .edit_message(&stream_channel, &stream_placeholder, first)
+            .await?;
+        if full_response.len() > 2000 {
+            let rest = &full_response[2000..];
+            let overflow_bot = DiscordBot::new(&stream_bot_token);
+            for chunk in split_for_discord(rest, 2000) {
+                overflow_bot.send_message(&stream_channel, &chunk).await?;
+            }
+        }
+    }
+
+    info!(
+        "Discord reply sent: {}ms, {} rounds, {} tools, {} tokens, model={}",
+        elapsed,
+        result.total_rounds,
+        result.tool_calls_made,
+        result.total_usage.total_tokens,
+        result.model_name,
+    );
+
+    Ok(())
+}
+
+async fn handle_command(
+    bot: &DiscordBot,
+    channel_id: &str,
+    reply_to: &str,
+    _user_id: &str,
+    text: &str,
+    config: &GatewayConfig,
+) -> Result<()> {
+    let cmd = text.split_whitespace().next().unwrap_or("");
+    // Normalize: both /cmd and !cmd work
+    let cmd = cmd.trim_start_matches('/').trim_start_matches('!');
+
+    match cmd {
+        "start" | "help" => {
+            bot.send_reply(
+                channel_id,
+                reply_to,
+                "🦀 **Rustbot** online.\n\n\
+                I'm the Rust-powered OpenClaw agent. Send me a message and I'll process it with tools and workspace context.\n\n\
+                **Commands:**\n\
+                `/new` — start a new session\n\
+                `/status` — show bot status\n\
+                `/model` — show current model info\n\
+                `/sessions` — list recent sessions\n\
+                `/help` — show this help",
+            )
+            .await?;
+        }
+        "new" | "reset" => {
+            let store = SessionStore::open(&config.agent.name)?;
+            let old_key = format!("dc:{}:{}", config.agent.name, channel_id);
+            let old_msgs = store.load_messages(&old_key)?;
+            let msg_count = old_msgs.len();
+
+            let new_key = format!(
+                "dc:{}:{}:{}",
+                config.agent.name,
+                channel_id,
+                uuid::Uuid::new_v4()
+            );
+            store.create_session(&new_key, &config.agent.name, "pending")?;
+
+            bot.send_reply(
+                channel_id,
+                reply_to,
+                &format!(
+                    "🔄 **New session started.**\n\nPrevious session had {} messages. Starting fresh.",
+                    msg_count
+                ),
+            )
+            .await?;
+        }
+        "status" => {
+            let store = SessionStore::open(&config.agent.name)?;
+            let session_key = format!("dc:{}:{}", config.agent.name, channel_id);
+            let sessions = store.list_sessions(&config.agent.name, 100)?;
+            let current = sessions.iter().find(|s| s.session_key == session_key);
+
+            let msg_count = current.map(|s| s.message_count).unwrap_or(0);
+            let tokens = current.map(|s| s.total_tokens).unwrap_or(0);
+
+            let chain_info = if config.agent.fallback {
+                match FallbackProvider::from_config() {
+                    Ok(fb) => format!("Chain: {}", fb.provider_labels().join(" → ")),
+                    Err(_) => "Chain: (error loading)".to_string(),
+                }
+            } else {
+                format!(
+                    "Model: {}",
+                    config.agent.model.as_deref().unwrap_or("default")
+                )
+            };
+
+            bot.send_reply(
+                channel_id,
+                reply_to,
+                &format!(
+                    "🦀 **Rustbot Status**\n\n\
+                    Agent: `{}`\n\
+                    Fallback: {}\n\
+                    {}\n\
+                    Session: `{}`\n\
+                    Messages: {}\n\
+                    Tokens used: {}\n\
+                    Total sessions: {}",
+                    config.agent.name,
+                    if config.agent.fallback {
+                        "✅ enabled"
+                    } else {
+                        "❌ disabled"
+                    },
+                    chain_info,
+                    session_key,
+                    msg_count,
+                    tokens,
+                    sessions.len(),
+                ),
+            )
+            .await?;
+        }
+        "model" => {
+            let chain_info = if config.agent.fallback {
+                match FallbackProvider::from_config() {
+                    Ok(fb) => {
+                        let labels = fb.provider_labels();
+                        let mut info = String::from("🔗 **Fallback Chain:**\n\n");
+                        for (i, label) in labels.iter().enumerate() {
+                            let marker = if i == 0 {
+                                "🥇"
+                            } else if i == 1 {
+                                "🥈"
+                            } else {
+                                "🥉"
+                            };
+                            info.push_str(&format!("{} `{}`\n", marker, label));
+                        }
+                        info.push_str(
+                            "\nFirst available model is used. Circuit breaker at >3 failures.",
+                        );
+                        info
+                    }
+                    Err(e) => format!("❌ Error: {}", e),
+                }
+            } else {
+                format!(
+                    "🤖 **Model:** `{}`",
+                    config.agent.model.as_deref().unwrap_or("default")
+                )
+            };
+            bot.send_reply(channel_id, reply_to, &chain_info).await?;
+        }
+        "sessions" => {
+            let store = SessionStore::open(&config.agent.name)?;
+            let sessions = store.list_sessions(&config.agent.name, 10)?;
+
+            if sessions.is_empty() {
+                bot.send_reply(channel_id, reply_to, "No sessions found.")
+                    .await?;
+            } else {
+                let mut msg = String::from("📋 **Recent Sessions:**\n\n");
+                for (i, s) in sessions.iter().enumerate() {
+                    let age = chrono::Utc::now().timestamp_millis() - s.updated_at_ms;
+                    msg.push_str(&format!(
+                        "{}. `{}` — {} msgs, {} tokens, {}\n",
+                        i + 1,
+                        &s.session_key[..s.session_key.len().min(30)],
+                        s.message_count,
+                        s.total_tokens,
+                        format_duration(age),
+                    ));
+                }
+                bot.send_reply(channel_id, reply_to, &msg).await?;
+            }
+        }
+        _ => {
+            bot.send_reply(
+                channel_id,
+                reply_to,
+                "Unknown command. Try `/help` for available commands.",
+            )
+            .await?;
+        }
+    }
+
+    Ok(())
+}
+
+/// Strip bot mention from message text (e.g. "<@123456789> hello" -> "hello")
+fn strip_bot_mention(text: &str) -> String {
+    let stripped = if text.starts_with("<@") {
+        if let Some(end) = text.find('>') {
+            text[end + 1..].trim().to_string()
+        } else {
+            text.to_string()
+        }
+    } else {
+        text.to_string()
+    };
+    stripped
+}
+
+fn resolve_single_provider(model_spec: &str) -> Result<OpenAiCompatibleProvider> {
+    let config_path = openclaw_core::paths::manual_config_path();
+    let content = std::fs::read_to_string(&config_path)?;
+    let config: serde_json::Value = serde_json::from_str(&content)?;
+
+    let providers = config
+        .get("models")
+        .and_then(|m| m.get("providers"))
+        .and_then(|p| p.as_object())
+        .ok_or_else(|| anyhow::anyhow!("No providers in config"))?;
+
+    for (pname, provider) in providers {
+        if let Some(base_url) = provider.get("baseUrl").and_then(|v| v.as_str()) {
+            let api_key = provider
+                .get("apiKey")
+                .and_then(|v| v.as_str())
+                .unwrap_or("ollama-local");
+            if let Some(models) = provider.get("models").and_then(|m| m.as_array()) {
+                for model in models {
+                    if let Some(id) = model.get("id").and_then(|v| v.as_str()) {
+                        if id == model_spec || format!("{}/{}", pname, id) == model_spec {
+                            return Ok(OpenAiCompatibleProvider::new(base_url, api_key, id));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    anyhow::bail!("Model '{}' not found in any provider", model_spec)
+}
+
+fn split_for_discord(text: &str, max_len: usize) -> Vec<String> {
+    if text.len() <= max_len {
+        return vec![text.to_string()];
+    }
+    let mut chunks = Vec::new();
+    let mut remaining = text;
+    while !remaining.is_empty() {
+        if remaining.len() <= max_len {
+            chunks.push(remaining.to_string());
+            break;
+        }
+        let split_at = remaining[..max_len].rfind('\n').unwrap_or(max_len);
+        chunks.push(remaining[..split_at].to_string());
+        remaining = remaining[split_at..].trim_start_matches('\n');
+    }
+    chunks
+}
+
+fn format_duration(ms: i64) -> String {
+    let secs = ms / 1000;
+    if secs < 60 {
+        format!("{}s ago", secs)
+    } else if secs < 3600 {
+        format!("{}m ago", secs / 60)
+    } else if secs < 86400 {
+        format!("{}h ago", secs / 3600)
+    } else {
+        format!("{}d ago", secs / 86400)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_strip_bot_mention() {
+        assert_eq!(strip_bot_mention("<@123456789> hello"), "hello");
+        assert_eq!(strip_bot_mention("<@!123456789> hello world"), "hello world");
+        assert_eq!(strip_bot_mention("hello"), "hello");
+        assert_eq!(strip_bot_mention("<@123> "), "");
+    }
+
+    #[test]
+    fn test_split_for_discord() {
+        let short = "hello";
+        assert_eq!(split_for_discord(short, 2000), vec!["hello"]);
+
+        let long = "a\n".repeat(1500);
+        let chunks = split_for_discord(&long, 2000);
+        for chunk in &chunks {
+            assert!(chunk.len() <= 2000);
+        }
+    }
+}

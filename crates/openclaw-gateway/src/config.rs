@@ -4,7 +4,16 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GatewayConfig {
     pub telegram: TelegramConfig,
+    #[serde(default)]
+    pub discord: Option<DiscordConfig>,
     pub agent: AgentConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DiscordConfig {
+    pub bot_token: String,
+    #[serde(default)]
+    pub allowed_user_ids: Vec<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -69,6 +78,7 @@ impl GatewayConfig {
                 bot_token,
                 allowed_user_ids: allowed_ids,
             },
+            discord: None,
             agent: AgentConfig {
                 name: agent_name,
                 fallback: use_fallback,

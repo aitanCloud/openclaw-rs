@@ -1,5 +1,7 @@
 mod config;
 mod cron;
+mod discord;
+mod discord_handler;
 mod handler;
 mod ratelimit;
 mod telegram;
@@ -83,6 +85,89 @@ async fn main() -> anyhow::Result<()> {
     let max_concurrent = config.agent.sandbox.as_ref()
         .and_then(|s| s.max_concurrent).unwrap_or(5);
     let active_tasks: Arc<tokio::sync::Semaphore> = Arc::new(tokio::sync::Semaphore::new(max_concurrent));
+
+    // ── Start Discord gateway (if configured) ──
+    if let Some(ref discord_config) = config.discord {
+        info!("Discord bot configured, starting gateway...");
+        let discord_bot = Arc::new(discord::DiscordBot::new(&discord_config.bot_token));
+
+        // Verify Discord bot token
+        match discord_bot.get_me().await {
+            Ok(me) => {
+                info!("Discord bot verified: @{}", me.username);
+            }
+            Err(e) => {
+                error!("Discord bot verification failed: {}", e);
+            }
+        }
+
+        let discord_config_clone = config.clone();
+        let discord_rate_limiter = rate_limiter.clone();
+        let discord_active_tasks = active_tasks.clone();
+
+        tokio::spawn(async move {
+            match discord_bot.clone().connect_gateway().await {
+                Ok(mut msg_rx) => {
+                    info!("Discord Gateway connected, listening for messages...");
+                    while let Some(msg) = msg_rx.recv().await {
+                        let user_id: i64 = msg.author.id.parse().unwrap_or(0);
+
+                        // Rate limit check
+                        if let Err(wait_secs) = discord_rate_limiter.check(user_id) {
+                            let rl_bot = discord::DiscordBot::new(
+                                &discord_config_clone.discord.as_ref().unwrap().bot_token,
+                            );
+                            warn!("Rate limited Discord user {} for {}s", user_id, wait_secs);
+                            let _ = rl_bot
+                                .send_reply(
+                                    &msg.channel_id,
+                                    &msg.id,
+                                    &format!("⏳ Rate limited. Try again in {}s.", wait_secs),
+                                )
+                                .await;
+                            continue;
+                        }
+
+                        // Concurrency control
+                        let permit = match discord_active_tasks.clone().try_acquire_owned() {
+                            Ok(p) => p,
+                            Err(_) => {
+                                let busy_bot = discord::DiscordBot::new(
+                                    &discord_config_clone.discord.as_ref().unwrap().bot_token,
+                                );
+                                let _ = busy_bot
+                                    .send_reply(
+                                        &msg.channel_id,
+                                        &msg.id,
+                                        "🔄 Server busy — too many concurrent requests. Try again shortly.",
+                                    )
+                                    .await;
+                                continue;
+                            }
+                        };
+
+                        let bot_clone = discord::DiscordBot::new(
+                            &discord_config_clone.discord.as_ref().unwrap().bot_token,
+                        );
+                        let config_clone = discord_config_clone.clone();
+
+                        tokio::spawn(async move {
+                            let _permit = permit;
+                            if let Err(e) =
+                                discord_handler::handle_discord_message(&bot_clone, &msg, &config_clone)
+                                    .await
+                            {
+                                error!("Discord handler error: {}", e);
+                            }
+                        });
+                    }
+                }
+                Err(e) => {
+                    error!("Failed to connect Discord Gateway: {}", e);
+                }
+            }
+        });
+    }
 
     // ── Telegram long-polling loop with graceful shutdown ──
     info!("Starting Telegram long-polling...");
