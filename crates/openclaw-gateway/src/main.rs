@@ -454,9 +454,10 @@ async fn health_handler() -> axum::response::Response {
             .map(|s| s.len())
             .unwrap_or(0)
     };
-    let session_count = openclaw_agent::sessions::SessionStore::open("main")
+    let agent = handler::agent_name();
+    let session_count = openclaw_agent::sessions::SessionStore::open(agent)
         .ok()
-        .and_then(|s| s.db_stats("main").ok())
+        .and_then(|s| s.db_stats(agent).ok())
         .map(|stats| stats.session_count)
         .unwrap_or(0);
     let rss = process_rss_bytes();
@@ -470,7 +471,7 @@ async fn health_handler() -> axum::response::Response {
             .unwrap_or(0)
     };
     let sessions_db_size = {
-        let db_path = openclaw_core::paths::agent_sessions_dir("main").join("sessions.db");
+        let db_path = openclaw_core::paths::agent_sessions_dir(agent).join("sessions.db");
         std::fs::metadata(&db_path).map(|m| m.len()).unwrap_or(0)
     };
     let providers: Vec<String> = openclaw_agent::llm::fallback::FallbackProvider::from_config()
@@ -490,7 +491,7 @@ async fn health_handler() -> axum::response::Response {
                 m.gateway_connects(), m.gateway_disconnects(), m.gateway_resumes(),
             ))
             .unwrap_or((0.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0));
-    let checks = doctor::run_checks("main").await;
+    let checks = doctor::run_checks(agent).await;
     let checks_total = checks.len();
     let checks_passed = checks.iter().filter(|(_, ok, _)| *ok).count();
     let llm_log_stats = openclaw_agent::llm_log::stats();
@@ -655,7 +656,7 @@ async fn log_detail_handler(
 }
 
 async fn doctor_json_handler() -> Json<serde_json::Value> {
-    let checks = doctor::run_checks("main").await;
+    let checks = doctor::run_checks(handler::agent_name()).await;
     let results: Vec<serde_json::Value> = checks.iter().map(|(name, ok, detail)| {
         serde_json::json!({
             "name": name,

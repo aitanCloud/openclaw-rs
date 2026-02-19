@@ -276,9 +276,10 @@ impl GatewayMetrics {
 
         out.push_str("# HELP openclaw_gateway_sessions_total Total sessions in the database\n");
         out.push_str("# TYPE openclaw_gateway_sessions_total gauge\n");
-        let session_count = openclaw_agent::sessions::SessionStore::open("main")
+        let agent = crate::handler::agent_name();
+        let session_count = openclaw_agent::sessions::SessionStore::open(agent)
             .ok()
-            .and_then(|s| s.db_stats("main").ok())
+            .and_then(|s| s.db_stats(agent).ok())
             .map(|stats| stats.session_count)
             .unwrap_or(0);
         out.push_str(&format!("openclaw_gateway_sessions_total {}\n", session_count));
@@ -339,9 +340,9 @@ impl GatewayMetrics {
             "error_rate_pct": (self.error_rate_pct() * 100.0).round() / 100.0,
             "process_rss_bytes": crate::process_rss_bytes(),
             "uptime_seconds": crate::handler::BOOT_TIME.elapsed().as_secs(),
-            "sessions_total": openclaw_agent::sessions::SessionStore::open("main")
+            "sessions_total": openclaw_agent::sessions::SessionStore::open(crate::handler::agent_name())
                 .ok()
-                .and_then(|s| s.db_stats("main").ok())
+                .and_then(|s| s.db_stats(crate::handler::agent_name()).ok())
                 .map(|stats| stats.session_count)
                 .unwrap_or(0),
             "doctor_checks_total": 16,
