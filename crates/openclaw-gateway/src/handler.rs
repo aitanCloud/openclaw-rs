@@ -86,6 +86,21 @@ pub async fn handle_message(
     bot.send_typing(chat_id).await.ok();
     let placeholder_id = bot.send_message_with_id(chat_id, "🧠 ...").await?;
 
+    // ── Keep typing indicator alive throughout the agent turn ──
+    let typing_token = tokio_util::sync::CancellationToken::new();
+    let typing_cancel = typing_token.clone();
+    let typing_bot = TelegramBot::new(&config.telegram.bot_token);
+    tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                _ = tokio::time::sleep(std::time::Duration::from_secs(4)) => {
+                    typing_bot.send_typing(chat_id).await.ok();
+                }
+                _ = typing_cancel.cancelled() => break,
+            }
+        }
+    });
+
     // ── Resolve workspace ──
     let workspace_dir = workspace::resolve_workspace_dir(&config.agent.name);
     if !workspace_dir.exists() {
@@ -280,8 +295,9 @@ pub async fn handle_message(
         }
     }
 
-    // ── Wait for agent turn to finish ──
+    // ── Wait for agent turn to finish, stop typing indicator ──
     let result = agent_handle.await??;
+    typing_token.cancel();
     let elapsed = t_start.elapsed().as_millis();
 
     // ── Persist messages ──
