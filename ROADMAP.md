@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.39.0
+**Version:** 0.40.0
 **Last updated:** 2026-02-18
 **Maintainer:** Cascade + Shawaz
 
@@ -317,7 +317,15 @@
 - ✅ **`test_cancellation_aborts_streaming_turn`** — integration test using SlowMockProvider: verifies CancellationToken aborts agent turn within 50ms instead of waiting 10s
 - ✅ **135 tests** — 96 agent + 7 core + 32 gateway (+1 new)
 
-## v0.40.0 — Daemon & Polish
+## v0.40.0 — Model Embeds & Timeout Metrics (shipped)
+
+- ✅ **Discord `/model` embed** — orange embed with fallback chain description and provider/mode/circuit-breaker fields
+- ✅ **`agent_timeouts` metric** — tracks 120s timeout hits separately from user cancellations, in Prometheus + JSON
+- ✅ **Timeout recording** — wired into both Telegram and Discord handlers on 120s timeout
+- ✅ **`test_agent_timeouts_metric`** — verifies counter in Prometheus + JSON output
+- ✅ **136 tests** — 96 agent + 7 core + 33 gateway (+1 new)
+
+## v0.41.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**

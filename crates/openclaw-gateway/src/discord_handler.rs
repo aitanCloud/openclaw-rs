@@ -238,7 +238,10 @@ pub async fn handle_discord_message(
         .await
         {
             Ok(result) => result,
-            Err(_) => Err(anyhow::anyhow!("Agent turn timed out after 120s")),
+            Err(_) => {
+                if let Some(m) = crate::metrics::global() { m.record_agent_timeout(); }
+                Err(anyhow::anyhow!("Agent turn timed out after 120s"))
+            }
         };
         crate::task_registry::unregister_task(&task_key_cleanup);
         result
@@ -688,35 +691,40 @@ async fn handle_command(
             ).await?;
         }
         "model" => {
-            let chain_info = if config.agent.fallback {
+            if config.agent.fallback {
                 match FallbackProvider::from_config() {
                     Ok(fb) => {
                         let labels = fb.provider_labels();
-                        let mut info = String::from("🔗 **Fallback Chain:**\n\n");
+                        let mut chain_desc = String::new();
                         for (i, label) in labels.iter().enumerate() {
-                            let marker = if i == 0 {
-                                "🥇"
-                            } else if i == 1 {
-                                "🥈"
-                            } else {
-                                "🥉"
-                            };
-                            info.push_str(&format!("{} `{}`\n", marker, label));
+                            let marker = if i == 0 { "🥇" } else if i == 1 { "🥈" } else { "🥉" };
+                            chain_desc.push_str(&format!("{} `{}`\n", marker, label));
                         }
-                        info.push_str(
-                            "\nFirst available model is used. Circuit breaker at >3 failures.",
-                        );
-                        info
+                        bot.send_embed(
+                            channel_id, Some(reply_to),
+                            "🔗 Fallback Chain",
+                            &chain_desc,
+                            0xF74C00, // Rust orange
+                            &[
+                                ("Providers", &labels.len().to_string(), true),
+                                ("Mode", "First available", true),
+                                ("Circuit Breaker", ">3 failures", true),
+                            ],
+                        ).await?;
                     }
-                    Err(e) => format!("❌ Error: {}", e),
+                    Err(e) => {
+                        bot.send_reply(channel_id, reply_to, &format!("❌ Error: {}", e)).await?;
+                    }
                 }
             } else {
-                format!(
-                    "🤖 **Model:** `{}`",
-                    config.agent.model.as_deref().unwrap_or("default")
-                )
-            };
-            bot.send_reply(channel_id, reply_to, &chain_info).await?;
+                bot.send_embed(
+                    channel_id, Some(reply_to),
+                    "🤖 Model",
+                    &format!("`{}`", config.agent.model.as_deref().unwrap_or("default")),
+                    0xF74C00, // Rust orange
+                    &[("Fallback", "❌ Disabled", true)],
+                ).await?;
+            }
         }
         "sessions" => {
             let store = SessionStore::open(&config.agent.name)?;

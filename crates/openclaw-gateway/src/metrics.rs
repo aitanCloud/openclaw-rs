@@ -28,6 +28,7 @@ pub struct GatewayMetrics {
     pub gateway_disconnects: AtomicU64,
     pub gateway_resumes: AtomicU64,
     pub tasks_cancelled: AtomicU64,
+    pub agent_timeouts: AtomicU64,
 }
 
 impl GatewayMetrics {
@@ -45,6 +46,7 @@ impl GatewayMetrics {
             gateway_disconnects: AtomicU64::new(0),
             gateway_resumes: AtomicU64::new(0),
             tasks_cancelled: AtomicU64::new(0),
+            agent_timeouts: AtomicU64::new(0),
         }
     }
 
@@ -86,6 +88,10 @@ impl GatewayMetrics {
 
     pub fn record_task_cancelled(&self) {
         self.tasks_cancelled.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn record_agent_timeout(&self) {
+        self.agent_timeouts.fetch_add(1, Ordering::Relaxed);
     }
 
     pub fn record_completion(&self, latency_ms: u64) {
@@ -157,6 +163,11 @@ impl GatewayMetrics {
         out.push_str(&format!("openclaw_gateway_tasks_cancelled_total {}\n",
             self.tasks_cancelled.load(Ordering::Relaxed)));
 
+        out.push_str("# HELP openclaw_gateway_agent_timeouts_total Agent turns that hit the 120s timeout\n");
+        out.push_str("# TYPE openclaw_gateway_agent_timeouts_total counter\n");
+        out.push_str(&format!("openclaw_gateway_agent_timeouts_total {}\n",
+            self.agent_timeouts.load(Ordering::Relaxed)));
+
         out
     }
 
@@ -175,6 +186,7 @@ impl GatewayMetrics {
             "gateway_disconnects": self.gateway_disconnects.load(Ordering::Relaxed),
             "gateway_resumes": self.gateway_resumes.load(Ordering::Relaxed),
             "tasks_cancelled": self.tasks_cancelled.load(Ordering::Relaxed),
+            "agent_timeouts": self.agent_timeouts.load(Ordering::Relaxed),
         })
     }
 }
@@ -278,5 +290,22 @@ mod tests {
 
         let json = m.to_json();
         assert_eq!(json["tasks_cancelled"], 3);
+    }
+
+    #[test]
+    fn test_agent_timeouts_metric() {
+        let m = GatewayMetrics::new();
+        assert_eq!(m.agent_timeouts.load(Ordering::Relaxed), 0);
+
+        m.record_agent_timeout();
+        m.record_agent_timeout();
+
+        assert_eq!(m.agent_timeouts.load(Ordering::Relaxed), 2);
+
+        let prom = m.to_prometheus();
+        assert!(prom.contains("openclaw_gateway_agent_timeouts_total 2"));
+
+        let json = m.to_json();
+        assert_eq!(json["agent_timeouts"], 2);
     }
 }

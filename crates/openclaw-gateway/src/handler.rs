@@ -226,7 +226,10 @@ pub async fn handle_message(
         .await
         {
             Ok(result) => result,
-            Err(_) => Err(anyhow::anyhow!("Agent turn timed out after 120s")),
+            Err(_) => {
+                if let Some(m) = crate::metrics::global() { m.record_agent_timeout(); }
+                Err(anyhow::anyhow!("Agent turn timed out after 120s"))
+            }
         };
         crate::task_registry::unregister_task(&task_key_cleanup);
         result
