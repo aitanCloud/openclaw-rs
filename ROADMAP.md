@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.76.0
+**Version:** 0.77.0
 **Last updated:** 2026-02-19
 **Maintainer:** Cascade + Shawaz
 
@@ -595,7 +595,15 @@
 - ✅ **`human_bytes(0)` test** — boundary value for zero bytes
 - ✅ **183 tests** — 111 agent + 7 core + 65 gateway (was 64)
 
-## v0.77.0 — Daemon & Polish
+## v0.77.0 — /version Endpoint & Error Rate (shipped)
+
+- ✅ **`GET /version` endpoint** — lightweight version check: just version, built, boot_time (no doctor checks)
+- ✅ **`error_rate_pct` in `/health`** — current error rate percentage for monitoring
+- ✅ **8 HTTP endpoints** — /health, /version, /ready, /status, /metrics, /metrics/json, /doctor, /webhook
+- ✅ **HTTP endpoint count test** — verifies 8 endpoints with no duplicates
+- ✅ **184 tests** — 111 agent + 7 core + 66 gateway (was 65)
+
+## v0.78.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**

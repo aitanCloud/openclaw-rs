@@ -94,6 +94,7 @@ async fn main() -> anyhow::Result<()> {
     let tool_names = Arc::new(tool_names);
     let app = Router::new()
         .route("/health", get(health_handler))
+        .route("/version", get(version_handler))
         .route(
             "/ready",
             get({
@@ -386,6 +387,14 @@ pub fn human_uptime(secs: u64) -> String {
     }
 }
 
+async fn version_handler() -> Json<serde_json::Value> {
+    Json(serde_json::json!({
+        "version": env!("CARGO_PKG_VERSION"),
+        "built": env!("BUILD_TIMESTAMP"),
+        "boot_time": *handler::BOOT_TIMESTAMP,
+    }))
+}
+
 async fn health_handler() -> axum::response::Response {
     use axum::response::IntoResponse;
     let t0 = std::time::Instant::now();
@@ -403,6 +412,9 @@ async fn health_handler() -> axum::response::Response {
         .map(|stats| stats.session_count)
         .unwrap_or(0);
     let rss = process_rss_bytes();
+    let error_rate = metrics::global()
+        .map(|m| (m.error_rate_pct() * 100.0).round() / 100.0)
+        .unwrap_or(0.0);
     let checks = doctor::run_checks("main").await;
     let checks_total = checks.len();
     let checks_passed = checks.iter().filter(|(_, ok, _)| *ok).count();
@@ -423,6 +435,7 @@ async fn health_handler() -> axum::response::Response {
             "skills": skills_count,
             "sessions": session_count,
             "commands": 22,
+            "error_rate_pct": error_rate,
             "doctor_checks_total": checks_total,
             "doctor_checks_passed": checks_passed,
             "response_time_ms": elapsed_ms,
@@ -692,8 +705,8 @@ async fn status_handler(
         "webhook_configured": config.webhook.is_some(),
         "built": env!("BUILD_TIMESTAMP"),
         "boot_time": *handler::BOOT_TIMESTAMP,
-        "http_endpoints": ["/health", "/ready", "/status", "/metrics", "/metrics/json", "/doctor", "/webhook"],
-        "http_endpoint_count": 7,
+        "http_endpoints": ["/health", "/version", "/ready", "/status", "/metrics", "/metrics/json", "/doctor", "/webhook"],
+        "http_endpoint_count": 8,
         "commands": {
             "telegram": tg_commands,
             "discord": dc_commands,
@@ -775,6 +788,17 @@ mod tests {
         assert_eq!(dc.len(), 22, "Discord should have 22 commands");
         // Verify both arrays are identical
         assert_eq!(tg, dc, "Telegram and Discord command lists should match");
+    }
+
+    #[test]
+    fn test_http_endpoints_count() {
+        let endpoints = ["/health", "/version", "/ready", "/status", "/metrics", "/metrics/json", "/doctor", "/webhook"];
+        assert_eq!(endpoints.len(), 8, "Should have 8 HTTP endpoints");
+        // Verify no duplicates
+        let mut sorted = endpoints.to_vec();
+        sorted.sort();
+        sorted.dedup();
+        assert_eq!(sorted.len(), 8, "HTTP endpoints should have no duplicates");
     }
 
     #[test]
