@@ -7,6 +7,7 @@ mod discord;
 mod discord_handler;
 mod doctor;
 mod handler;
+mod handler_utils;
 mod metrics;
 mod ratelimit;
 mod task_registry;
