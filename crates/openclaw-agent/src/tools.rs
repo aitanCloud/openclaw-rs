@@ -1,5 +1,6 @@
 pub mod browser;
 pub mod cron;
+pub mod delegate;
 pub mod exec;
 pub mod find;
 pub mod grep;
@@ -91,7 +92,19 @@ impl ToolRegistry {
         registry.register(Box::new(sessions::SessionsTool));
         registry.register(Box::new(tts::TtsTool));
         registry.register(Box::new(browser::BrowserTool));
+        registry.register(Box::new(delegate::DelegateTool));
         registry
+    }
+
+    /// Create a new registry from an existing one, excluding a specific tool by name.
+    /// Used to prevent subagents from spawning further subagents (no delegate recursion).
+    pub fn without_tool(source: Self, exclude_name: &str) -> Self {
+        let tools = source
+            .tools
+            .into_iter()
+            .filter(|t| t.name() != exclude_name)
+            .collect();
+        Self { tools }
     }
 
     pub fn register(&mut self, tool: Box<dyn Tool>) {
@@ -202,18 +215,30 @@ mod tests {
         assert!(names.contains(&"sessions"));
         assert!(names.contains(&"tts"));
         assert!(names.contains(&"browser"));
-        assert_eq!(names.len(), 15);
+        assert!(names.contains(&"delegate"));
+        assert_eq!(names.len(), 16);
     }
 
     #[test]
     fn test_definitions_format() {
         let registry = ToolRegistry::with_defaults();
         let defs = registry.definitions();
-        assert_eq!(defs.len(), 15);
+        assert_eq!(defs.len(), 16);
         for def in &defs {
             assert_eq!(def.tool_type, "function");
             assert!(!def.function.name.is_empty());
             assert!(!def.function.description.is_empty());
         }
+    }
+
+    #[test]
+    fn test_without_tool_removes_delegate() {
+        let registry = ToolRegistry::with_defaults();
+        assert!(registry.tool_names().contains(&"delegate"));
+        assert_eq!(registry.tool_names().len(), 16);
+
+        let filtered = ToolRegistry::without_tool(registry, "delegate");
+        assert!(!filtered.tool_names().contains(&"delegate"));
+        assert_eq!(filtered.tool_names().len(), 15);
     }
 }

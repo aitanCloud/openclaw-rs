@@ -1,7 +1,7 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.46.0
-**Last updated:** 2026-02-18
+**Version:** 0.47.0
+**Last updated:** 2026-02-19
 **Maintainer:** Cascade + Shawaz
 
 ---
@@ -364,7 +364,17 @@
 - ✅ **Discord `/ping` embed** — color-coded embed: green <100ms, yellow <500ms, red ≥500ms
 - ✅ **148 tests** — 102 agent + 7 core + 39 gateway (+6 new streaming tests)
 
-## v0.47.0 — Daemon & Polish
+## v0.47.0 — Subagent System (shipped)
+
+- ✅ **`subagent.rs` module** — `run_subagent_turn()` spawns isolated agent turns with fresh message history, same LLM provider, minimal context
+- ✅ **`delegate` tool** — 16th built-in tool; allows agent to spawn a subagent for focused subtasks (code review, summarization, research)
+- ✅ **Recursion prevention** — `ToolRegistry::without_tool()` strips `delegate` from subagent tool set, preventing infinite delegation loops
+- ✅ **Provider reuse** — subagent uses same fallback chain as parent, falls back to env vars if config unavailable
+- ✅ **3 new tests** — `test_delegate_tool_definition`, `test_subagent_session_key_format`, `test_without_tool_removes_delegate`
+- ✅ **151 tests** — 105 agent + 7 core + 39 gateway (+3 new)
+- ✅ **16 tools** — exec, read, write, list_dir, patch, grep, find, web_search, web_fetch, process, image, cron, sessions, tts, browser, **delegate**
+
+## v0.48.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**
