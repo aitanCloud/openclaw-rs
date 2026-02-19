@@ -530,6 +530,17 @@ async fn handle_command(
                 env!("CARGO_PKG_VERSION"), hours, mins, config.agent.name,
             )).await?;
         }
+        "/doctor" => {
+            let checks = crate::doctor::run_checks(&config.agent.name).await;
+            let all_ok = checks.iter().all(|(_, ok, _)| *ok);
+            let icon = if all_ok { "✅" } else { "⚠️" };
+            let mut msg_text = format!("{} *Doctor Report*\n\n", icon);
+            for (name, ok, detail) in &checks {
+                let status = if *ok { "✅" } else { "❌" };
+                msg_text.push_str(&format!("{} {}: {}\n", status, name, detail));
+            }
+            bot.send_message(chat_id, &msg_text).await?;
+        }
         "/clear" => {
             let store = SessionStore::open(&config.agent.name)?;
             let session_key = format!("tg:{}:{}:{}", config.agent.name, user_id, chat_id);

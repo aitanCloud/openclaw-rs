@@ -535,6 +535,28 @@ async fn handle_command(
                 ],
             ).await?;
         }
+        "doctor" => {
+            let checks = crate::doctor::run_checks(&config.agent.name).await;
+            let all_ok = checks.iter().all(|(_, ok, _)| *ok);
+            let color = if all_ok { 0x57F287 } else { 0xED4245 }; // green or red
+            let title = if all_ok { "🩺 Doctor — All Clear" } else { "🩺 Doctor — Issues Found" };
+            let fields: Vec<(&str, String, bool)> = checks.iter()
+                .map(|(name, ok, detail)| {
+                    let status = if *ok { "✅" } else { "❌" };
+                    (name.as_str(), format!("{} {}", status, detail), false)
+                })
+                .collect();
+            let field_refs: Vec<(&str, &str, bool)> = fields.iter()
+                .map(|(n, d, i)| (*n, d.as_str(), *i))
+                .collect();
+            bot.send_embed(
+                channel_id, Some(reply_to),
+                title,
+                &format!("{}/{} checks passed", checks.iter().filter(|(_, ok, _)| *ok).count(), checks.len()),
+                color,
+                &field_refs,
+            ).await?;
+        }
         "whoami" => {
             let session_key = format!("dc:{}:{}:{}", config.agent.name, user_id, channel_id);
             let is_allowed = config.discord.as_ref()

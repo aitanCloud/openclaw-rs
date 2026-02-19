@@ -3,6 +3,7 @@ mod cron;
 mod debounce;
 mod discord;
 mod discord_handler;
+mod doctor;
 mod handler;
 mod metrics;
 mod ratelimit;

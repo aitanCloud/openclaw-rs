@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.50.0
+**Version:** 0.51.0
 **Last updated:** 2026-02-19
 **Maintainer:** Cascade + Shawaz
 
@@ -402,7 +402,17 @@
 - ✅ **158 tests** — 111 agent + 7 core + 40 gateway (+1 new)
 - ✅ **Skills scanner** — leverages existing `openclaw_core::skills::list_skills()` with SKILL.md frontmatter parsing
 
-## v0.51.0 — Daemon & Polish
+## v0.51.0 — Doctor Command (shipped)
+
+- ✅ **`/doctor` command** — runs 8 health checks: workspace, config, sessions DB, skills, LLM provider, metrics, active tasks, uptime
+- ✅ **Discord `/doctor` embed** — green (all clear) or red (issues found) with per-check ✅/❌ status fields
+- ✅ **Telegram `/doctor`** — text-based report with status icons
+- ✅ **`doctor.rs` module** — `run_checks()` async function returns `Vec<(name, passed, detail)>`
+- ✅ **2 new tests** — `test_doctor_returns_checks` (verifies 8 check names), `test_doctor_skills_always_ok`
+- ✅ **160 tests** — 111 agent + 7 core + 42 gateway (+2 new)
+- ✅ **13/17 Discord embeds** — added `/doctor`
+
+## v0.52.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**
