@@ -359,8 +359,19 @@ async fn main() -> anyhow::Result<()> {
     }
 }
 
+/// Format uptime with days support
+fn human_uptime(secs: u64) -> String {
+    if secs >= 86400 {
+        format!("{}d {}h {}m", secs / 86400, (secs % 86400) / 3600, (secs % 3600) / 60)
+    } else if secs >= 3600 {
+        format!("{}h {}m", secs / 3600, (secs % 3600) / 60)
+    } else {
+        format!("{}m {}s", secs / 60, secs % 60)
+    }
+}
+
 async fn health_handler() -> Json<serde_json::Value> {
-    let uptime = handler::BOOT_TIME.elapsed().as_secs();
+    let uptime_secs = handler::BOOT_TIME.elapsed().as_secs();
     let skills_count = {
         let home = dirs::home_dir().unwrap_or_default();
         let skills_dir = home.join(".openclaw").join("workspace").join("skills");
@@ -372,8 +383,10 @@ async fn health_handler() -> Json<serde_json::Value> {
         "status": "ok",
         "version": env!("CARGO_PKG_VERSION"),
         "active_tasks": task_registry::active_count(),
-        "uptime_seconds": uptime,
+        "uptime": human_uptime(uptime_secs),
+        "uptime_seconds": uptime_secs,
         "skills": skills_count,
+        "commands": 21,
     }))
 }
 
@@ -576,9 +589,9 @@ async fn status_handler(
 
     // Commands
     let tg_commands = ["help", "new", "status", "model", "sessions", "export", "voice", "ping",
-        "history", "clear", "db", "version", "stats", "whoami", "cancel", "stop", "cron", "tools", "skills", "doctor"];
+        "history", "clear", "db", "version", "stats", "whoami", "cancel", "stop", "cron", "tools", "skills", "config", "doctor"];
     let dc_commands = ["help", "new", "status", "model", "sessions", "export", "voice", "ping",
-        "history", "clear", "db", "version", "stats", "whoami", "cancel", "stop", "cron", "tools", "skills", "doctor"];
+        "history", "clear", "db", "version", "stats", "whoami", "cancel", "stop", "cron", "tools", "skills", "config", "doctor"];
 
     // Provider labels from fallback chain
     let providers: Vec<String> = openclaw_agent::llm::fallback::FallbackProvider::from_config()
