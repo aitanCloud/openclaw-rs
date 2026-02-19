@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.35.0
+**Version:** 0.36.0
 **Last updated:** 2026-02-18
 **Maintainer:** Cascade + Shawaz
 
@@ -289,7 +289,13 @@
 - ✅ **Cancellation metrics** — `tasks_cancelled` counter in Prometheus text + JSON, recorded on every /cancel or /stop
 - ✅ **133 tests** — 95 agent + 7 core + 31 gateway
 
-## v0.36.0 — Daemon & Polish
+## v0.36.0 — Rich Embeds & Metrics (shipped)
+
+- ✅ **Discord `/status` embed** — green embed with 6 inline fields (model, fallback, active tasks, messages, tokens, sessions)
+- ✅ **Cancelled count in `/stats`** — `tasks_cancelled` shown in Discord /stats embed alongside other metrics
+- ✅ **133 tests** — 95 agent + 7 core + 31 gateway
+
+## v0.37.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**

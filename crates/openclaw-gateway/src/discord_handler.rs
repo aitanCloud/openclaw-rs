@@ -488,6 +488,7 @@ async fn handle_command(
                 let uptime = crate::handler::BOOT_TIME.elapsed();
                 let hours = uptime.as_secs() / 3600;
                 let mins = (uptime.as_secs() % 3600) / 60;
+                let cancelled = m.tasks_cancelled.load(std::sync::atomic::Ordering::Relaxed);
                 bot.send_embed(
                     channel_id, Some(reply_to),
                     "📊 Gateway Stats",
@@ -499,6 +500,7 @@ async fn handle_command(
                         ("Rate Limited", &rl.to_string(), true),
                         ("Completed", &completed.to_string(), true),
                         ("Avg Latency", &format!("{}ms", avg), true),
+                        ("Cancelled", &cancelled.to_string(), true),
                     ],
                 ).await?;
             } else {
@@ -654,46 +656,29 @@ async fn handle_command(
             let msg_count = current.map(|s| s.message_count).unwrap_or(0);
             let tokens = current.map(|s| s.total_tokens).unwrap_or(0);
 
-            let chain_info = if config.agent.fallback {
+            let model_info = if config.agent.fallback {
                 match FallbackProvider::from_config() {
-                    Ok(fb) => format!("Chain: {}", fb.provider_labels().join(" → ")),
-                    Err(_) => "Chain: (error loading)".to_string(),
+                    Ok(fb) => fb.provider_labels().join(" → "),
+                    Err(_) => "(error)".to_string(),
                 }
             } else {
-                format!(
-                    "Model: {}",
-                    config.agent.model.as_deref().unwrap_or("default")
-                )
+                config.agent.model.as_deref().unwrap_or("default").to_string()
             };
 
-            bot.send_reply(
-                channel_id,
-                reply_to,
-                &format!(
-                    "🦀 **Rustbot Status**\n\n\
-                    Agent: `{}`\n\
-                    Fallback: {}\n\
-                    {}\n\
-                    Session: `{}`\n\
-                    Messages: {}\n\
-                    Tokens used: {}\n\
-                    Total sessions: {}\n\
-                    Active tasks: {}",
-                    config.agent.name,
-                    if config.agent.fallback {
-                        "✅ enabled"
-                    } else {
-                        "❌ disabled"
-                    },
-                    chain_info,
-                    session_key,
-                    msg_count,
-                    tokens,
-                    sessions.len(),
-                    crate::task_registry::active_count(),
-                ),
-            )
-            .await?;
+            bot.send_embed(
+                channel_id, Some(reply_to),
+                "🦀 Rustbot Status",
+                &format!("Agent: `{}`", config.agent.name),
+                0x57F287, // Discord green
+                &[
+                    ("Model", &model_info, true),
+                    ("Fallback", if config.agent.fallback { "✅" } else { "❌" }, true),
+                    ("Active Tasks", &crate::task_registry::active_count().to_string(), true),
+                    ("Messages", &msg_count.to_string(), true),
+                    ("Tokens", &tokens.to_string(), true),
+                    ("Sessions", &sessions.len().to_string(), true),
+                ],
+            ).await?;
         }
         "model" => {
             let chain_info = if config.agent.fallback {
