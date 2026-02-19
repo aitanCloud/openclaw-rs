@@ -76,6 +76,21 @@ enum Commands {
         #[arg(long, default_value = "kimi-k2.5")]
         model: String,
     },
+    /// Query the running gateway (status, logs, doctor, version, ping, metrics)
+    Gateway {
+        #[command(subcommand)]
+        action: commands::gateway::GatewayAction,
+    },
+    /// Shortcut: show gateway health status (same as `gateway status`)
+    Status,
+    /// Shortcut: show recent LLM activity log (same as `gateway logs`)
+    Logs {
+        /// Number of entries to show
+        #[arg(short, long, default_value_t = 10)]
+        limit: usize,
+    },
+    /// Shortcut: run gateway doctor checks (same as `gateway doctor`)
+    Doctor,
 }
 
 #[tokio::main]
@@ -106,6 +121,16 @@ async fn main() -> anyhow::Result<()> {
                 anyhow::anyhow!("API key required. Set MOONSHOT_API_KEY or pass --api-key")
             })?;
             commands::chat::run(&message, &key, &base_url, &model).await
+        }
+        Some(Commands::Gateway { action }) => commands::gateway::run(action).await,
+        Some(Commands::Status) => {
+            commands::gateway::run(commands::gateway::GatewayAction::Status).await
+        }
+        Some(Commands::Logs { limit }) => {
+            commands::gateway::run(commands::gateway::GatewayAction::Logs { limit }).await
+        }
+        Some(Commands::Doctor) => {
+            commands::gateway::run(commands::gateway::GatewayAction::Doctor).await
         }
         None => {
             println!("openclaw-rs {}", env!("CARGO_PKG_VERSION"));

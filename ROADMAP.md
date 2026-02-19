@@ -774,22 +774,27 @@
 - ✅ **`human_uptime` unit suffix test** — verifies all outputs contain s/m/h/d across 9 boundary values
 - ✅ **211 tests** — 111 agent + 7 core + 93 gateway (was 91) — **pre-1.0 milestone!**
 
-## v1.0.0 — LLM Activity Log (in progress)
+## v1.0.0 — LLM Activity Log (shipped)
 
-- 🚧 **LLM activity log module** — `llm_log.rs` in openclaw-agent: thread-safe ring buffer capturing every LLM request/response with timestamps, model, tokens, request messages, response content, tool calls, latency
-- 🚧 **Logging wired into providers** — both `complete()` and `complete_streaming()` record entries via global log
-- 🚧 **`/logs` command** — show recent LLM interactions on both Telegram and Discord (with embed)
-- 🚧 **`GET /logs` HTTP endpoint** — JSON array of recent LLM activity for dashboard/CLI consumption
-- 🚧 **`GET /logs/:id` HTTP endpoint** — full detail of a single log entry
-- 📋 **23 commands on both channels** — added `/logs`
-- 📋 **13 HTTP endpoints** — added `/logs`
+- ✅ **LLM activity log module** — `llm_log.rs` in openclaw-agent: thread-safe ring buffer (100 entries) capturing every LLM request/response with timestamps, model, tokens, request messages, response content, tool calls, latency
+- ✅ **Logging wired into providers** — both `complete()` and `complete_streaming()` record entries via global log
+- ✅ **`/logs` command** — show recent LLM interactions on both Telegram and Discord (with embed)
+- ✅ **`GET /logs` HTTP endpoint** — JSON array of recent LLM activity for dashboard/CLI consumption
+- ✅ **23 commands on both channels** — added `/logs`
+- ✅ **13 HTTP endpoints** — added `/logs`
+- ✅ **10 new tests** — ring buffer, entry serialization, summary formatting, capacity eviction
+- ✅ **221 total tests** — 121 agent + 7 core + 93 gateway
 
-## v1.1.0 — CLI Gateway Client
+## v1.1.0 — CLI Gateway Client (shipped)
 
-- 📋 **`openclaw status`** — CLI subcommand that queries `GET /health` from running gateway
-- 📋 **`openclaw logs`** — CLI subcommand that queries `GET /logs` and pretty-prints LLM activity
-- 📋 **`openclaw doctor`** — CLI subcommand that queries `GET /doctor/json`
-- 📋 **Gateway URL config** — `OPENCLAW_GATEWAY_URL` env var or config key
+- ✅ **`openclaw gateway status`** — queries `GET /health/lite`, colored output
+- ✅ **`openclaw gateway logs`** — queries `GET /logs`, pretty-prints LLM activity with colors
+- ✅ **`openclaw gateway doctor`** — queries `GET /doctor/json`, pass/fail coloring
+- ✅ **`openclaw gateway version`** — queries `GET /version`
+- ✅ **`openclaw gateway ping`** — queries `GET /ping` with latency measurement
+- ✅ **`openclaw gateway metrics`** — queries `GET /metrics/summary`
+- ✅ **Shortcut commands** — `openclaw status`, `openclaw logs`, `openclaw doctor` (top-level aliases)
+- ✅ **Gateway URL config** — `OPENCLAW_GATEWAY_URL` env var (default: `http://localhost:3100`)
 
 ## v1.2.0 — CLI Session & Model Commands
 
