@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.81.0
+**Version:** 0.82.0
 **Last updated:** 2026-02-19
 **Maintainer:** Cascade + Shawaz
 
@@ -635,7 +635,14 @@
 - ✅ **13 doctor checks** — workspace, config, sessions, skills, LLM, metrics, cron, disk, webhook, memory, tasks, HTTP, uptime
 - ✅ **189 tests** — 111 agent + 7 core + 71 gateway (was 70)
 
-## v0.82.0 — Daemon & Polish
+## v0.82.0 — /health Counts & Doctor Check Validation (shipped)
+
+- ✅ **`http_endpoint_count` and `tool_count` in `/health`** — 24 total fields for complete system overview
+- ✅ **Doctor check names completeness test** — verifies all 13 check names and exact count
+- ✅ **`human_bytes(1)` test** — single byte boundary value
+- ✅ **189 tests** — 111 agent + 7 core + 71 gateway
+
+## v0.83.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**

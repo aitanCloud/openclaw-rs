@@ -229,7 +229,9 @@ mod tests {
         assert!(names.contains(&"Webhook"));
         assert!(names.contains(&"Memory"));
         assert!(names.contains(&"Active Tasks"));
+        assert!(names.contains(&"HTTP"));
         assert!(names.contains(&"Uptime"));
+        assert_eq!(names.len(), 13, "Should have exactly 13 doctor checks");
     }
 
     #[tokio::test]
@@ -272,6 +274,7 @@ mod tests {
     #[test]
     fn test_human_bytes_boundary_values() {
         assert_eq!(human_bytes(0), "0 B");
+        assert_eq!(human_bytes(1), "1 B");
         assert_eq!(human_bytes(1024), "1.0 KB");
         assert_eq!(human_bytes(1023), "1023 B");
         assert_eq!(human_bytes(1_048_575), "1024.0 KB");

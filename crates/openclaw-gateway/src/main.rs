@@ -450,6 +450,8 @@ async fn health_handler() -> axum::response::Response {
             "skills": skills_count,
             "sessions": session_count,
             "commands": 22,
+            "http_endpoint_count": 9,
+            "tool_count": 17,
             "total_requests": total_requests,
             "total_errors": total_errors,
             "error_rate_pct": error_rate,
@@ -817,17 +819,18 @@ mod tests {
             "status", "version", "built", "boot_time", "active_tasks",
             "uptime", "uptime_seconds", "memory_rss_bytes", "memory_rss",
             "skills", "sessions", "commands",
+            "http_endpoint_count", "tool_count",
             "total_requests", "total_errors", "error_rate_pct",
             "avg_latency_ms", "webhook_requests",
             "provider_count", "fallback_chain",
             "doctor_checks_total", "doctor_checks_passed", "response_time_ms",
         ];
-        assert_eq!(expected.len(), 22, "Should have 22 /health JSON fields");
+        assert_eq!(expected.len(), 24, "Should have 24 /health JSON fields");
         // Verify no duplicates
         let mut sorted = expected.to_vec();
         sorted.sort();
         sorted.dedup();
-        assert_eq!(sorted.len(), 22, "/health fields should have no duplicates");
+        assert_eq!(sorted.len(), 24, "/health fields should have no duplicates");
     }
 
     #[test]
