@@ -1192,16 +1192,6 @@ mod tests {
     }
 
     #[test]
-    fn test_doctor_json_field_names() {
-        // /doctor/json top-level fields must match CLI expectations
-        let top_level = ["all_ok", "checks_total", "checks_passed", "checks"];
-        assert_eq!(top_level.len(), 4, "Should have 4 /doctor/json top-level fields");
-        // Per-check fields must match CLI expectations
-        let per_check = ["name", "ok", "detail"];
-        assert_eq!(per_check.len(), 3, "Each doctor check should have 3 fields");
-    }
-
-    #[test]
     fn test_request_id_is_valid_uuid() {
         let id = uuid::Uuid::new_v4().to_string();
         assert_eq!(id.len(), 36, "UUID should be 36 chars");
