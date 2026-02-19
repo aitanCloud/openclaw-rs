@@ -428,4 +428,18 @@ mod tests {
         let prom = m.to_prometheus();
         assert!(prom.contains("openclaw_gateway_error_rate_pct 25.00"));
     }
+
+    #[test]
+    fn test_webhook_requests_metric() {
+        let m = GatewayMetrics::new();
+        m.record_webhook_request();
+        m.record_webhook_request();
+        m.record_webhook_request();
+
+        let prom = m.to_prometheus();
+        assert!(prom.contains("openclaw_gateway_webhook_requests_total 3"));
+
+        let json = m.to_json();
+        assert_eq!(json["webhook_requests"], 3);
+    }
 }

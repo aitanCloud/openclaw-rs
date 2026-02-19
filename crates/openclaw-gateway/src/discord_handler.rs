@@ -496,12 +496,14 @@ async fn handle_command(
                 let turns = m.agent_turns.load(std::sync::atomic::Ordering::Relaxed);
                 let tool_calls = m.tool_calls.load(std::sync::atomic::Ordering::Relaxed);
                 let err_rate = m.error_rate_pct();
+                let webhooks = m.webhook_requests.load(std::sync::atomic::Ordering::Relaxed);
                 let session_count = openclaw_agent::sessions::SessionStore::open(&config.agent.name)
                     .ok()
                     .and_then(|s| s.db_stats(&config.agent.name).ok())
                     .map(|stats| stats.session_count)
                     .unwrap_or(0);
                 let session_str = session_count.to_string();
+                let webhook_str = webhooks.to_string();
                 bot.send_embed(
                     channel_id, Some(reply_to),
                     "📊 Gateway Stats",
@@ -510,6 +512,7 @@ async fn handle_command(
                     &[
                         ("Telegram", &format!("{} req / {} err", tg_req, tg_err), true),
                         ("Discord", &format!("{} req / {} err", dc_req, dc_err), true),
+                        ("Webhooks", &webhook_str, true),
                         ("Rate Limited", &rl.to_string(), true),
                         ("Completed", &completed.to_string(), true),
                         ("Agent Turns", &turns.to_string(), true),

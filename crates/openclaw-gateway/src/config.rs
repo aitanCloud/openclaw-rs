@@ -116,6 +116,28 @@ mod tests {
         assert_eq!(sb.turn_timeout_secs, Some(120));
         assert_eq!(sb.max_concurrent, Some(2));
     }
+
+    #[test]
+    fn test_parse_webhook_config() {
+        let json = r#"{
+            "telegram": { "bot_token": "t", "allowed_user_ids": [] },
+            "agent": { "name": "a" },
+            "webhook": { "token": "secret-token-123" }
+        }"#;
+        let config: GatewayConfig = serde_json::from_str(json).unwrap();
+        let wh = config.webhook.unwrap();
+        assert_eq!(wh.token, "secret-token-123");
+    }
+
+    #[test]
+    fn test_webhook_config_optional() {
+        let json = r#"{
+            "telegram": { "bot_token": "t", "allowed_user_ids": [] },
+            "agent": { "name": "a" }
+        }"#;
+        let config: GatewayConfig = serde_json::from_str(json).unwrap();
+        assert!(config.webhook.is_none());
+    }
 }
 
 impl GatewayConfig {

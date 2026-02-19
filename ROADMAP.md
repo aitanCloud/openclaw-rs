@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.57.0
+**Version:** 0.58.0
 **Last updated:** 2026-02-19
 **Maintainer:** Cascade + Shawaz
 
@@ -459,7 +459,14 @@
 - ✅ **6 HTTP endpoints** — /health, /status, /metrics, /metrics/json, /doctor, **/webhook**
 - ✅ **160 tests** — 111 agent + 7 core + 42 gateway
 
-## v0.58.0 — Daemon & Polish
+## v0.58.0 — Webhook Stats & Test Coverage (shipped)
+
+- ✅ **Webhook stats in `/stats`** — webhook_requests count shown on both Telegram and Discord /stats
+- ✅ **Webhook config tests** — 2 new tests: parse webhook config, verify webhook is optional
+- ✅ **Webhook metric test** — verifies webhook_requests counter in both Prometheus and JSON output
+- ✅ **163 tests** — 111 agent + 7 core + 45 gateway (was 42)
+
+## v0.59.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**
