@@ -136,6 +136,14 @@ impl GatewayMetrics {
         self.webhook_requests.load(Ordering::Relaxed)
     }
 
+    pub fn agent_turns(&self) -> u64 {
+        self.agent_turns.load(Ordering::Relaxed)
+    }
+
+    pub fn tool_calls(&self) -> u64 {
+        self.tool_calls.load(Ordering::Relaxed)
+    }
+
     pub fn error_rate_pct(&self) -> f64 {
         let total = self.total_requests();
         if total == 0 {

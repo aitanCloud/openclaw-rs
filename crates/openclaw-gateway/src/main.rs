@@ -130,6 +130,13 @@ async fn main() -> anyhow::Result<()> {
             }),
         )
         .route(
+            "/metrics/summary",
+            get({
+                let m = gateway_metrics.clone();
+                move || metrics_summary_handler(m)
+            }),
+        )
+        .route(
             "/doctor",
             get({
                 let cfg = health_config.clone();
@@ -425,15 +432,17 @@ async fn health_handler() -> axum::response::Response {
         .ok()
         .map(|fb| fb.provider_labels().iter().map(|s| s.to_string()).collect())
         .unwrap_or_default();
-    let (error_rate, total_requests, total_errors, avg_latency, webhook_reqs) = metrics::global()
+    let (error_rate, total_requests, total_errors, avg_latency, webhook_reqs, agent_turns, tool_calls) = metrics::global()
         .map(|m| (
             (m.error_rate_pct() * 100.0).round() / 100.0,
             m.total_requests(),
             m.total_errors(),
             m.avg_latency_ms(),
             m.webhook_requests(),
+            m.agent_turns(),
+            m.tool_calls(),
         ))
-        .unwrap_or((0.0, 0, 0, 0, 0));
+        .unwrap_or((0.0, 0, 0, 0, 0, 0, 0));
     let checks = doctor::run_checks("main").await;
     let checks_total = checks.len();
     let checks_passed = checks.iter().filter(|(_, ok, _)| *ok).count();
@@ -455,13 +464,15 @@ async fn health_handler() -> axum::response::Response {
             "skills": skills_count,
             "sessions": session_count,
             "commands": 22,
-            "http_endpoint_count": 9,
+            "http_endpoint_count": 10,
             "tool_count": 17,
             "total_requests": total_requests,
             "total_errors": total_errors,
             "error_rate_pct": error_rate,
             "avg_latency_ms": avg_latency,
             "webhook_requests": webhook_reqs,
+            "agent_turns": agent_turns,
+            "tool_calls": tool_calls,
             "provider_count": providers.len(),
             "fallback_chain": providers,
             "doctor_checks_total": checks_total,
@@ -510,6 +521,23 @@ async fn metrics_handler(
         [(axum::http::header::CONTENT_TYPE, "text/plain; version=0.0.4; charset=utf-8")],
         m.to_prometheus(),
     ).into_response()
+}
+
+async fn metrics_summary_handler(
+    m: Arc<metrics::GatewayMetrics>,
+) -> String {
+    let uptime = human_uptime(handler::BOOT_TIME.elapsed().as_secs());
+    format!(
+        "reqs={} errs={} err%={:.1} avg_lat={}ms turns={} tools={} webhooks={} up={}",
+        m.total_requests(),
+        m.total_errors(),
+        m.error_rate_pct(),
+        m.avg_latency_ms(),
+        m.agent_turns(),
+        m.tool_calls(),
+        m.webhook_requests(),
+        uptime,
+    )
 }
 
 async fn metrics_json_handler(
@@ -733,8 +761,8 @@ async fn status_handler(
         "webhook_configured": config.webhook.is_some(),
         "built": env!("BUILD_TIMESTAMP"),
         "boot_time": *handler::BOOT_TIMESTAMP,
-        "http_endpoints": ["/health", "/version", "/ping", "/ready", "/status", "/metrics", "/metrics/json", "/doctor", "/webhook"],
-        "http_endpoint_count": 9,
+        "http_endpoints": ["/health", "/version", "/ping", "/ready", "/status", "/metrics", "/metrics/json", "/metrics/summary", "/doctor", "/webhook"],
+        "http_endpoint_count": 10,
         "commands": {
             "telegram": tg_commands,
             "discord": dc_commands,
@@ -827,15 +855,16 @@ mod tests {
             "http_endpoint_count", "tool_count",
             "total_requests", "total_errors", "error_rate_pct",
             "avg_latency_ms", "webhook_requests",
+            "agent_turns", "tool_calls",
             "provider_count", "fallback_chain",
             "doctor_checks_total", "doctor_checks_passed", "response_time_ms",
         ];
-        assert_eq!(expected.len(), 25, "Should have 25 /health JSON fields");
+        assert_eq!(expected.len(), 27, "Should have 27 /health JSON fields");
         // Verify no duplicates
         let mut sorted = expected.to_vec();
         sorted.sort();
         sorted.dedup();
-        assert_eq!(sorted.len(), 25, "/health fields should have no duplicates");
+        assert_eq!(sorted.len(), 27, "/health fields should have no duplicates");
     }
 
     #[test]
@@ -848,13 +877,23 @@ mod tests {
 
     #[test]
     fn test_http_endpoints_count() {
-        let endpoints = ["/health", "/version", "/ping", "/ready", "/status", "/metrics", "/metrics/json", "/doctor", "/webhook"];
-        assert_eq!(endpoints.len(), 9, "Should have 9 HTTP endpoints");
+        let endpoints = ["/health", "/version", "/ping", "/ready", "/status", "/metrics", "/metrics/json", "/metrics/summary", "/doctor", "/webhook"];
+        assert_eq!(endpoints.len(), 10, "Should have 10 HTTP endpoints");
         // Verify no duplicates
         let mut sorted = endpoints.to_vec();
         sorted.sort();
         sorted.dedup();
-        assert_eq!(sorted.len(), 9, "HTTP endpoints should have no duplicates");
+        assert_eq!(sorted.len(), 10, "HTTP endpoints should have no duplicates");
+    }
+
+    #[test]
+    fn test_version_expected_fields() {
+        let expected = ["version", "agent", "built", "boot_time"];
+        assert_eq!(expected.len(), 4, "Should have 4 /version JSON fields");
+        let mut sorted = expected.to_vec();
+        sorted.sort();
+        sorted.dedup();
+        assert_eq!(sorted.len(), 4, "/version fields should have no duplicates");
     }
 
     #[test]
