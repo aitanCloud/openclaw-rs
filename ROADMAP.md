@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.67.0
+**Version:** 0.68.0
 **Last updated:** 2026-02-19
 **Maintainer:** Cascade + Shawaz
 
@@ -531,7 +531,15 @@
 - ✅ **Uptime uses `human_uptime()`** — doctor uptime check now uses consistent formatter with days support
 - ✅ **175 tests** — 111 agent + 7 core + 57 gateway
 
-## v0.68.0 — Daemon & Polish
+## v0.68.0 — Metrics Parity & Comprehensive Tests (shipped)
+
+- ✅ **JSON metrics parity** — `uptime_seconds` and `sessions_total` now in JSON metrics (was only in Prometheus)
+- ✅ **Comprehensive Prometheus test** — verifies all 20 metric lines are present in output
+- ✅ **JSON uptime/sessions test** — verifies new fields in JSON metrics
+- ✅ **20 Prometheus metrics** — requests, errors, rate_limited, concurrency_rejected, completed, latency, avg_latency, ws_events (3), cancelled, timeouts, error_rate, turns, tool_calls, webhooks, rss, uptime, sessions
+- ✅ **177 tests** — 111 agent + 7 core + 59 gateway (was 57)
+
+## v0.69.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**

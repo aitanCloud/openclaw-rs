@@ -256,6 +256,12 @@ impl GatewayMetrics {
             "webhook_requests": self.webhook_requests.load(Ordering::Relaxed),
             "error_rate_pct": (self.error_rate_pct() * 100.0).round() / 100.0,
             "process_rss_bytes": crate::process_rss_bytes(),
+            "uptime_seconds": crate::handler::BOOT_TIME.elapsed().as_secs(),
+            "sessions_total": openclaw_agent::sessions::SessionStore::open("main")
+                .ok()
+                .and_then(|s| s.db_stats("main").ok())
+                .map(|stats| stats.session_count)
+                .unwrap_or(0),
         })
     }
 }
@@ -477,5 +483,48 @@ mod tests {
         let json = m.to_json();
         assert!(json.get("process_rss_bytes").is_some(),
             "JSON metrics should contain process_rss_bytes");
+    }
+
+    #[test]
+    fn test_prometheus_has_all_expected_metrics() {
+        let m = GatewayMetrics::new();
+        let prom = m.to_prometheus();
+        let expected = [
+            "openclaw_gateway_requests_total{channel=\"telegram\"}",
+            "openclaw_gateway_requests_total{channel=\"discord\"}",
+            "openclaw_gateway_errors_total{channel=\"telegram\"}",
+            "openclaw_gateway_errors_total{channel=\"discord\"}",
+            "openclaw_gateway_rate_limited_total",
+            "openclaw_gateway_concurrency_rejected_total",
+            "openclaw_gateway_completed_requests_total",
+            "openclaw_gateway_avg_latency_ms",
+            "openclaw_gateway_ws_events_total{event=\"connect\"}",
+            "openclaw_gateway_ws_events_total{event=\"disconnect\"}",
+            "openclaw_gateway_ws_events_total{event=\"resume\"}",
+            "openclaw_gateway_tasks_cancelled_total",
+            "openclaw_gateway_agent_timeouts_total",
+            "openclaw_gateway_error_rate_pct",
+            "openclaw_gateway_agent_turns_total",
+            "openclaw_gateway_tool_calls_total",
+            "openclaw_gateway_webhook_requests_total",
+            "openclaw_gateway_process_rss_bytes",
+            "openclaw_gateway_uptime_seconds",
+            "openclaw_gateway_sessions_total",
+        ];
+        for metric in &expected {
+            assert!(prom.contains(metric),
+                "Prometheus output missing metric: {}", metric);
+        }
+        assert_eq!(expected.len(), 20, "Expected 20 Prometheus metric lines");
+    }
+
+    #[test]
+    fn test_json_has_uptime_and_sessions() {
+        let m = GatewayMetrics::new();
+        let json = m.to_json();
+        assert!(json.get("uptime_seconds").is_some(),
+            "JSON metrics should contain uptime_seconds");
+        assert!(json.get("sessions_total").is_some(),
+            "JSON metrics should contain sessions_total");
     }
 }
