@@ -444,9 +444,9 @@ async fn handle_command(
                 &[
                     ("Session", "`/new` `/clear` `/sessions` `/export`", false),
                     ("Info", "`/status` `/model` `/version` `/whoami` `/db`", false),
-                    ("Monitoring", "`/stats` `/ping` `/history [N]`", false),
-                    ("Control", "`/cancel` `/stop` `/voice` `/cron`", false),
-                    ("Commands", "17", true),
+                    ("Monitoring", "`/stats` `/ping` `/history [N]` `/doctor`", false),
+                    ("Control", "`/cancel` `/stop` `/voice` `/cron` `/tools`", false),
+                    ("Commands", "19", true),
                 ],
             ).await?;
         }
@@ -538,7 +538,7 @@ async fn handle_command(
                 &[
                     ("Uptime", &format!("{}h {}m", hours, mins), true),
                     ("Agent", &config.agent.name, true),
-                    ("Commands", "17", true),
+                    ("Commands", "19", true),
                 ],
             ).await?;
         }
@@ -562,6 +562,21 @@ async fn handle_command(
                 &format!("{}/{} checks passed", checks.iter().filter(|(_, ok, _)| *ok).count(), checks.len()),
                 color,
                 &field_refs,
+            ).await?;
+        }
+        "tools" => {
+            let tools = openclaw_agent::tools::ToolRegistry::with_defaults();
+            let names = tools.tool_names();
+            let tool_list = names.iter()
+                .map(|n| format!("`{}`", n))
+                .collect::<Vec<_>>()
+                .join(" · ");
+            bot.send_embed(
+                channel_id, Some(reply_to),
+                "🔧 Built-in Tools",
+                &format!("{} tools available", names.len()),
+                0x5865F2,
+                &[("Tools", &tool_list, false)],
             ).await?;
         }
         "whoami" => {

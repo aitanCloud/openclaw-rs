@@ -445,6 +445,8 @@ async fn handle_command(
                 /whoami — show your user info\n\
                 /cancel — stop the running task\n\
                 /cron — list and manage cron jobs\n\
+                /tools — list all built-in agent tools\n\
+                /doctor — run health checks\n\
                 /help — show this help\n\n\
                 You can also send voice messages — I'll transcribe and respond.",
             )
@@ -532,7 +534,7 @@ async fn handle_command(
                 "🦀 *openclaw-gateway* v{}\n\
                 Uptime: {}h {}m\n\
                 Agent: {}\n\
-                Commands: 17",
+                Commands: 19",
                 env!("CARGO_PKG_VERSION"), hours, mins, config.agent.name,
             )).await?;
         }
@@ -544,6 +546,15 @@ async fn handle_command(
             for (name, ok, detail) in &checks {
                 let status = if *ok { "✅" } else { "❌" };
                 msg_text.push_str(&format!("{} {}: {}\n", status, name, detail));
+            }
+            bot.send_message(chat_id, &msg_text).await?;
+        }
+        "/tools" => {
+            let tools = openclaw_agent::tools::ToolRegistry::with_defaults();
+            let names = tools.tool_names();
+            let mut msg_text = format!("🔧 *Built-in Tools* ({} total)\n\n", names.len());
+            for name in &names {
+                msg_text.push_str(&format!("• `{}`\n", name));
             }
             bot.send_message(chat_id, &msg_text).await?;
         }

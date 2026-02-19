@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.53.0
+**Version:** 0.54.0
 **Last updated:** 2026-02-19
 **Maintainer:** Cascade + Shawaz
 
@@ -428,7 +428,15 @@
 - ✅ **Session count in `/stats`** — both Telegram and Discord /stats now show total session count from SQLite DB
 - ✅ **160 tests** — 111 agent + 7 core + 42 gateway
 
-## v0.54.0 — Daemon & Polish
+## v0.54.0 — /tools Command & 19 Commands (shipped)
+
+- ✅ **`/tools` command** — lists all 17 built-in agent tools on both Telegram (bullet list) and Discord (embed with dot-separated tool names)
+- ✅ **`/help` updated** — added `/tools` and `/doctor` to help text on both channels
+- ✅ **19 commands** — added `/tools` and `/doctor` (previously unlisted), updated startup banner, /version, /help
+- ✅ **16/19 Discord embeds** — added `/tools` embed
+- ✅ **160 tests** — 111 agent + 7 core + 42 gateway
+
+## v0.55.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**
