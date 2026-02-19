@@ -24,6 +24,9 @@ pub struct GatewayMetrics {
     pub concurrency_rejected: AtomicU64,
     pub total_latency_ms: AtomicU64,
     pub completed_requests: AtomicU64,
+    pub gateway_connects: AtomicU64,
+    pub gateway_disconnects: AtomicU64,
+    pub gateway_resumes: AtomicU64,
 }
 
 impl GatewayMetrics {
@@ -37,6 +40,9 @@ impl GatewayMetrics {
             concurrency_rejected: AtomicU64::new(0),
             total_latency_ms: AtomicU64::new(0),
             completed_requests: AtomicU64::new(0),
+            gateway_connects: AtomicU64::new(0),
+            gateway_disconnects: AtomicU64::new(0),
+            gateway_resumes: AtomicU64::new(0),
         }
     }
 
@@ -62,6 +68,18 @@ impl GatewayMetrics {
 
     pub fn record_concurrency_rejected(&self) {
         self.concurrency_rejected.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn record_gateway_connect(&self) {
+        self.gateway_connects.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn record_gateway_disconnect(&self) {
+        self.gateway_disconnects.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn record_gateway_resume(&self) {
+        self.gateway_resumes.fetch_add(1, Ordering::Relaxed);
     }
 
     pub fn record_completion(&self, latency_ms: u64) {
@@ -119,6 +137,15 @@ impl GatewayMetrics {
         out.push_str(&format!("openclaw_gateway_avg_latency_ms {}\n",
             self.avg_latency_ms()));
 
+        out.push_str("# HELP openclaw_gateway_ws_events_total Discord Gateway WebSocket events\n");
+        out.push_str("# TYPE openclaw_gateway_ws_events_total counter\n");
+        out.push_str(&format!("openclaw_gateway_ws_events_total{{event=\"connect\"}} {}\n",
+            self.gateway_connects.load(Ordering::Relaxed)));
+        out.push_str(&format!("openclaw_gateway_ws_events_total{{event=\"disconnect\"}} {}\n",
+            self.gateway_disconnects.load(Ordering::Relaxed)));
+        out.push_str(&format!("openclaw_gateway_ws_events_total{{event=\"resume\"}} {}\n",
+            self.gateway_resumes.load(Ordering::Relaxed)));
+
         out
     }
 
@@ -133,6 +160,9 @@ impl GatewayMetrics {
             "completed_requests": self.completed_requests.load(Ordering::Relaxed),
             "total_latency_ms": self.total_latency_ms.load(Ordering::Relaxed),
             "avg_latency_ms": self.avg_latency_ms(),
+            "gateway_connects": self.gateway_connects.load(Ordering::Relaxed),
+            "gateway_disconnects": self.gateway_disconnects.load(Ordering::Relaxed),
+            "gateway_resumes": self.gateway_resumes.load(Ordering::Relaxed),
         })
     }
 }

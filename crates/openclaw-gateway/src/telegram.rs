@@ -190,9 +190,10 @@ impl TelegramBot {
         }
     }
 
-    /// Send a text message (fire-and-forget, with Markdown fallback)
+    /// Send a text message (with Markdown fallback and retry on 5xx/network error)
     pub async fn send_message(&self, chat_id: i64, text: &str) -> Result<()> {
         let chunks = split_message(text, 4000);
+        let url = format!("{}/sendMessage", self.api_base);
 
         for chunk in chunks {
             let body = SendMessageRequest {
@@ -201,33 +202,38 @@ impl TelegramBot {
                 parse_mode: Some("Markdown".to_string()),
             };
 
-            let resp = self
-                .client
-                .post(format!("{}/sendMessage", self.api_base))
-                .json(&body)
-                .send()
-                .await;
+            let mut attempts = 0;
+            loop {
+                attempts += 1;
+                let resp = self.client.post(&url).json(&body).send().await;
 
-            match resp {
-                Ok(r) => {
-                    if !r.status().is_success() {
-                        let err_body = r.text().await.unwrap_or_default();
-                        warn!("sendMessage failed with Markdown, retrying plain: {}", err_body);
-                        let plain_body = SendMessageRequest {
-                            chat_id,
-                            text: body.text.clone(),
-                            parse_mode: None,
-                        };
-                        let _ = self
-                            .client
-                            .post(format!("{}/sendMessage", self.api_base))
-                            .json(&plain_body)
-                            .send()
-                            .await;
+                match resp {
+                    Ok(r) if r.status().is_success() => break,
+                    Ok(r) if r.status().is_server_error() && attempts < 2 => {
+                        warn!("Telegram sendMessage 5xx ({}), retrying in 1s...", r.status());
+                        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
                     }
-                }
-                Err(e) => {
-                    error!("Failed to send message: {}", e);
+                    Ok(r) => {
+                        if !r.status().is_success() {
+                            let err_body = r.text().await.unwrap_or_default();
+                            warn!("sendMessage failed with Markdown, retrying plain: {}", err_body);
+                            let plain_body = SendMessageRequest {
+                                chat_id,
+                                text: body.text.clone(),
+                                parse_mode: None,
+                            };
+                            let _ = self.client.post(&url).json(&plain_body).send().await;
+                        }
+                        break;
+                    }
+                    Err(e) if attempts < 2 => {
+                        warn!("Telegram sendMessage error: {}, retrying in 1s...", e);
+                        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                    }
+                    Err(e) => {
+                        error!("Failed to send message after retry: {}", e);
+                        break;
+                    }
                 }
             }
         }

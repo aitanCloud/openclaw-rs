@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.31.0
+**Version:** 0.32.0
 **Last updated:** 2026-02-18
 **Maintainer:** Cascade + Shawaz
 
@@ -259,7 +259,13 @@
 - ✅ **Gateway connection logging** — log connect events with RESUME/IDENTIFY status, session duration on disconnect
 - ✅ **125 tests** — 93 agent + 7 core + 25 gateway
 
-## v0.32.0 — Daemon & Polish
+## v0.32.0 — Retry & Gateway Metrics (shipped)
+
+- ✅ **Telegram send_message retry** — retry once on 5xx or network error with 1s delay (parity with Discord send_reply)
+- ✅ **Gateway WS metrics** — `gateway_connects`, `gateway_disconnects`, `gateway_resumes` counters in Prometheus text + JSON
+- ✅ **125 tests** — 93 agent + 7 core + 25 gateway
+
+## v0.33.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**

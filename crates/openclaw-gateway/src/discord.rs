@@ -465,8 +465,15 @@ async fn run_gateway_loop(
             if connect_url.len() > 60 { &connect_url[..60] } else { &connect_url },
             if is_resume { "RESUME" } else { "IDENTIFY" });
 
+        // Record connection metrics
+        if let Some(m) = crate::metrics::global() {
+            m.record_gateway_connect();
+            if is_resume { m.record_gateway_resume(); }
+        }
+
         match run_gateway_session(&connect_url, token, &msg_tx, &mut resume_state).await {
             Ok(()) => {
+                if let Some(m) = crate::metrics::global() { m.record_gateway_disconnect(); }
                 let duration = session_start.elapsed();
                 info!("Discord Gateway session ended cleanly after {}s, reconnecting in 5s...",
                     duration.as_secs());
