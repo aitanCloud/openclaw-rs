@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.73.0
+**Version:** 0.74.0
 **Last updated:** 2026-02-19
 **Maintainer:** Cascade + Shawaz
 
@@ -573,7 +573,14 @@
 - ✅ **`doctor_checks_total` in JSON metrics** — parity with Prometheus gauge
 - ✅ **180 tests** — 111 agent + 7 core + 62 gateway
 
-## v0.74.0 — Daemon & Polish
+## v0.74.0 — Boot Time in /runtime & Comprehensive Tests (shipped)
+
+- ✅ **`Started` in `/runtime`** — boot_time ISO 8601 shown on both Telegram (text) and Discord (embed)
+- ✅ **JSON metrics completeness test** — verifies all 22 JSON metrics fields are present
+- ✅ **BOOT_TIMESTAMP format test** — validates ISO 8601 format (YYYY-MM-DDTHH:MM:SSZ)
+- ✅ **181 tests** — 111 agent + 7 core + 63 gateway (was 62)
+
+## v0.75.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**

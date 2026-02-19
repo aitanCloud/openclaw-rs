@@ -591,6 +591,7 @@ async fn handle_command(
                 0x2ECC71, // Green
                 &[
                     ("Built", env!("BUILD_TIMESTAMP"), true),
+                    ("Started", &*crate::handler::BOOT_TIMESTAMP, true),
                     ("Profile", profile, true),
                     ("PID", &pid.to_string(), true),
                     ("Memory", &rss, true),

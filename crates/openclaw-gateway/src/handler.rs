@@ -572,6 +572,7 @@ async fn handle_command(
                 "🖥️ *Runtime Info*\n\n\
                 Version: v{}\n\
                 Built: {}\n\
+                Started: {}\n\
                 Profile: {}\n\
                 PID: {}\n\
                 Memory: {}\n\
@@ -580,6 +581,7 @@ async fn handle_command(
                 Arch: {}",
                 env!("CARGO_PKG_VERSION"),
                 env!("BUILD_TIMESTAMP"),
+                *crate::handler::BOOT_TIMESTAMP,
                 if cfg!(debug_assertions) { "debug" } else { "release" },
                 pid,
                 rss,

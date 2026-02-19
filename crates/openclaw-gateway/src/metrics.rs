@@ -525,12 +525,24 @@ mod tests {
     }
 
     #[test]
-    fn test_json_has_uptime_and_sessions() {
+    fn test_json_has_all_expected_fields() {
         let m = GatewayMetrics::new();
         let json = m.to_json();
-        assert!(json.get("uptime_seconds").is_some(),
-            "JSON metrics should contain uptime_seconds");
-        assert!(json.get("sessions_total").is_some(),
-            "JSON metrics should contain sessions_total");
+        let expected_fields = [
+            "telegram_requests", "discord_requests",
+            "telegram_errors", "discord_errors",
+            "rate_limited", "concurrency_rejected",
+            "completed_requests", "latency_ms_total", "avg_latency_ms",
+            "gateway_connects", "gateway_disconnects", "gateway_resumes",
+            "tasks_cancelled", "agent_timeouts",
+            "agent_turns", "tool_calls", "webhook_requests",
+            "error_rate_pct", "process_rss_bytes",
+            "uptime_seconds", "sessions_total", "doctor_checks_total",
+        ];
+        for field in &expected_fields {
+            assert!(json.get(*field).is_some(),
+                "JSON metrics missing field: {}", field);
+        }
+        assert_eq!(expected_fields.len(), 22, "Expected 22 JSON metrics fields");
     }
 }

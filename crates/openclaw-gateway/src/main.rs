@@ -743,4 +743,14 @@ mod tests {
         }
         assert_eq!(codes.len(), 5, "Should have 5 webhook error codes");
     }
+
+    #[test]
+    fn test_boot_timestamp_format() {
+        let ts = &*handler::BOOT_TIMESTAMP;
+        // Should be ISO 8601 format: YYYY-MM-DDTHH:MM:SSZ
+        assert!(ts.len() == 20, "BOOT_TIMESTAMP should be 20 chars, got {}: {}", ts.len(), ts);
+        assert!(ts.ends_with('Z'), "BOOT_TIMESTAMP should end with Z");
+        assert_eq!(&ts[4..5], "-", "BOOT_TIMESTAMP should have dash at pos 4");
+        assert_eq!(&ts[10..11], "T", "BOOT_TIMESTAMP should have T at pos 10");
+    }
 }
