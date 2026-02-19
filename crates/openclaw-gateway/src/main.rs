@@ -340,8 +340,11 @@ async fn main() -> anyhow::Result<()> {
     }
 }
 
-async fn health_handler() -> &'static str {
-    "ok"
+async fn health_handler() -> Json<serde_json::Value> {
+    Json(serde_json::json!({
+        "status": "ok",
+        "active_tasks": task_registry::active_count(),
+    }))
 }
 
 async fn metrics_handler(
@@ -409,8 +412,10 @@ async fn status_handler(
     });
 
     // Commands
-    let tg_commands = ["help", "new", "status", "model", "sessions", "export", "voice", "cron"];
-    let dc_commands = ["help", "new", "status", "model", "sessions", "export", "voice", "cron"];
+    let tg_commands = ["help", "new", "status", "model", "sessions", "export", "voice", "ping",
+        "history", "clear", "db", "version", "stats", "whoami", "cancel", "stop", "cron"];
+    let dc_commands = ["help", "new", "status", "model", "sessions", "export", "voice", "ping",
+        "history", "clear", "db", "version", "stats", "whoami", "cancel", "stop", "cron"];
 
     Json(serde_json::json!({
         "status": "running",
@@ -425,6 +430,7 @@ async fn status_handler(
         "metrics": m.to_json(),
         "tools": *tool_names,
         "tool_count": tool_names.len(),
+        "active_tasks": task_registry::active_count(),
         "commands": {
             "telegram": tg_commands,
             "discord": dc_commands,

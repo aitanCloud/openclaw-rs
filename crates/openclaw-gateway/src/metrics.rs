@@ -261,4 +261,22 @@ mod tests {
         assert_eq!(json["gateway_disconnects"], 1);
         assert_eq!(json["gateway_resumes"], 1);
     }
+
+    #[test]
+    fn test_tasks_cancelled_metric() {
+        let m = GatewayMetrics::new();
+        assert_eq!(m.tasks_cancelled.load(Ordering::Relaxed), 0);
+
+        m.record_task_cancelled();
+        m.record_task_cancelled();
+        m.record_task_cancelled();
+
+        assert_eq!(m.tasks_cancelled.load(Ordering::Relaxed), 3);
+
+        let prom = m.to_prometheus();
+        assert!(prom.contains("openclaw_gateway_tasks_cancelled_total 3"));
+
+        let json = m.to_json();
+        assert_eq!(json["tasks_cancelled"], 3);
+    }
 }

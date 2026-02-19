@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.36.0
+**Version:** 0.37.0
 **Last updated:** 2026-02-18
 **Maintainer:** Cascade + Shawaz
 
@@ -295,7 +295,15 @@
 - ✅ **Cancelled count in `/stats`** — `tasks_cancelled` shown in Discord /stats embed alongside other metrics
 - ✅ **133 tests** — 95 agent + 7 core + 31 gateway
 
-## v0.37.0 — Daemon & Polish
+## v0.37.0 — HTTP & Test Coverage (shipped)
+
+- ✅ **`/health` JSON upgrade** — returns `{"status":"ok","active_tasks":N}` instead of plain text
+- ✅ **`/status` active tasks** — `active_tasks` field added to HTTP status JSON
+- ✅ **Fixed stale command lists** — `/status` HTTP endpoint now lists all 17 commands (was 8)
+- ✅ **`test_tasks_cancelled_metric`** — verifies `tasks_cancelled` counter in Prometheus + JSON output
+- ✅ **134 tests** — 95 agent + 7 core + 32 gateway (+1 new)
+
+## v0.38.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**
