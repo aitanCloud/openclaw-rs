@@ -404,6 +404,10 @@ pub fn human_uptime(secs: u64) -> String {
 
 async fn health_lite_handler() -> Json<serde_json::Value> {
     let uptime_secs = handler::BOOT_TIME.elapsed().as_secs();
+    let provider_count = openclaw_agent::llm::fallback::FallbackProvider::from_config()
+        .ok()
+        .map(|fb| fb.provider_labels().len())
+        .unwrap_or(0);
     Json(serde_json::json!({
         "status": "ok",
         "version": env!("CARGO_PKG_VERSION"),
@@ -412,6 +416,7 @@ async fn health_lite_handler() -> Json<serde_json::Value> {
         "uptime": human_uptime(uptime_secs),
         "uptime_seconds": uptime_secs,
         "active_tasks": task_registry::active_count(),
+        "provider_count": provider_count,
     }))
 }
 
@@ -1065,12 +1070,12 @@ mod tests {
 
     #[test]
     fn test_health_lite_expected_fields() {
-        let expected = ["status", "version", "agent", "pid", "uptime", "uptime_seconds", "active_tasks"];
-        assert_eq!(expected.len(), 7, "Should have 7 /health/lite JSON fields");
+        let expected = ["status", "version", "agent", "pid", "uptime", "uptime_seconds", "active_tasks", "provider_count"];
+        assert_eq!(expected.len(), 8, "Should have 8 /health/lite JSON fields");
         let mut sorted = expected.to_vec();
         sorted.sort();
         sorted.dedup();
-        assert_eq!(sorted.len(), 7, "/health/lite fields should have no duplicates");
+        assert_eq!(sorted.len(), 8, "/health/lite fields should have no duplicates");
     }
 
     #[test]

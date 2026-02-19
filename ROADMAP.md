@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.96.0
+**Version:** 0.97.0
 **Last updated:** 2026-02-19
 **Maintainer:** Cascade + Shawaz
 
@@ -754,7 +754,14 @@
 - ✅ **15 doctor checks** — workspace, config, sessions, skills, LLM, metrics, cron, disk, webhook, memory, tasks, LLM providers, HTTP, hostname, uptime
 - ✅ **208 tests** — 111 agent + 7 core + 90 gateway (was 89)
 
-## v0.97.0 — Daemon & Polish
+## v0.97.0 — Hostname Metric & /health/lite Enrichment (shipped)
+
+- ✅ **23rd Prometheus metric: `openclaw_gateway_hostname_info`** — gauge with hostname label for fleet identification
+- ✅ **Metrics JSON field count verification** — asserts actual JSON object has exactly 22 keys
+- ✅ **`provider_count` in `/health/lite`** — 8 total fields, quick LLM provider visibility
+- ✅ **208 tests** — 111 agent + 7 core + 90 gateway
+
+## v0.98.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**

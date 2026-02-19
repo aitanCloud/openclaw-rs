@@ -292,6 +292,11 @@ impl GatewayMetrics {
         out.push_str("# TYPE openclaw_gateway_doctor_checks_total gauge\n");
         out.push_str("openclaw_gateway_doctor_checks_total 15\n");
 
+        out.push_str("# HELP openclaw_gateway_hostname_info Host identification\n");
+        out.push_str("# TYPE openclaw_gateway_hostname_info gauge\n");
+        let hn = std::fs::read_to_string("/etc/hostname").unwrap_or_default().trim().to_string();
+        out.push_str(&format!("openclaw_gateway_hostname_info{{hostname=\"{}\"}} 1\n", hn));
+
         out.push_str("# HELP openclaw_gateway_info Gateway build information\n");
         out.push_str("# TYPE openclaw_gateway_info gauge\n");
         out.push_str(&format!("openclaw_gateway_info{{version=\"{}\"}} 1\n",
@@ -577,13 +582,14 @@ mod tests {
             "openclaw_gateway_uptime_seconds",
             "openclaw_gateway_sessions_total",
             "openclaw_gateway_doctor_checks_total",
+            "openclaw_gateway_hostname_info{hostname=",
             "openclaw_gateway_info{version=",
         ];
         for metric in &expected {
             assert!(prom.contains(metric),
                 "Prometheus output missing metric: {}", metric);
         }
-        assert_eq!(expected.len(), 22, "Expected 22 Prometheus metric lines");
+        assert_eq!(expected.len(), 23, "Expected 23 Prometheus metric lines");
     }
 
     #[test]
@@ -616,6 +622,9 @@ mod tests {
                 "JSON metrics missing field: {}", field);
         }
         assert_eq!(expected_fields.len(), 22, "Expected 22 JSON metrics fields");
+        // Verify the actual JSON object has exactly 22 keys
+        let obj = json.as_object().expect("JSON metrics should be an object");
+        assert_eq!(obj.len(), 22, "JSON metrics object should have 22 keys, got {}", obj.len());
     }
 
     #[test]
