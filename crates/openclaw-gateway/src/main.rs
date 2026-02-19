@@ -417,13 +417,15 @@ async fn health_handler() -> axum::response::Response {
         .map(|stats| stats.session_count)
         .unwrap_or(0);
     let rss = process_rss_bytes();
-    let (error_rate, total_requests, total_errors) = metrics::global()
+    let (error_rate, total_requests, total_errors, avg_latency, webhook_reqs) = metrics::global()
         .map(|m| (
             (m.error_rate_pct() * 100.0).round() / 100.0,
             m.total_requests(),
             m.total_errors(),
+            m.avg_latency_ms(),
+            m.webhook_requests(),
         ))
-        .unwrap_or((0.0, 0, 0));
+        .unwrap_or((0.0, 0, 0, 0, 0));
     let checks = doctor::run_checks("main").await;
     let checks_total = checks.len();
     let checks_passed = checks.iter().filter(|(_, ok, _)| *ok).count();
@@ -447,6 +449,8 @@ async fn health_handler() -> axum::response::Response {
             "total_requests": total_requests,
             "total_errors": total_errors,
             "error_rate_pct": error_rate,
+            "avg_latency_ms": avg_latency,
+            "webhook_requests": webhook_reqs,
             "doctor_checks_total": checks_total,
             "doctor_checks_passed": checks_passed,
             "response_time_ms": elapsed_ms,
@@ -799,6 +803,32 @@ mod tests {
         assert_eq!(dc.len(), 22, "Discord should have 22 commands");
         // Verify both arrays are identical
         assert_eq!(tg, dc, "Telegram and Discord command lists should match");
+    }
+
+    #[test]
+    fn test_health_expected_fields() {
+        let expected = [
+            "status", "version", "built", "boot_time", "active_tasks",
+            "uptime", "uptime_seconds", "memory_rss_bytes", "memory_rss",
+            "skills", "sessions", "commands",
+            "total_requests", "total_errors", "error_rate_pct",
+            "avg_latency_ms", "webhook_requests",
+            "doctor_checks_total", "doctor_checks_passed", "response_time_ms",
+        ];
+        assert_eq!(expected.len(), 20, "Should have 20 /health JSON fields");
+        // Verify no duplicates
+        let mut sorted = expected.to_vec();
+        sorted.sort();
+        sorted.dedup();
+        assert_eq!(sorted.len(), 20, "/health fields should have no duplicates");
+    }
+
+    #[test]
+    fn test_human_uptime_multi_day() {
+        // 2 days, 3 hours, 45 minutes = 2*86400 + 3*3600 + 45*60 = 186_300
+        assert_eq!(human_uptime(186_300), "2d 3h 45m");
+        // 7 days exactly
+        assert_eq!(human_uptime(604_800), "7d 0h 0m");
     }
 
     #[test]

@@ -132,6 +132,10 @@ impl GatewayMetrics {
             + self.discord_errors.load(Ordering::Relaxed)
     }
 
+    pub fn webhook_requests(&self) -> u64 {
+        self.webhook_requests.load(Ordering::Relaxed)
+    }
+
     pub fn error_rate_pct(&self) -> f64 {
         let total = self.total_requests();
         if total == 0 {
