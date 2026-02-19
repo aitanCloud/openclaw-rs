@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.49.0
+**Version:** 0.50.0
 **Last updated:** 2026-02-19
 **Maintainer:** Cascade + Shawaz
 
@@ -394,7 +394,15 @@
 - ✅ **`test_agent_turns_and_tool_calls_metric`** — verifies counters in Prometheus + JSON output
 - ✅ **157 tests** — 110 agent + 7 core + 40 gateway (+1 new)
 
-## v0.50.0 — Daemon & Polish
+## v0.50.0 — Skills Integration (shipped)
+
+- ✅ **Skills in system prompt** — workspace `skills/` directory is scanned at load time; skill names and descriptions are injected into the agent's system prompt as `<!-- SKILLS.md -->`
+- ✅ **Skills count in `/health`** — `/health` JSON endpoint now includes `skills` count for monitoring
+- ✅ **`test_skills_injected_into_system_prompt`** — verifies skills are scanned and appear in the assembled system prompt
+- ✅ **158 tests** — 111 agent + 7 core + 40 gateway (+1 new)
+- ✅ **Skills scanner** — leverages existing `openclaw_core::skills::list_skills()` with SKILL.md frontmatter parsing
+
+## v0.51.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**

@@ -110,6 +110,22 @@ pub async fn load_workspace(dir: &Path, minimal: bool) -> Result<WorkspaceContex
         }
     }
 
+    // Scan for skills and inject into bootstrap context
+    let skills_dir = dir.join("skills");
+    if let Ok(skills) = openclaw_core::skills::list_skills(&skills_dir) {
+        if !skills.is_empty() {
+            let mut skills_content = String::from("Available skills:\n");
+            for skill in &skills {
+                let desc = skill.description.as_deref().unwrap_or("(no description)");
+                skills_content.push_str(&format!("- **{}**: {}\n", skill.name, desc));
+            }
+            bootstrap_files.push(BootstrapFile {
+                name: "SKILLS.md".to_string(),
+                content: skills_content,
+            });
+        }
+    }
+
     let system_prompt_base = assemble_system_prompt_base(&bootstrap_files);
     let system_prompt = assemble_system_prompt(&bootstrap_files);
 
@@ -209,6 +225,26 @@ mod tests {
     fn test_assemble_empty() {
         let prompt = assemble_system_prompt(&[]);
         assert_eq!(prompt, "You are a helpful AI assistant.");
+    }
+
+    #[tokio::test]
+    async fn test_skills_injected_into_system_prompt() {
+        let dir = tempfile::tempdir().unwrap();
+        let skills_dir = dir.path().join("skills");
+        std::fs::create_dir(&skills_dir).unwrap();
+
+        // Create a skill directory with SKILL.md
+        let skill_path = skills_dir.join("web-search");
+        std::fs::create_dir(&skill_path).unwrap();
+        std::fs::write(
+            skill_path.join("SKILL.md"),
+            "---\ndescription: Search the web using Brave\n---\nInstructions here",
+        ).unwrap();
+
+        let ctx = load_workspace(dir.path(), false).await.unwrap();
+        assert!(ctx.system_prompt.contains("<!-- SKILLS.md -->"));
+        assert!(ctx.system_prompt.contains("web-search"));
+        assert!(ctx.system_prompt.contains("Search the web using Brave"));
     }
 
     #[test]

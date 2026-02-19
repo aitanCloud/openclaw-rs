@@ -342,11 +342,19 @@ async fn main() -> anyhow::Result<()> {
 
 async fn health_handler() -> Json<serde_json::Value> {
     let uptime = handler::BOOT_TIME.elapsed().as_secs();
+    let skills_count = {
+        let home = dirs::home_dir().unwrap_or_default();
+        let skills_dir = home.join(".openclaw").join("workspace").join("skills");
+        openclaw_core::skills::list_skills(&skills_dir)
+            .map(|s| s.len())
+            .unwrap_or(0)
+    };
     Json(serde_json::json!({
         "status": "ok",
         "version": env!("CARGO_PKG_VERSION"),
         "active_tasks": task_registry::active_count(),
         "uptime_seconds": uptime,
+        "skills": skills_count,
     }))
 }
 
