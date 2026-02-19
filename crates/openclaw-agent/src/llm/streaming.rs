@@ -259,3 +259,77 @@ struct PartialToolCall {
     name: String,
     arguments: String,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_stream_chunk_content_deserialization() {
+        let json = r#"{"choices":[{"delta":{"content":"Hello"}}]}"#;
+        let chunk: StreamChunk = serde_json::from_str(json).unwrap();
+        assert_eq!(chunk.choices.len(), 1);
+        assert_eq!(chunk.choices[0].delta.content.as_deref(), Some("Hello"));
+        assert!(chunk.choices[0].delta.reasoning_content.is_none());
+        assert!(chunk.choices[0].delta.tool_calls.is_none());
+        assert!(chunk.usage.is_none());
+    }
+
+    #[test]
+    fn test_stream_chunk_reasoning_deserialization() {
+        let json = r#"{"choices":[{"delta":{"reasoning_content":"thinking..."}}]}"#;
+        let chunk: StreamChunk = serde_json::from_str(json).unwrap();
+        assert_eq!(chunk.choices[0].delta.reasoning_content.as_deref(), Some("thinking..."));
+        assert!(chunk.choices[0].delta.content.is_none());
+    }
+
+    #[test]
+    fn test_stream_chunk_tool_call_deserialization() {
+        let json = r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_123","function":{"name":"exec","arguments":"{\"cmd\":"}}]}}]}"#;
+        let chunk: StreamChunk = serde_json::from_str(json).unwrap();
+        let tc = chunk.choices[0].delta.tool_calls.as_ref().unwrap();
+        assert_eq!(tc.len(), 1);
+        assert_eq!(tc[0].index, 0);
+        assert_eq!(tc[0].id.as_deref(), Some("call_123"));
+        let func = tc[0].function.as_ref().unwrap();
+        assert_eq!(func.name.as_deref(), Some("exec"));
+        assert!(func.arguments.as_ref().unwrap().contains("cmd"));
+    }
+
+    #[test]
+    fn test_stream_chunk_usage_deserialization() {
+        let json = r#"{"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":20,"total_tokens":30}}"#;
+        let chunk: StreamChunk = serde_json::from_str(json).unwrap();
+        let u = chunk.usage.unwrap();
+        assert_eq!(u.prompt_tokens, 10);
+        assert_eq!(u.completion_tokens, 20);
+        assert_eq!(u.total_tokens, 30);
+    }
+
+    #[test]
+    fn test_partial_tool_call_default() {
+        let ptc = PartialToolCall::default();
+        assert!(ptc.id.is_empty());
+        assert!(ptc.name.is_empty());
+        assert!(ptc.arguments.is_empty());
+    }
+
+    #[test]
+    fn test_stream_event_variants() {
+        // Verify all variants can be constructed and cloned
+        let events = vec![
+            StreamEvent::ContentDelta("hi".into()),
+            StreamEvent::ReasoningDelta("think".into()),
+            StreamEvent::ToolCallStart { name: "exec".into() },
+            StreamEvent::ToolExec { name: "exec".into(), call_id: "c1".into() },
+            StreamEvent::ToolResult { name: "exec".into(), success: true },
+            StreamEvent::RoundStart { round: 1 },
+            StreamEvent::Done,
+        ];
+        for evt in &events {
+            let _cloned = evt.clone();
+            let _debug = format!("{:?}", evt);
+        }
+        assert_eq!(events.len(), 7);
+    }
+}

@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.45.0
+**Version:** 0.46.0
 **Last updated:** 2026-02-18
 **Maintainer:** Cascade + Shawaz
 
@@ -358,7 +358,13 @@
 - ✅ **`test_error_rate_in_json_and_prometheus`** — verifies 25% error rate appears correctly in both formats
 - ✅ **142 tests** — 96 agent + 7 core + 39 gateway (+1 new)
 
-## v0.46.0 — Daemon & Polish
+## v0.46.0 — Streaming Tests & Ping Embed (shipped)
+
+- ✅ **Streaming SSE tests** — 6 new tests: StreamChunk content/reasoning/tool_call/usage deserialization, PartialToolCall default, StreamEvent variant coverage
+- ✅ **Discord `/ping` embed** — color-coded embed: green <100ms, yellow <500ms, red ≥500ms
+- ✅ **148 tests** — 102 agent + 7 core + 39 gateway (+6 new streaming tests)
+
+## v0.47.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**

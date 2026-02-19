@@ -448,7 +448,15 @@ async fn handle_command(
         }
         "ping" => {
             let start = std::time::Instant::now();
-            bot.send_reply(channel_id, reply_to, &format!("🏓 Pong! ({}ms)", start.elapsed().as_millis())).await?;
+            let ms = start.elapsed().as_millis();
+            let color = if ms < 100 { 0x57F287 } else if ms < 500 { 0xFEE75C } else { 0xED4245 };
+            bot.send_embed(
+                channel_id, Some(reply_to),
+                "🏓 Pong!",
+                &format!("Latency: **{}ms**", ms),
+                color,
+                &[],
+            ).await?;
         }
         "cancel" | "stop" => {
             let task_key = format!("dc:{}:{}", user_id, channel_id);
