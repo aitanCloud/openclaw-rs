@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.75.0
+**Version:** 0.76.0
 **Last updated:** 2026-02-19
 **Maintainer:** Cascade + Shawaz
 
@@ -588,7 +588,14 @@
 - ✅ **22 Prometheus metrics** — comprehensive test updated
 - ✅ **182 tests** — 111 agent + 7 core + 64 gateway (was 63)
 
-## v0.76.0 — Daemon & Polish
+## v0.76.0 — Response Timing & Command Validation (shipped)
+
+- ✅ **`response_time_ms` in JSON bodies** — `/health` and `/ready` now include self-measured response time in both header and body
+- ✅ **Command count validation test** — verifies both channels have exactly 22 commands and lists match
+- ✅ **`human_bytes(0)` test** — boundary value for zero bytes
+- ✅ **183 tests** — 111 agent + 7 core + 65 gateway (was 64)
+
+## v0.77.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**

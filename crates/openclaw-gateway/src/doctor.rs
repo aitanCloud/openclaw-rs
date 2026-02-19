@@ -263,6 +263,7 @@ mod tests {
 
     #[test]
     fn test_human_bytes_boundary_values() {
+        assert_eq!(human_bytes(0), "0 B");
         assert_eq!(human_bytes(1024), "1.0 KB");
         assert_eq!(human_bytes(1023), "1023 B");
         assert_eq!(human_bytes(1_048_575), "1024.0 KB");

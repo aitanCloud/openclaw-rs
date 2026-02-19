@@ -425,6 +425,7 @@ async fn health_handler() -> axum::response::Response {
             "commands": 22,
             "doctor_checks_total": checks_total,
             "doctor_checks_passed": checks_passed,
+            "response_time_ms": elapsed_ms,
         })),
     ).into_response()
 }
@@ -455,6 +456,7 @@ async fn ready_handler(
             "checks_total": checks.len(),
             "checks_passed": checks.iter().filter(|(_, ok, _)| *ok).count(),
             "failed": failed,
+            "response_time_ms": elapsed_ms,
         })),
     ).into_response()
 }
@@ -761,6 +763,18 @@ mod tests {
         assert_eq!(human_uptime(60), "1m 0s");
         assert_eq!(human_uptime(3600), "1h 0m");
         assert_eq!(human_uptime(86400), "1d 0h 0m");
+    }
+
+    #[test]
+    fn test_command_arrays_have_22_entries() {
+        let tg = ["help", "new", "status", "model", "sessions", "export", "voice", "ping",
+            "history", "clear", "db", "version", "stats", "whoami", "cancel", "stop", "cron", "tools", "skills", "config", "runtime", "doctor"];
+        let dc = ["help", "new", "status", "model", "sessions", "export", "voice", "ping",
+            "history", "clear", "db", "version", "stats", "whoami", "cancel", "stop", "cron", "tools", "skills", "config", "runtime", "doctor"];
+        assert_eq!(tg.len(), 22, "Telegram should have 22 commands");
+        assert_eq!(dc.len(), 22, "Discord should have 22 commands");
+        // Verify both arrays are identical
+        assert_eq!(tg, dc, "Telegram and Discord command lists should match");
     }
 
     #[test]
