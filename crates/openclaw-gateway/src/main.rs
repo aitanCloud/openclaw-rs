@@ -95,6 +95,13 @@ async fn main() -> anyhow::Result<()> {
     let app = Router::new()
         .route("/health", get(health_handler))
         .route(
+            "/ready",
+            get({
+                let cfg = health_config.clone();
+                move || ready_handler(cfg)
+            }),
+        )
+        .route(
             "/status",
             get({
                 let cfg = health_config.clone();
@@ -407,6 +414,32 @@ async fn health_handler() -> Json<serde_json::Value> {
         "sessions": session_count,
         "commands": 22,
     }))
+}
+
+async fn ready_handler(
+    config: Arc<config::GatewayConfig>,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    let checks = doctor::run_checks(&config.agent.name).await;
+    let all_ok = checks.iter().all(|(_, ok, _)| *ok);
+    let failed: Vec<&str> = checks.iter()
+        .filter(|(_, ok, _)| !*ok)
+        .map(|(name, _, _)| name.as_str())
+        .collect();
+    let status = if all_ok {
+        axum::http::StatusCode::OK
+    } else {
+        axum::http::StatusCode::SERVICE_UNAVAILABLE
+    };
+    (
+        status,
+        Json(serde_json::json!({
+            "ready": all_ok,
+            "checks_total": checks.len(),
+            "checks_passed": checks.iter().filter(|(_, ok, _)| *ok).count(),
+            "failed": failed,
+        })),
+    ).into_response()
 }
 
 async fn metrics_handler(

@@ -244,7 +244,7 @@ impl GatewayMetrics {
             "rate_limited": self.rate_limited.load(Ordering::Relaxed),
             "concurrency_rejected": self.concurrency_rejected.load(Ordering::Relaxed),
             "completed_requests": self.completed_requests.load(Ordering::Relaxed),
-            "total_latency_ms": self.total_latency_ms.load(Ordering::Relaxed),
+            "latency_ms_total": self.total_latency_ms.load(Ordering::Relaxed),
             "avg_latency_ms": self.avg_latency_ms(),
             "gateway_connects": self.gateway_connects.load(Ordering::Relaxed),
             "gateway_disconnects": self.gateway_disconnects.load(Ordering::Relaxed),

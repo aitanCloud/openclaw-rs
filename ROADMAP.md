@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.68.0
+**Version:** 0.69.0
 **Last updated:** 2026-02-19
 **Maintainer:** Cascade + Shawaz
 
@@ -539,7 +539,14 @@
 - ✅ **20 Prometheus metrics** — requests, errors, rate_limited, concurrency_rejected, completed, latency, avg_latency, ws_events (3), cancelled, timeouts, error_rate, turns, tool_calls, webhooks, rss, uptime, sessions
 - ✅ **177 tests** — 111 agent + 7 core + 59 gateway (was 57)
 
-## v0.69.0 — Daemon & Polish
+## v0.69.0 — Readiness Probe & JSON Parity (shipped)
+
+- ✅ **`GET /ready` endpoint** — Kubernetes-style readiness probe: returns 200 if all 12 doctor checks pass, 503 with failed check names if any fail
+- ✅ **JSON `latency_ms_total`** — renamed from `total_latency_ms` for consistency with Prometheus naming
+- ✅ **7 HTTP endpoints** — /health, /ready, /status, /metrics, /metrics/json, /doctor, /webhook
+- ✅ **177 tests** — 111 agent + 7 core + 59 gateway
+
+## v0.70.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**
