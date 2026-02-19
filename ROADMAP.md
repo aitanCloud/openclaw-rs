@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.74.0
+**Version:** 0.75.0
 **Last updated:** 2026-02-19
 **Maintainer:** Cascade + Shawaz
 
@@ -580,7 +580,15 @@
 - ✅ **BOOT_TIMESTAMP format test** — validates ISO 8601 format (YYYY-MM-DDTHH:MM:SSZ)
 - ✅ **181 tests** — 111 agent + 7 core + 63 gateway (was 62)
 
-## v0.75.0 — Daemon & Polish
+## v0.75.0 — Info Gauge & Response Timing (shipped)
+
+- ✅ **`openclaw_gateway_info` Prometheus gauge** — 22nd metric: `{version="0.75.0"} 1` for Grafana version tracking
+- ✅ **`X-Response-Time-Ms` header** — added to `/health` and `/ready` responses for latency monitoring
+- ✅ **`human_uptime` edge case tests** — boundary values: 0s, 60s, 3600s, 86400s
+- ✅ **22 Prometheus metrics** — comprehensive test updated
+- ✅ **182 tests** — 111 agent + 7 core + 64 gateway (was 63)
+
+## v0.76.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**

@@ -236,6 +236,11 @@ impl GatewayMetrics {
         out.push_str("# TYPE openclaw_gateway_doctor_checks_total gauge\n");
         out.push_str("openclaw_gateway_doctor_checks_total 12\n");
 
+        out.push_str("# HELP openclaw_gateway_info Gateway build information\n");
+        out.push_str("# TYPE openclaw_gateway_info gauge\n");
+        out.push_str(&format!("openclaw_gateway_info{{version=\"{}\"}} 1\n",
+            env!("CARGO_PKG_VERSION")));
+
         out
     }
 
@@ -516,12 +521,13 @@ mod tests {
             "openclaw_gateway_uptime_seconds",
             "openclaw_gateway_sessions_total",
             "openclaw_gateway_doctor_checks_total",
+            "openclaw_gateway_info{version=",
         ];
         for metric in &expected {
             assert!(prom.contains(metric),
                 "Prometheus output missing metric: {}", metric);
         }
-        assert_eq!(expected.len(), 21, "Expected 21 Prometheus metric lines");
+        assert_eq!(expected.len(), 22, "Expected 22 Prometheus metric lines");
     }
 
     #[test]

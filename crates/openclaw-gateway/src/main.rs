@@ -386,7 +386,9 @@ pub fn human_uptime(secs: u64) -> String {
     }
 }
 
-async fn health_handler() -> Json<serde_json::Value> {
+async fn health_handler() -> axum::response::Response {
+    use axum::response::IntoResponse;
+    let t0 = std::time::Instant::now();
     let uptime_secs = handler::BOOT_TIME.elapsed().as_secs();
     let skills_count = {
         let home = dirs::home_dir().unwrap_or_default();
@@ -404,28 +406,34 @@ async fn health_handler() -> Json<serde_json::Value> {
     let checks = doctor::run_checks("main").await;
     let checks_total = checks.len();
     let checks_passed = checks.iter().filter(|(_, ok, _)| *ok).count();
-    Json(serde_json::json!({
-        "status": "ok",
-        "version": env!("CARGO_PKG_VERSION"),
-        "built": env!("BUILD_TIMESTAMP"),
-        "boot_time": *handler::BOOT_TIMESTAMP,
-        "active_tasks": task_registry::active_count(),
-        "uptime": human_uptime(uptime_secs),
-        "uptime_seconds": uptime_secs,
-        "memory_rss_bytes": rss,
-        "memory_rss": crate::doctor::human_bytes_pub(rss),
-        "skills": skills_count,
-        "sessions": session_count,
-        "commands": 22,
-        "doctor_checks_total": checks_total,
-        "doctor_checks_passed": checks_passed,
-    }))
+    let elapsed_ms = t0.elapsed().as_millis();
+    (
+        [(axum::http::header::HeaderName::from_static("x-response-time-ms"),
+          axum::http::HeaderValue::from_str(&elapsed_ms.to_string()).unwrap())],
+        Json(serde_json::json!({
+            "status": "ok",
+            "version": env!("CARGO_PKG_VERSION"),
+            "built": env!("BUILD_TIMESTAMP"),
+            "boot_time": *handler::BOOT_TIMESTAMP,
+            "active_tasks": task_registry::active_count(),
+            "uptime": human_uptime(uptime_secs),
+            "uptime_seconds": uptime_secs,
+            "memory_rss_bytes": rss,
+            "memory_rss": crate::doctor::human_bytes_pub(rss),
+            "skills": skills_count,
+            "sessions": session_count,
+            "commands": 22,
+            "doctor_checks_total": checks_total,
+            "doctor_checks_passed": checks_passed,
+        })),
+    ).into_response()
 }
 
 async fn ready_handler(
     config: Arc<config::GatewayConfig>,
 ) -> axum::response::Response {
     use axum::response::IntoResponse;
+    let t0 = std::time::Instant::now();
     let checks = doctor::run_checks(&config.agent.name).await;
     let all_ok = checks.iter().all(|(_, ok, _)| *ok);
     let failed: Vec<&str> = checks.iter()
@@ -437,8 +445,11 @@ async fn ready_handler(
     } else {
         axum::http::StatusCode::SERVICE_UNAVAILABLE
     };
+    let elapsed_ms = t0.elapsed().as_millis();
     (
         status,
+        [(axum::http::header::HeaderName::from_static("x-response-time-ms"),
+          axum::http::HeaderValue::from_str(&elapsed_ms.to_string()).unwrap())],
         Json(serde_json::json!({
             "ready": all_ok,
             "checks_total": checks.len(),
@@ -742,6 +753,14 @@ mod tests {
                 "Error code '{}' should be UPPER_SNAKE_CASE", code);
         }
         assert_eq!(codes.len(), 5, "Should have 5 webhook error codes");
+    }
+
+    #[test]
+    fn test_human_uptime_edge_cases() {
+        assert_eq!(human_uptime(0), "0m 0s");
+        assert_eq!(human_uptime(60), "1m 0s");
+        assert_eq!(human_uptime(3600), "1h 0m");
+        assert_eq!(human_uptime(86400), "1d 0h 0m");
     }
 
     #[test]
