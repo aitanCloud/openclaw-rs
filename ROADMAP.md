@@ -803,20 +803,30 @@
 - ✅ **Updated /status command lists** — both Telegram and Discord now list 23 commands including `/logs`
 - ✅ **8 gateway CLI subcommands total** — status, logs, doctor, version, ping, metrics, model, sessions
 
-## v1.3.0 — Channel Plugin Abstraction
+## v1.3.0 — LLM Log Enrichment (shipped)
+
+- ✅ **Session context tracking** — `set_session_context()` / `clear_session_context()` wired into both `run_agent_turn` and `run_agent_turn_streaming`, log entries auto-tagged with session key
+- ✅ **LogStats struct** — `stats()` returns total_recorded, buffered, errors, avg_latency_ms
+- ✅ **`llm_log` in /health** — LLM log stats exposed in the /health JSON endpoint
+- ✅ **Enhanced /logs endpoint** — now includes stats (errors, avg_latency, buffered count)
+- ✅ **Updated /health field counts** — commands: 23, http_endpoint_count: 13
+- ✅ **3 new tests** — session context set/clear, LogStats default, LogStats serialization
+- ✅ **224 total tests** — 124 agent + 7 core + 93 gateway
+
+## v1.4.0 — Channel Plugin Abstraction
 
 - 📋 **`Channel` trait** — abstract interface for message channels (send, edit, upload, typing)
 - 📋 **Telegram channel plugin** — refactor handler.rs to implement Channel trait
 - 📋 **Discord channel plugin** — refactor discord_handler.rs to implement Channel trait
 - 📋 **Plugin loader** — dynamic channel registration from config
 
-## v1.4.0 — WebSocket Protocol
+## v1.5.0 — WebSocket Protocol
 
 - 📋 **WS endpoint** — `ws://gateway:3100/ws` for CLI↔Gateway real-time communication
 - 📋 **CLI connect mode** — `openclaw chat` opens interactive WS session
 - 📋 **TUI** — terminal UI with streaming responses
 
-## v1.5.0+ — Extended Features
+## v1.6.0+ — Extended Features
 
 - 📋 **Multi-agent routing** — per-agent workspaces, auth, routing
 - 📋 **Device pairing** — QR codes, setup codes, token management

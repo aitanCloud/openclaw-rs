@@ -57,6 +57,55 @@ pub fn total_count() -> u64 {
         .unwrap_or(0)
 }
 
+/// Current session context — set before LLM calls so log entries get tagged
+static CURRENT_SESSION: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+/// Set the current session key (call before running an agent turn)
+pub fn set_session_context(session_key: &str) {
+    if let Ok(mut ctx) = CURRENT_SESSION.lock() {
+        *ctx = Some(session_key.to_string());
+    }
+}
+
+/// Clear the current session key (call after agent turn completes)
+pub fn clear_session_context() {
+    if let Ok(mut ctx) = CURRENT_SESSION.lock() {
+        *ctx = None;
+    }
+}
+
+/// Get the current session key (used internally by log entry creation)
+pub fn current_session_key() -> Option<String> {
+    CURRENT_SESSION.lock().ok().and_then(|ctx| ctx.clone())
+}
+
+/// Get summary stats for the log
+pub fn stats() -> LogStats {
+    GLOBAL_LOG
+        .get()
+        .and_then(|log| log.lock().ok())
+        .map(|log| LogStats {
+            total_recorded: log.total_count,
+            buffered: log.entries.len() as u64,
+            errors: log.entries.iter().filter(|e| e.error.is_some()).count() as u64,
+            avg_latency_ms: if log.entries.is_empty() {
+                0
+            } else {
+                log.entries.iter().map(|e| e.latency_ms).sum::<u64>() / log.entries.len() as u64
+            },
+        })
+        .unwrap_or_default()
+}
+
+/// Summary statistics for the LLM activity log
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+pub struct LogStats {
+    pub total_recorded: u64,
+    pub buffered: u64,
+    pub errors: u64,
+    pub avg_latency_ms: u64,
+}
+
 /// A single LLM API interaction log entry
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LlmLogEntry {
@@ -95,7 +144,7 @@ pub struct LlmLogEntry {
 }
 
 impl LlmLogEntry {
-    /// Create a new entry with auto-generated ID and timestamp
+    /// Create a new entry with auto-generated ID, timestamp, and current session context
     pub fn new(model: &str) -> Self {
         Self {
             id: uuid::Uuid::new_v4().to_string(),
@@ -114,7 +163,7 @@ impl LlmLogEntry {
             latency_ms: 0,
             error: None,
             provider_attempt: 1,
-            session_key: None,
+            session_key: current_session_key(),
         }
     }
 
@@ -327,5 +376,44 @@ mod tests {
         let deserialized: LlmLogEntry = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.model, "test/model");
         assert_eq!(deserialized.id, entry.id);
+    }
+
+    #[test]
+    fn test_session_context_set_and_clear() {
+        set_session_context("tg:main:123:456");
+        assert_eq!(current_session_key(), Some("tg:main:123:456".to_string()));
+
+        let entry = LlmLogEntry::new("test/model");
+        assert_eq!(entry.session_key, Some("tg:main:123:456".to_string()));
+
+        clear_session_context();
+        assert_eq!(current_session_key(), None);
+
+        let entry2 = LlmLogEntry::new("test/model");
+        assert!(entry2.session_key.is_none());
+    }
+
+    #[test]
+    fn test_log_stats_default() {
+        let stats = LogStats::default();
+        assert_eq!(stats.total_recorded, 0);
+        assert_eq!(stats.buffered, 0);
+        assert_eq!(stats.errors, 0);
+        assert_eq!(stats.avg_latency_ms, 0);
+    }
+
+    #[test]
+    fn test_log_stats_serialization() {
+        let stats = LogStats {
+            total_recorded: 10,
+            buffered: 5,
+            errors: 2,
+            avg_latency_ms: 150,
+        };
+        let json = serde_json::to_string(&stats).unwrap();
+        assert!(json.contains("\"total_recorded\":10"));
+        assert!(json.contains("\"errors\":2"));
+        let deserialized: LogStats = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.avg_latency_ms, 150);
     }
 }

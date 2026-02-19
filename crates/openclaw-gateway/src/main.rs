@@ -488,6 +488,13 @@ async fn health_handler() -> axum::response::Response {
     let checks = doctor::run_checks("main").await;
     let checks_total = checks.len();
     let checks_passed = checks.iter().filter(|(_, ok, _)| *ok).count();
+    let llm_log_stats = openclaw_agent::llm_log::stats();
+    let llm_log_json = serde_json::json!({
+        "total_recorded": llm_log_stats.total_recorded,
+        "buffered": llm_log_stats.buffered,
+        "errors": llm_log_stats.errors,
+        "avg_latency_ms": llm_log_stats.avg_latency_ms,
+    });
     let elapsed_ms = t0.elapsed().as_millis();
     (
         [(axum::http::header::HeaderName::from_static("x-response-time-ms"),
@@ -515,8 +522,8 @@ async fn health_handler() -> axum::response::Response {
             "sessions_db_size": crate::doctor::human_bytes_pub(sessions_db_size),
             "skills": skills_count,
             "sessions": session_count,
-            "commands": 22,
-            "http_endpoint_count": 12,
+            "commands": 23,
+            "http_endpoint_count": 13,
             "tool_count": 17,
             "total_requests": total_requests,
             "total_errors": total_errors,
@@ -536,6 +543,7 @@ async fn health_handler() -> axum::response::Response {
             "provider_count": providers.len(),
             "fallback_chain": providers,
             "webhook_configured": std::env::var("WEBHOOK_TOKEN").is_ok(),
+            "llm_log": llm_log_json,
             "doctor_checks_total": checks_total,
             "doctor_checks_passed": checks_passed,
             "response_time_ms": elapsed_ms,
@@ -608,9 +616,12 @@ async fn logs_handler(
         .and_then(|v| v.parse().ok())
         .unwrap_or(50);
     let entries = openclaw_agent::llm_log::recent(limit);
-    let total = openclaw_agent::llm_log::total_count();
+    let stats = openclaw_agent::llm_log::stats();
     Json(serde_json::json!({
-        "total_recorded": total,
+        "total_recorded": stats.total_recorded,
+        "buffered": stats.buffered,
+        "errors": stats.errors,
+        "avg_latency_ms": stats.avg_latency_ms,
         "showing": entries.len(),
         "entries": entries,
     }))

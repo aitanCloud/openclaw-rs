@@ -122,6 +122,9 @@ pub async fn run_agent_turn(
 ) -> Result<AgentTurnResult> {
     let t_start = Instant::now();
 
+    // Set session context for LLM log tagging
+    crate::llm_log::set_session_context(&config.session_key);
+
     // Load workspace context
     let workspace_dir = Path::new(&config.workspace_dir);
     let ws = workspace::load_workspace(workspace_dir, config.minimal_context)
@@ -272,6 +275,9 @@ pub async fn run_agent_turn_streaming(
     cancel_token: Option<tokio_util::sync::CancellationToken>,
 ) -> Result<AgentTurnResult> {
     let t_start = Instant::now();
+
+    // Set session context for LLM log tagging
+    crate::llm_log::set_session_context(&config.session_key);
 
     let workspace_dir = Path::new(&config.workspace_dir);
     let ws = workspace::load_workspace(workspace_dir, config.minimal_context)
