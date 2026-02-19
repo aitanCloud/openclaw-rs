@@ -1,5 +1,6 @@
 mod config;
 mod cron;
+mod debounce;
 mod discord;
 mod discord_handler;
 mod handler;
@@ -39,16 +40,23 @@ async fn main() -> anyhow::Result<()> {
         me.first_name
     );
 
-    // ── Migrate old session keys (v0.15 → v0.16 format) ──
+    // ── Session maintenance on startup ──
     match openclaw_agent::sessions::SessionStore::open(&config.agent.name) {
         Ok(store) => {
+            // Migrate old session keys (v0.15 → v0.16 format)
             match store.migrate_old_session_keys() {
                 Ok(0) => {}
                 Ok(n) => info!("Migrated {} old session key(s) to user-based format", n),
                 Err(e) => warn!("Session key migration failed: {}", e),
             }
+            // Prune sessions older than 30 days
+            match store.prune_old_sessions(30) {
+                Ok(0) => {}
+                Ok(n) => info!("Pruned {} stale session(s) older than 30 days", n),
+                Err(e) => warn!("Session pruning failed: {}", e),
+            }
         }
-        Err(e) => warn!("Could not open session store for migration: {}", e),
+        Err(e) => warn!("Could not open session store for maintenance: {}", e),
     }
 
     // ── Start cron executor ──
@@ -104,6 +112,9 @@ async fn main() -> anyhow::Result<()> {
             error!("HTTP server error: {}", e);
         }
     });
+
+    // ── Message debouncer (collect rapid messages) ──
+    let debouncer = Arc::new(debounce::MessageDebouncer::new(1500, 5));
 
     // ── Rate limiter (config-driven) ──
     let rl_msgs = config.agent.sandbox.as_ref()

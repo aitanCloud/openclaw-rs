@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.22.0
+**Version:** 0.23.0
 **Last updated:** 2026-02-18
 **Maintainer:** Cascade + Shawaz
 
@@ -193,7 +193,14 @@
 - ✅ **9 commands on both channels** — /help, /new, /status, /model, /sessions, /export, /voice, /ping, /cron
 - ✅ **120 tests** — 92 agent + 7 core + 21 gateway
 
-## v0.23.0 — Daemon & Polish
+## v0.23.0 — Debounce & Cleanup (shipped)
+
+- ✅ **Message debouncer** — `debounce.rs` module collects rapid messages from same user into single batch (1.5s window, max 5 messages), with 4 async tests
+- ✅ **Session auto-cleanup** — `prune_old_sessions()` deletes sessions older than 30 days on gateway startup, with FK-safe SQLite deletes
+- ✅ **Session maintenance on startup** — migration + pruning run together before cron/polling starts
+- ✅ **125 tests** — 93 agent + 7 core + 25 gateway
+
+## v0.24.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**

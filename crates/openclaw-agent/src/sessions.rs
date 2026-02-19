@@ -266,6 +266,36 @@ impl SessionStore {
         }
     }
 
+    /// Delete sessions older than `max_age_days` days. Returns the number of sessions pruned.
+    pub fn prune_old_sessions(&self, max_age_days: u32) -> Result<usize> {
+        let cutoff_ms = now_ms() - (max_age_days as i64 * 86_400_000);
+
+        // Find sessions to prune
+        let mut stmt = self.conn.prepare(
+            "SELECT session_key FROM sessions WHERE updated_at_ms < ?1"
+        )?;
+        let keys: Vec<String> = stmt
+            .query_map(params![cutoff_ms], |row| row.get(0))?
+            .filter_map(|r| r.ok())
+            .collect();
+        drop(stmt);
+
+        if keys.is_empty() {
+            return Ok(0);
+        }
+
+        self.conn.execute_batch("PRAGMA foreign_keys = OFF;")?;
+
+        for key in &keys {
+            self.conn.execute("DELETE FROM messages WHERE session_key = ?1", params![key])?;
+            self.conn.execute("DELETE FROM sessions WHERE session_key = ?1", params![key])?;
+        }
+
+        self.conn.execute_batch("PRAGMA foreign_keys = ON;")?;
+
+        Ok(keys.len())
+    }
+
     /// Migrate old-format session keys (without user_id) to new format.
     /// Old format: `{prefix}:{agent}:{channel}` → New format: `{prefix}:{agent}:0:{channel}`
     /// Returns the number of sessions migrated.
@@ -519,5 +549,38 @@ mod tests {
         // Running again should migrate 0
         let migrated2 = store.migrate_old_session_keys().unwrap();
         assert_eq!(migrated2, 0);
+    }
+
+    #[test]
+    fn test_prune_old_sessions() {
+        let store = SessionStore::open_memory().unwrap();
+
+        // Create sessions
+        store.create_session("old-session", "main", "model").unwrap();
+        store.append_message("old-session", &Message::user("old msg")).unwrap();
+        store.create_session("new-session", "main", "model").unwrap();
+        store.append_message("new-session", &Message::user("new msg")).unwrap();
+
+        // Manually backdate the "old" session by updating its updated_at_ms
+        store.conn.execute(
+            "UPDATE sessions SET updated_at_ms = ?1 WHERE session_key = 'old-session'",
+            params![1_000_000], // very old timestamp
+        ).unwrap();
+
+        // Prune sessions older than 1 day
+        let pruned = store.prune_old_sessions(1).unwrap();
+        assert_eq!(pruned, 1);
+
+        // Old session should be gone
+        let old_msgs = store.load_messages("old-session").unwrap();
+        assert!(old_msgs.is_empty());
+
+        // New session should still exist
+        let new_msgs = store.load_messages("new-session").unwrap();
+        assert_eq!(new_msgs.len(), 1);
+
+        // Pruning again should find nothing
+        let pruned2 = store.prune_old_sessions(1).unwrap();
+        assert_eq!(pruned2, 0);
     }
 }
