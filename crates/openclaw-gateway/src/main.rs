@@ -341,9 +341,11 @@ async fn main() -> anyhow::Result<()> {
 }
 
 async fn health_handler() -> Json<serde_json::Value> {
+    let uptime = handler::BOOT_TIME.elapsed().as_secs();
     Json(serde_json::json!({
         "status": "ok",
         "active_tasks": task_registry::active_count(),
+        "uptime_seconds": uptime,
     }))
 }
 

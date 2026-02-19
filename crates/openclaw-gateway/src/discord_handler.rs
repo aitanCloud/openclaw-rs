@@ -432,31 +432,19 @@ async fn handle_command(
 
     match cmd {
         "start" | "help" => {
-            bot.send_reply(
-                channel_id,
-                reply_to,
-                "🦀 **Rustbot** online.\n\n\
-                I'm the Rust-powered OpenClaw agent. Send me a message and I'll process it with tools and workspace context.\n\n\
-                **Commands:**\n\
-                `/new` — start a new session\n\
-                `/status` — show bot status\n\
-                `/model` — show current model info\n\
-                `/sessions` — list recent sessions\n\
-                `/export` — export current session as markdown\n\
-                `/voice` — get a voice response (TTS)\n\
-                `/ping` — latency check\n\
-                `/history [N]` — last N messages (default 5, max 20)\n\
-                `/clear` — delete current session\n\
-                `/db` — session database stats\n\
-                `/version` — build info and uptime\n\
-                `/stats` — gateway request stats\n\
-                `/whoami` — show your user info\n\
-                `/cancel` — stop the running task\n\
-                `/cron` — list and manage cron jobs\n\
-                `/help` — show this help\n\n\
-                You can also use `!` prefix instead of `/`. Send images for vision analysis.",
-            )
-            .await?;
+            bot.send_embed(
+                channel_id, Some(reply_to),
+                "🦀 Rustbot Help",
+                "Rust-powered OpenClaw agent. Send a message or use a command.\nUse `!` prefix instead of `/`. Send images for vision.",
+                0x5865F2, // Discord blurple
+                &[
+                    ("Session", "`/new` `/clear` `/sessions` `/export`", false),
+                    ("Info", "`/status` `/model` `/version` `/whoami` `/db`", false),
+                    ("Monitoring", "`/stats` `/ping` `/history [N]`", false),
+                    ("Control", "`/cancel` `/stop` `/voice` `/cron`", false),
+                    ("Commands", "17", true),
+                ],
+            ).await?;
         }
         "ping" => {
             let start = std::time::Instant::now();
@@ -492,6 +480,7 @@ async fn handle_command(
                 let hours = uptime.as_secs() / 3600;
                 let mins = (uptime.as_secs() % 3600) / 60;
                 let cancelled = m.tasks_cancelled.load(std::sync::atomic::Ordering::Relaxed);
+                let timeouts = m.agent_timeouts.load(std::sync::atomic::Ordering::Relaxed);
                 bot.send_embed(
                     channel_id, Some(reply_to),
                     "📊 Gateway Stats",
@@ -504,6 +493,7 @@ async fn handle_command(
                         ("Completed", &completed.to_string(), true),
                         ("Avg Latency", &format!("{}ms", avg), true),
                         ("Cancelled", &cancelled.to_string(), true),
+                        ("Timeouts", &timeouts.to_string(), true),
                         ("Active Tasks", &crate::task_registry::active_count().to_string(), true),
                     ],
                 ).await?;
