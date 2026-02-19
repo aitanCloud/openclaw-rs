@@ -1043,15 +1043,16 @@ mod tests {
     #[test]
     fn test_endpoint_field_counts_summary() {
         // Comprehensive summary of all endpoint JSON field counts
-        assert_eq!(46, 46, "/health should have 46 fields");
+        assert_eq!(47, 47, "/health should have 47 fields (added llm_log)");
         assert_eq!(8, 8, "/health/lite should have 8 fields");
         assert_eq!(5, 5, "/version should have 5 fields");
         assert_eq!(5, 5, "/ready should have 5 fields");
         assert_eq!(20, 20, "/status should have 20 fields");
         assert_eq!(4, 4, "/doctor/json should have 4 top-level fields");
+        assert_eq!(6, 6, "/logs should have 6 top-level fields");
         // Total unique JSON fields across all endpoints
-        let total = 46 + 8 + 5 + 5 + 20 + 4;
-        assert_eq!(total, 88, "Total JSON fields across all endpoints should be 88");
+        let total = 47 + 8 + 5 + 5 + 20 + 4 + 6;
+        assert_eq!(total, 95, "Total JSON fields across all endpoints should be 95");
     }
 
     #[test]
@@ -1115,13 +1116,13 @@ mod tests {
 
     #[test]
     fn test_http_endpoints_count() {
-        let endpoints = ["/health", "/health/lite", "/version", "/ping", "/ready", "/status", "/metrics", "/metrics/json", "/metrics/summary", "/doctor", "/doctor/json", "/webhook"];
-        assert_eq!(endpoints.len(), 12, "Should have 12 HTTP endpoints");
+        let endpoints = ["/health", "/health/lite", "/version", "/ping", "/ready", "/status", "/metrics", "/metrics/json", "/metrics/summary", "/doctor", "/doctor/json", "/webhook", "/logs"];
+        assert_eq!(endpoints.len(), 13, "Should have 13 HTTP endpoints");
         // Verify no duplicates
         let mut sorted = endpoints.to_vec();
         sorted.sort();
         sorted.dedup();
-        assert_eq!(sorted.len(), 12, "HTTP endpoints should have no duplicates");
+        assert_eq!(sorted.len(), 13, "HTTP endpoints should have no duplicates");
     }
 
     #[test]

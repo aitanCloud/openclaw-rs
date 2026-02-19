@@ -290,7 +290,20 @@ impl GatewayMetrics {
 
         out.push_str("# HELP openclaw_gateway_doctor_checks_total Total number of doctor health checks\n");
         out.push_str("# TYPE openclaw_gateway_doctor_checks_total gauge\n");
-        out.push_str("openclaw_gateway_doctor_checks_total 15\n");
+        out.push_str("openclaw_gateway_doctor_checks_total 16\n");
+
+        let llm_stats = openclaw_agent::llm_log::stats();
+        out.push_str("# HELP openclaw_gateway_llm_log_total Total LLM API calls recorded\n");
+        out.push_str("# TYPE openclaw_gateway_llm_log_total counter\n");
+        out.push_str(&format!("openclaw_gateway_llm_log_total {}\n", llm_stats.total_recorded));
+
+        out.push_str("# HELP openclaw_gateway_llm_log_errors_total Total LLM API call errors\n");
+        out.push_str("# TYPE openclaw_gateway_llm_log_errors_total counter\n");
+        out.push_str(&format!("openclaw_gateway_llm_log_errors_total {}\n", llm_stats.errors));
+
+        out.push_str("# HELP openclaw_gateway_llm_log_avg_latency_ms Average LLM API call latency\n");
+        out.push_str("# TYPE openclaw_gateway_llm_log_avg_latency_ms gauge\n");
+        out.push_str(&format!("openclaw_gateway_llm_log_avg_latency_ms {}\n", llm_stats.avg_latency_ms));
 
         out.push_str("# HELP openclaw_gateway_pid Process ID of the gateway\n");
         out.push_str("# TYPE openclaw_gateway_pid gauge\n");
@@ -336,7 +349,10 @@ impl GatewayMetrics {
                 .and_then(|s| s.db_stats("main").ok())
                 .map(|stats| stats.session_count)
                 .unwrap_or(0),
-            "doctor_checks_total": 15,
+            "doctor_checks_total": 16,
+            "llm_log_total": openclaw_agent::llm_log::total_count(),
+            "llm_log_errors": openclaw_agent::llm_log::stats().errors,
+            "llm_log_avg_latency_ms": openclaw_agent::llm_log::stats().avg_latency_ms,
         })
     }
 }
@@ -589,12 +605,15 @@ mod tests {
             "openclaw_gateway_pid ",
             "openclaw_gateway_hostname_info{hostname=",
             "openclaw_gateway_info{version=",
+            "openclaw_gateway_llm_log_total",
+            "openclaw_gateway_llm_log_errors_total",
+            "openclaw_gateway_llm_log_avg_latency_ms",
         ];
         for metric in &expected {
             assert!(prom.contains(metric),
                 "Prometheus output missing metric: {}", metric);
         }
-        assert_eq!(expected.len(), 24, "Expected 24 Prometheus metric lines");
+        assert_eq!(expected.len(), 27, "Expected 27 Prometheus metric lines");
     }
 
     #[test]
@@ -604,7 +623,7 @@ mod tests {
         let help_count = prom.lines().filter(|l| l.starts_with("# HELP")).count();
         let type_count = prom.lines().filter(|l| l.starts_with("# TYPE")).count();
         assert_eq!(help_count, type_count, "Each HELP should have a matching TYPE");
-        assert!(help_count >= 15, "Should have at least 15 HELP lines, got {}", help_count);
+        assert!(help_count >= 18, "Should have at least 18 HELP lines, got {}", help_count);
     }
 
     #[test]
@@ -641,15 +660,16 @@ mod tests {
             "agent_turns", "tool_calls", "webhook_requests",
             "error_rate_pct", "process_rss_bytes",
             "uptime_seconds", "sessions_total", "doctor_checks_total",
+            "llm_log_total", "llm_log_errors", "llm_log_avg_latency_ms",
         ];
         for field in &expected_fields {
             assert!(json.get(*field).is_some(),
                 "JSON metrics missing field: {}", field);
         }
-        assert_eq!(expected_fields.len(), 22, "Expected 22 JSON metrics fields");
-        // Verify the actual JSON object has exactly 22 keys
+        assert_eq!(expected_fields.len(), 25, "Expected 25 JSON metrics fields");
+        // Verify the actual JSON object has exactly 25 keys
         let obj = json.as_object().expect("JSON metrics should be an object");
-        assert_eq!(obj.len(), 22, "JSON metrics object should have 22 keys, got {}", obj.len());
+        assert_eq!(obj.len(), 25, "JSON metrics object should have 25 keys, got {}", obj.len());
     }
 
     #[test]

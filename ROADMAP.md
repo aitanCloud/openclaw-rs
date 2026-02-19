@@ -821,20 +821,30 @@
 - ✅ **Updated /health field counts** — commands: 23, http_endpoint_count: 13, llm_log stats object
 - ✅ **224 total tests** — 124 agent + 7 core + 93 gateway
 
-## v1.5.0 — Channel Plugin Abstraction
+## v1.5.0 — Prometheus LLM Metrics & Test Updates (shipped)
+
+- ✅ **3 new Prometheus metrics** — `openclaw_gateway_llm_log_total`, `openclaw_gateway_llm_log_errors_total`, `openclaw_gateway_llm_log_avg_latency_ms` (27 total Prometheus metrics)
+- ✅ **3 new JSON metrics fields** — `llm_log_total`, `llm_log_errors`, `llm_log_avg_latency_ms` (25 total JSON metrics fields)
+- ✅ **Updated /health field count** — 47 fields (added `llm_log` object)
+- ✅ **Updated HTTP endpoints test** — 13 endpoints (added `/logs`)
+- ✅ **Updated endpoint field count summary** — 95 total JSON fields across all endpoints
+- ✅ **Updated doctor_checks_total** — 16 in both Prometheus and JSON
+- ✅ **224 total tests** — 124 agent + 7 core + 93 gateway
+
+## v1.6.0 — Channel Plugin Abstraction
 
 - 📋 **`Channel` trait** — abstract interface for message channels (send, edit, upload, typing)
 - 📋 **Telegram channel plugin** — refactor handler.rs to implement Channel trait
 - 📋 **Discord channel plugin** — refactor discord_handler.rs to implement Channel trait
 - 📋 **Plugin loader** — dynamic channel registration from config
 
-## v1.6.0 — WebSocket Protocol
+## v1.7.0 — WebSocket Protocol
 
 - 📋 **WS endpoint** — `ws://gateway:3100/ws` for CLI↔Gateway real-time communication
 - 📋 **CLI connect mode** — `openclaw chat` opens interactive WS session
 - 📋 **TUI** — terminal UI with streaming responses
 
-## v1.7.0+ — Extended Features
+## v1.8.0+ — Extended Features
 
 - 📋 **Multi-agent routing** — per-agent workspaces, auth, routing
 - 📋 **Device pairing** — QR codes, setup codes, token management
