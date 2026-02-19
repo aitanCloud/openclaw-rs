@@ -16,6 +16,17 @@ pub struct SessionMessage {
     pub timestamp_ms: i64,
 }
 
+/// Database statistics
+#[derive(Debug, Clone)]
+pub struct DbStats {
+    pub session_count: i64,
+    pub message_count: i64,
+    pub total_tokens: i64,
+    pub oldest_ms: Option<i64>,
+    pub newest_ms: Option<i64>,
+    pub db_size_bytes: u64,
+}
+
 /// Session metadata
 #[derive(Debug, Clone)]
 pub struct SessionInfo {
@@ -264,6 +275,54 @@ impl SessionStore {
             Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
             Err(e) => Err(e.into()),
         }
+    }
+
+    /// Get database statistics: session count, message count, DB file size, oldest/newest timestamps
+    pub fn db_stats(&self, agent_name: &str) -> Result<DbStats> {
+        let session_count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM sessions WHERE agent_name = ?1",
+            params![agent_name],
+            |row| row.get(0),
+        ).unwrap_or(0);
+
+        let message_count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM messages m JOIN sessions s ON m.session_key = s.session_key WHERE s.agent_name = ?1",
+            params![agent_name],
+            |row| row.get(0),
+        ).unwrap_or(0);
+
+        let total_tokens: i64 = self.conn.query_row(
+            "SELECT COALESCE(SUM(total_tokens), 0) FROM sessions WHERE agent_name = ?1",
+            params![agent_name],
+            |row| row.get(0),
+        ).unwrap_or(0);
+
+        let oldest_ms: Option<i64> = self.conn.query_row(
+            "SELECT MIN(created_at_ms) FROM sessions WHERE agent_name = ?1",
+            params![agent_name],
+            |row| row.get(0),
+        ).ok();
+
+        let newest_ms: Option<i64> = self.conn.query_row(
+            "SELECT MAX(updated_at_ms) FROM sessions WHERE agent_name = ?1",
+            params![agent_name],
+            |row| row.get(0),
+        ).ok();
+
+        // DB file size
+        let db_size_bytes = match resolve_db_path(agent_name) {
+            Ok(path) if path.exists() => std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0),
+            _ => 0,
+        };
+
+        Ok(DbStats {
+            session_count,
+            message_count,
+            total_tokens,
+            oldest_ms,
+            newest_ms,
+            db_size_bytes,
+        })
     }
 
     /// Delete sessions older than `max_age_days` days. Returns the number of sessions pruned.

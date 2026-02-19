@@ -357,6 +357,13 @@ impl DiscordBot {
     }
 }
 
+/// State for Discord Gateway Resume (avoids re-Identify on reconnect)
+struct ResumeState {
+    session_id: String,
+    sequence: u64,
+    resume_url: Option<String>,
+}
+
 /// Main Gateway WebSocket loop with reconnection and exponential backoff
 async fn run_gateway_loop(
     gateway_url: &str,
@@ -365,11 +372,15 @@ async fn run_gateway_loop(
 ) -> Result<()> {
     let mut reconnect_delay = 1u64;
     let mut consecutive_failures = 0u32;
+    let mut resume_state: Option<ResumeState> = None;
 
     loop {
         let session_start = std::time::Instant::now();
+        let connect_url = resume_state.as_ref()
+            .and_then(|r| r.resume_url.clone())
+            .unwrap_or_else(|| gateway_url.to_string());
 
-        match run_gateway_session(gateway_url, token, &msg_tx).await {
+        match run_gateway_session(&connect_url, token, &msg_tx, &mut resume_state).await {
             Ok(()) => {
                 // Clean close — still reconnect (Discord may close for maintenance)
                 info!("Discord Gateway session ended cleanly, reconnecting in 5s...");
@@ -383,10 +394,18 @@ async fn run_gateway_loop(
             }
             Err(e) => {
                 consecutive_failures += 1;
+                let err_str = e.to_string();
                 error!(
                     "Discord Gateway session error (attempt {}): {}. Reconnecting in {}s...",
-                    consecutive_failures, e, reconnect_delay
+                    consecutive_failures, err_str, reconnect_delay
                 );
+
+                // Invalid session means we must re-Identify
+                if err_str.contains("Invalid session") {
+                    info!("Clearing resume state — will re-Identify");
+                    resume_state = None;
+                }
+
                 tokio::time::sleep(std::time::Duration::from_secs(reconnect_delay)).await;
                 reconnect_delay = (reconnect_delay * 2).min(120);
 
@@ -413,6 +432,7 @@ async fn run_gateway_session(
     gateway_url: &str,
     token: &str,
     msg_tx: &mpsc::UnboundedSender<DiscordMessage>,
+    resume_state: &mut Option<ResumeState>,
 ) -> Result<()> {
     let (ws_stream, _) = tokio_tungstenite::connect_async(gateway_url)
         .await
@@ -445,31 +465,48 @@ async fn run_gateway_session(
         heartbeat_interval
     );
 
-    // Send Identify
-    let identify = GatewayIdentify {
-        op: 2,
-        d: IdentifyData {
-            token: token.to_string(),
-            intents: INTENT_GUILDS
-                | INTENT_GUILD_MESSAGES
-                | INTENT_MESSAGE_CONTENT
-                | INTENT_DIRECT_MESSAGES,
-            properties: IdentifyProperties {
-                os: "linux".to_string(),
-                browser: "openclaw-rs".to_string(),
-                device: "openclaw-rs".to_string(),
+    // Resume or Identify
+    if let Some(ref state) = resume_state {
+        info!("Attempting Gateway Resume (session_id={}, seq={})", &state.session_id[..8.min(state.session_id.len())], state.sequence);
+        let resume = serde_json::json!({
+            "op": 6,
+            "d": {
+                "token": token,
+                "session_id": state.session_id,
+                "seq": state.sequence,
+            }
+        });
+        ws_write
+            .send(tokio_tungstenite::tungstenite::Message::Text(resume.to_string().into()))
+            .await
+            .context("Failed to send Resume")?;
+    } else {
+        let identify = GatewayIdentify {
+            op: 2,
+            d: IdentifyData {
+                token: token.to_string(),
+                intents: INTENT_GUILDS
+                    | INTENT_GUILD_MESSAGES
+                    | INTENT_MESSAGE_CONTENT
+                    | INTENT_DIRECT_MESSAGES,
+                properties: IdentifyProperties {
+                    os: "linux".to_string(),
+                    browser: "openclaw-rs".to_string(),
+                    device: "openclaw-rs".to_string(),
+                },
             },
-        },
-    };
-
-    let identify_json = serde_json::to_string(&identify)?;
-    ws_write
-        .send(tokio_tungstenite::tungstenite::Message::Text(identify_json.into()))
-        .await
-        .context("Failed to send Identify")?;
+        };
+        let identify_json = serde_json::to_string(&identify)?;
+        ws_write
+            .send(tokio_tungstenite::tungstenite::Message::Text(identify_json.into()))
+            .await
+            .context("Failed to send Identify")?;
+    }
 
     // Heartbeat + message loop
-    let mut sequence: Option<u64> = None;
+    let mut sequence: Option<u64> = resume_state.as_ref().map(|r| r.sequence);
+    let mut session_id: Option<String> = resume_state.as_ref().map(|r| r.session_id.clone());
+    let mut resume_gateway_url: Option<String> = None;
     let mut heartbeat_interval =
         tokio::time::interval(std::time::Duration::from_millis(heartbeat_interval));
 
@@ -519,8 +556,17 @@ async fn run_gateway_session(
                                             } else if event_name == "READY" {
                                                 if let Some(ref d) = payload.d {
                                                     let user = d["user"]["username"].as_str().unwrap_or("?");
-                                                    info!("Discord Gateway READY as {}", user);
+                                                    if let Some(sid) = d["session_id"].as_str() {
+                                                        session_id = Some(sid.to_string());
+                                                    }
+                                                    if let Some(url) = d["resume_gateway_url"].as_str() {
+                                                        resume_gateway_url = Some(format!("{}/?v=10&encoding=json", url));
+                                                    }
+                                                    info!("Discord Gateway READY as {} (session={})", user,
+                                                        session_id.as_deref().unwrap_or("?"));
                                                 }
+                                            } else if event_name == "RESUMED" {
+                                                info!("Discord Gateway RESUMED successfully");
                                             }
                                         }
                                     }
@@ -529,13 +575,28 @@ async fn run_gateway_session(
                                         debug!("Heartbeat ACK received");
                                     }
                                     7 => {
-                                        // Reconnect requested
+                                        // Reconnect requested — save state for Resume
+                                        if let (Some(sid), Some(seq)) = (&session_id, sequence) {
+                                            *resume_state = Some(ResumeState {
+                                                session_id: sid.clone(),
+                                                sequence: seq,
+                                                resume_url: resume_gateway_url.clone(),
+                                            });
+                                        }
                                         info!("Discord Gateway requested reconnect");
                                         return Err(anyhow::anyhow!("Reconnect requested"));
                                     }
                                     9 => {
-                                        // Invalid session
-                                        warn!("Discord Gateway: invalid session");
+                                        // Invalid session — check if resumable
+                                        let resumable = payload.d.as_ref()
+                                            .and_then(|d| d.as_bool())
+                                            .unwrap_or(false);
+                                        if !resumable {
+                                            warn!("Discord Gateway: invalid session (not resumable)");
+                                            *resume_state = None;
+                                        } else {
+                                            warn!("Discord Gateway: invalid session (resumable)");
+                                        }
                                         return Err(anyhow::anyhow!("Invalid session"));
                                     }
                                     _ => {
@@ -549,6 +610,14 @@ async fn run_gateway_session(
                         return Err(anyhow::anyhow!("WebSocket error: {}", e));
                     }
                     None => {
+                        // Save resume state before returning
+                        if let (Some(sid), Some(seq)) = (&session_id, sequence) {
+                            *resume_state = Some(ResumeState {
+                                session_id: sid.clone(),
+                                sequence: seq,
+                                resume_url: resume_gateway_url.clone(),
+                            });
+                        }
                         return Ok(());
                     }
                 }

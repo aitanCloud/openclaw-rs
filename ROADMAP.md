@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.23.0
+**Version:** 0.24.0
 **Last updated:** 2026-02-18
 **Maintainer:** Cascade + Shawaz
 
@@ -200,7 +200,15 @@
 - ✅ **Session maintenance on startup** — migration + pruning run together before cron/polling starts
 - ✅ **125 tests** — 93 agent + 7 core + 25 gateway
 
-## v0.24.0 — Daemon & Polish
+## v0.24.0 — Resume & Introspection (shipped)
+
+- ✅ **Discord Gateway Resume** — store `session_id` + `sequence` across reconnects, send Resume (op 6) instead of re-Identify, use `resume_gateway_url` from READY, handle RESUMED event, clear state on non-resumable Invalid Session
+- ✅ **`/db` command** — show SQLite session database stats (session count, message count, tokens, DB size, oldest/newest) on both Telegram and Discord
+- ✅ **`DbStats` struct** — new public API in `SessionStore` for database introspection
+- ✅ **10 commands on both channels** — /help, /new, /status, /model, /sessions, /export, /voice, /ping, /db, /cron
+- ✅ **125 tests** — 93 agent + 7 core + 25 gateway
+
+## v0.25.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**

@@ -433,6 +433,7 @@ async fn handle_command(
                 `/export` — export current session as markdown\n\
                 `/voice` — get a voice response (TTS)\n\
                 `/ping` — latency check\n\
+                `/db` — session database stats\n\
                 `/cron` — list and manage cron jobs\n\
                 `/help` — show this help\n\n\
                 You can also use `!` prefix instead of `/`. Send images for vision analysis.",
@@ -442,6 +443,40 @@ async fn handle_command(
         "ping" => {
             let start = std::time::Instant::now();
             bot.send_reply(channel_id, reply_to, &format!("🏓 Pong! ({}ms)", start.elapsed().as_millis())).await?;
+        }
+        "db" => {
+            let store = SessionStore::open(&config.agent.name)?;
+            match store.db_stats(&config.agent.name) {
+                Ok(stats) => {
+                    let size = if stats.db_size_bytes > 1_048_576 {
+                        format!("{:.1} MB", stats.db_size_bytes as f64 / 1_048_576.0)
+                    } else {
+                        format!("{:.1} KB", stats.db_size_bytes as f64 / 1024.0)
+                    };
+                    let now = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64;
+                    let oldest = stats.oldest_ms
+                        .map(|ms| format_duration(now - ms))
+                        .unwrap_or_else(|| "n/a".to_string());
+                    let newest = stats.newest_ms
+                        .map(|ms| format_duration(now - ms))
+                        .unwrap_or_else(|| "n/a".to_string());
+                    bot.send_reply(channel_id, reply_to, &format!(
+                        "🗄️ **Session Database**\n\n\
+                        Sessions: {}\n\
+                        Messages: {}\n\
+                        Tokens: {}\n\
+                        DB size: {}\n\
+                        Oldest: {}\n\
+                        Newest: {}",
+                        stats.session_count, stats.message_count,
+                        stats.total_tokens, size, oldest, newest,
+                    )).await?;
+                }
+                Err(e) => {
+                    bot.send_reply(channel_id, reply_to, &format!("❌ Failed to get DB stats: {}", e)).await?;
+                }
+            }
         }
         "new" | "reset" => {
             let store = SessionStore::open(&config.agent.name)?;
