@@ -454,9 +454,15 @@ async fn status_handler(
 
     // Commands
     let tg_commands = ["help", "new", "status", "model", "sessions", "export", "voice", "ping",
-        "history", "clear", "db", "version", "stats", "whoami", "cancel", "stop", "cron"];
+        "history", "clear", "db", "version", "stats", "whoami", "cancel", "stop", "cron", "tools", "skills", "doctor"];
     let dc_commands = ["help", "new", "status", "model", "sessions", "export", "voice", "ping",
-        "history", "clear", "db", "version", "stats", "whoami", "cancel", "stop", "cron"];
+        "history", "clear", "db", "version", "stats", "whoami", "cancel", "stop", "cron", "tools", "skills", "doctor"];
+
+    // Provider labels from fallback chain
+    let providers: Vec<String> = openclaw_agent::llm::fallback::FallbackProvider::from_config()
+        .ok()
+        .map(|fb| fb.provider_labels().iter().map(|s| s.to_string()).collect())
+        .unwrap_or_default();
 
     Json(serde_json::json!({
         "status": "running",
@@ -464,6 +470,7 @@ async fn status_handler(
         "agent": config.agent.name,
         "fallback": config.agent.fallback,
         "model": config.agent.model,
+        "providers": providers,
         "uptime": uptime,
         "uptime_seconds": uptime_secs,
         "channels": channels,

@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.55.0
+**Version:** 0.56.0
 **Last updated:** 2026-02-19
 **Maintainer:** Cascade + Shawaz
 
@@ -443,7 +443,14 @@
 - ✅ **18/20 Discord embeds** — added `/skills` embed (remaining: /export file upload, /voice TTS audio)
 - ✅ **160 tests** — 111 agent + 7 core + 42 gateway
 
-## v0.56.0 — Daemon & Polish
+## v0.56.0 — Provider Visibility (shipped)
+
+- ✅ **Model info in `/doctor`** — LLM Provider check now shows configured model count and labels (e.g. `3 model(s): ollama/qwen2.5:14b, moonshot/kimi-k2.5, ...`)
+- ✅ **`providers` in `/status` JSON** — `/status` endpoint now includes `providers` array with all fallback chain model labels
+- ✅ **Command lists updated** — `/status` JSON now lists all 20 commands including `/tools`, `/skills`, `/doctor`
+- ✅ **160 tests** — 111 agent + 7 core + 42 gateway
+
+## v0.57.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**

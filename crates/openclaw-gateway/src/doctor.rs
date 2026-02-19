@@ -55,16 +55,23 @@ pub async fn run_checks(agent_name: &str) -> Vec<(String, bool, String)> {
     ));
 
     // 5. LLM provider reachable (try to build from config)
-    let provider_ok = openclaw_agent::llm::fallback::FallbackProvider::from_config().is_ok();
-    checks.push((
-        "LLM Provider".to_string(),
-        provider_ok,
-        if provider_ok {
-            "Fallback chain loaded".to_string()
-        } else {
-            "No providers configured".to_string()
-        },
-    ));
+    match openclaw_agent::llm::fallback::FallbackProvider::from_config() {
+        Ok(fb) => {
+            let labels = fb.provider_labels();
+            checks.push((
+                "LLM Provider".to_string(),
+                true,
+                format!("{} model(s): {}", labels.len(), labels.join(", ")),
+            ));
+        }
+        Err(_) => {
+            checks.push((
+                "LLM Provider".to_string(),
+                false,
+                "No providers configured".to_string(),
+            ));
+        }
+    }
 
     // 6. Metrics available
     let metrics_ok = crate::metrics::global().is_some();
