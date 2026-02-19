@@ -563,12 +563,14 @@ async fn handle_command(
             let pid = std::process::id();
             let uptime_secs = crate::handler::BOOT_TIME.elapsed().as_secs();
             let uptime_str = crate::human_uptime(uptime_secs);
+            let rss = crate::doctor::human_bytes_pub(crate::process_rss_bytes());
             bot.send_message(chat_id, &format!(
                 "🖥️ *Runtime Info*\n\n\
                 Version: v{}\n\
                 Built: {}\n\
                 Profile: {}\n\
                 PID: {}\n\
+                Memory: {}\n\
                 Uptime: {}\n\
                 OS: {}\n\
                 Arch: {}",
@@ -576,6 +578,7 @@ async fn handle_command(
                 env!("BUILD_TIMESTAMP"),
                 if cfg!(debug_assertions) { "debug" } else { "release" },
                 pid,
+                rss,
                 uptime_str,
                 std::env::consts::OS,
                 std::env::consts::ARCH,

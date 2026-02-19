@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.64.0
+**Version:** 0.65.0
 **Last updated:** 2026-02-19
 **Maintainer:** Cascade + Shawaz
 
@@ -509,7 +509,14 @@
 - ✅ **`sessions` in `/health`** — /health endpoint now includes session_count for monitoring
 - ✅ **173 tests** — 111 agent + 7 core + 55 gateway
 
-## v0.65.0 — Daemon & Polish
+## v0.65.0 — Process Memory Monitoring (shipped)
+
+- ✅ **`process_rss_bytes()`** — reads RSS from `/proc/self/statm` (Linux), human-readable via `human_bytes_pub()`
+- ✅ **Memory in `/runtime`** — shows process RSS on both Telegram (text) and Discord (embed)
+- ✅ **Memory in `/health`** — `memory_rss_bytes` and `memory_rss` fields for monitoring/alerting
+- ✅ **173 tests** — 111 agent + 7 core + 55 gateway
+
+## v0.66.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**

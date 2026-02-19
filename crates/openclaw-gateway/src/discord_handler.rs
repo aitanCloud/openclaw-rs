@@ -582,6 +582,7 @@ async fn handle_command(
             let pid = std::process::id();
             let uptime_secs = crate::handler::BOOT_TIME.elapsed().as_secs();
             let uptime_str = crate::human_uptime(uptime_secs);
+            let rss = crate::doctor::human_bytes_pub(crate::process_rss_bytes());
             let profile = if cfg!(debug_assertions) { "debug" } else { "release" };
             bot.send_embed(
                 channel_id, Some(reply_to),
@@ -592,6 +593,7 @@ async fn handle_command(
                     ("Built", env!("BUILD_TIMESTAMP"), true),
                     ("Profile", profile, true),
                     ("PID", &pid.to_string(), true),
+                    ("Memory", &rss, true),
                     ("Uptime", &uptime_str, true),
                     ("OS", std::env::consts::OS, true),
                     ("Arch", std::env::consts::ARCH, true),

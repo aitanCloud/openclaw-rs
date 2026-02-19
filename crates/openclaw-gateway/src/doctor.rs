@@ -33,6 +33,11 @@ fn human_bytes(bytes: u64) -> String {
     }
 }
 
+/// Public wrapper for human_bytes (used by main.rs /health endpoint)
+pub fn human_bytes_pub(bytes: u64) -> String {
+    human_bytes(bytes)
+}
+
 /// Run all health checks and return a list of (check_name, passed, detail)
 pub async fn run_checks(agent_name: &str) -> Vec<(String, bool, String)> {
     let mut checks = Vec::new();

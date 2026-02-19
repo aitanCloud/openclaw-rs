@@ -359,6 +359,15 @@ async fn main() -> anyhow::Result<()> {
     }
 }
 
+/// Read process RSS (Resident Set Size) in bytes from /proc/self/statm (Linux only)
+pub fn process_rss_bytes() -> u64 {
+    std::fs::read_to_string("/proc/self/statm")
+        .ok()
+        .and_then(|s| s.split_whitespace().nth(1)?.parse::<u64>().ok())
+        .map(|pages| pages * 4096) // page size is typically 4096
+        .unwrap_or(0)
+}
+
 /// Format uptime with days support (pub for use from handler modules)
 pub fn human_uptime(secs: u64) -> String {
     if secs >= 86400 {
@@ -384,6 +393,7 @@ async fn health_handler() -> Json<serde_json::Value> {
         .and_then(|s| s.db_stats("main").ok())
         .map(|stats| stats.session_count)
         .unwrap_or(0);
+    let rss = process_rss_bytes();
     Json(serde_json::json!({
         "status": "ok",
         "version": env!("CARGO_PKG_VERSION"),
@@ -391,6 +401,8 @@ async fn health_handler() -> Json<serde_json::Value> {
         "active_tasks": task_registry::active_count(),
         "uptime": human_uptime(uptime_secs),
         "uptime_seconds": uptime_secs,
+        "memory_rss_bytes": rss,
+        "memory_rss": crate::doctor::human_bytes_pub(rss),
         "skills": skills_count,
         "sessions": session_count,
         "commands": 22,
