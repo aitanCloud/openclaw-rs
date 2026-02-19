@@ -156,6 +156,14 @@ impl GatewayMetrics {
         self.concurrency_rejected.load(Ordering::Relaxed)
     }
 
+    pub fn agent_timeouts(&self) -> u64 {
+        self.agent_timeouts.load(Ordering::Relaxed)
+    }
+
+    pub fn tasks_cancelled(&self) -> u64 {
+        self.tasks_cancelled.load(Ordering::Relaxed)
+    }
+
     pub fn error_rate_pct(&self) -> f64 {
         let total = self.total_requests();
         if total == 0 {
@@ -637,5 +645,18 @@ mod tests {
         m.record_completion(200);
         m.record_completion(300);
         assert_eq!(m.avg_latency_ms(), 200);
+    }
+
+    #[test]
+    fn test_record_completion() {
+        let m = GatewayMetrics::new();
+        assert_eq!(m.completed_requests(), 0);
+
+        m.record_completion(150);
+        assert_eq!(m.completed_requests(), 1);
+
+        m.record_completion(250);
+        assert_eq!(m.completed_requests(), 2);
+        assert_eq!(m.avg_latency_ms(), 200); // (150+250)/2
     }
 }
