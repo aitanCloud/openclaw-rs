@@ -108,13 +108,24 @@
 - ✅ **7 Telegram commands** — /help, /new, /status, /model, /sessions, /export, /cron
 - ✅ **77 tests** — 58 agent + 7 core + 12 gateway
 
-## v0.12.0 — Advanced Tools
+## v0.12.0 — Agent Tools Expansion (shipped)
 
-- 📋 **Browser tool** — headless browser for web interaction
-- 📋 **Image/canvas tools** — image generation and manipulation
+- ✅ **`process` tool** — background exec sessions with start/poll/kill/list actions, async-safe mutex handling, sandbox-enforced command blocklist
+- ✅ **`image` tool** — standalone vision analysis via LLM, supports URLs and local files, auto-detects provider from env (OPENCLAW_VISION_*, OPENAI_*, OPENROUTER_*, etc.)
+- ✅ **`cron` tool** — LLM-callable cron management: list/enable/disable/add/remove jobs, writes directly to jobs.json
+- ✅ **Persistent typing indicator** — Telegram "typing..." stays active throughout entire agent turn (4s refresh via CancellationToken)
+- ✅ **Streaming token usage** — `stream_options.include_usage` + fallback estimation when API returns 0
+- ✅ **Markdown fix** — escape underscores in model names for Telegram stats footer
+- ✅ **12 built-in tools** — exec, read, write, list_dir, patch, grep, find, web_search, web_fetch, process, image, cron
+- ✅ **90 tests** — 71 agent + 7 core + 12 gateway
+
+## v0.13.0 — Advanced Tools & Sessions
+
+- 📋 **Browser tool** — headless browser for web interaction (Playwright/Chromium)
 - 📋 **TTS tool** — text-to-speech via Telegram voice messages
+- 📋 **Session tools** — LLM-callable sessions_list, sessions_history, sessions_send
 
-## v0.13.0 — Multi-Channel & Daemon
+## v0.14.0 — Multi-Channel & Daemon
 
 - 📋 **Unix socket daemon mode** — long-running agent process
 - 📋 **Concurrent agent turns** — multiple users/sessions simultaneously

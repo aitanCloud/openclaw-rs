@@ -1,8 +1,11 @@
+pub mod cron;
 pub mod exec;
 pub mod find;
 pub mod grep;
+pub mod image;
 pub mod list_dir;
 pub mod patch;
+pub mod process;
 pub mod read;
 pub mod script_plugin;
 pub mod web_fetch;
@@ -79,6 +82,9 @@ impl ToolRegistry {
         registry.register(Box::new(find::FindTool));
         registry.register(Box::new(web_search::WebSearchTool));
         registry.register(Box::new(web_fetch::WebFetchTool));
+        registry.register(Box::new(process::ProcessTool));
+        registry.register(Box::new(image::ImageTool));
+        registry.register(Box::new(cron::CronTool));
         registry
     }
 
@@ -184,14 +190,17 @@ mod tests {
         assert!(names.contains(&"find"));
         assert!(names.contains(&"web_search"));
         assert!(names.contains(&"web_fetch"));
-        assert_eq!(names.len(), 9);
+        assert!(names.contains(&"process"));
+        assert!(names.contains(&"image"));
+        assert!(names.contains(&"cron"));
+        assert_eq!(names.len(), 12);
     }
 
     #[test]
     fn test_definitions_format() {
         let registry = ToolRegistry::with_defaults();
         let defs = registry.definitions();
-        assert_eq!(defs.len(), 9);
+        assert_eq!(defs.len(), 12);
         for def in &defs {
             assert_eq!(def.tool_type, "function");
             assert!(!def.function.name.is_empty());
