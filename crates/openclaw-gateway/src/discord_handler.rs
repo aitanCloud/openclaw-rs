@@ -214,11 +214,16 @@ pub async fn handle_discord_message(
 
     let t_start = std::time::Instant::now();
 
+    // ── Register task for cancellation support ──
+    let task_key = format!("dc:{}:{}", user_id, channel_id);
+    let cancel_token = crate::task_registry::register_task(&task_key);
+    let task_key_cleanup = task_key.clone();
+
     // ── Spawn agent turn ──
     let turn_timeout = std::time::Duration::from_secs(120);
     let user_text_owned = user_text.clone();
     let agent_handle = tokio::spawn(async move {
-        match tokio::time::timeout(
+        let result = match tokio::time::timeout(
             turn_timeout,
             runtime::run_agent_turn_streaming(
                 provider.as_ref(),
@@ -227,13 +232,16 @@ pub async fn handle_discord_message(
                 &tools,
                 event_tx,
                 image_urls,
+                Some(cancel_token),
             ),
         )
         .await
         {
             Ok(result) => result,
             Err(_) => Err(anyhow::anyhow!("Agent turn timed out after 120s")),
-        }
+        };
+        crate::task_registry::unregister_task(&task_key_cleanup);
+        result
     });
 
     // ── Stream loop: receive events, edit Discord message in real-time ──
@@ -440,6 +448,7 @@ async fn handle_command(
                 `/version` — build info and uptime\n\
                 `/stats` — gateway request stats\n\
                 `/whoami` — show your user info\n\
+                `/cancel` — stop the running task\n\
                 `/cron` — list and manage cron jobs\n\
                 `/help` — show this help\n\n\
                 You can also use `!` prefix instead of `/`. Send images for vision analysis.",
@@ -449,6 +458,14 @@ async fn handle_command(
         "ping" => {
             let start = std::time::Instant::now();
             bot.send_reply(channel_id, reply_to, &format!("🏓 Pong! ({}ms)", start.elapsed().as_millis())).await?;
+        }
+        "cancel" | "stop" => {
+            let task_key = format!("dc:{}:{}", user_id, channel_id);
+            if crate::task_registry::cancel_task(&task_key) {
+                bot.send_reply(channel_id, reply_to, "⛔ Cancelled running task.").await?;
+            } else {
+                bot.send_reply(channel_id, reply_to, "ℹ️ No task is currently running.").await?;
+            }
         }
         "stats" => {
             if let Some(m) = crate::metrics::global() {
@@ -491,7 +508,7 @@ async fn handle_command(
                 &[
                     ("Uptime", &format!("{}h {}m", hours, mins), true),
                     ("Agent", &config.agent.name, true),
-                    ("Commands", "15", true),
+                    ("Commands", "17", true),
                 ],
             ).await?;
         }
@@ -790,6 +807,7 @@ async fn handle_command(
                     &tools,
                     event_tx,
                     Vec::new(),
+                    None,
                 ).await?;
 
                 let response_text = if !result.response.is_empty() {

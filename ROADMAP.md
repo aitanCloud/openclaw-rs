@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.33.0
+**Version:** 0.34.0
 **Last updated:** 2026-02-18
 **Maintainer:** Cascade + Shawaz
 
@@ -272,7 +272,17 @@
 - ✅ **`test_gateway_ws_metrics`** — verify connect/disconnect/resume counters in both Prometheus and JSON output
 - ✅ **128 tests** — 95 agent + 7 core + 26 gateway (+3 new)
 
-## v0.34.0 — Daemon & Polish
+## v0.34.0 — Task Cancellation (shipped)
+
+- ✅ **Task registry** — global `CancellationToken` per chat with auto-cancel when new message arrives (prevents ghost typing)
+- ✅ **`/cancel` and `/stop` commands** — kill the running agent task for the current chat on both Telegram and Discord
+- ✅ **Cancellation wired into agent runtime** — checked between rounds and during LLM streaming via `tokio::select!`
+- ✅ **Auto-cancel on new message** — if a task is already running for a chat, it is cancelled before starting a new one
+- ✅ **120s timeout guard** — agent turns auto-abort after 120s even without user cancellation
+- ✅ **17 commands on both channels** — added /cancel and /stop (aliases)
+- ✅ **133 tests** — 95 agent + 7 core + 31 gateway (+5 new task_registry tests)
+
+## v0.35.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**

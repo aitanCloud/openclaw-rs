@@ -203,10 +203,15 @@ pub async fn handle_message(
 
     let t_start = std::time::Instant::now();
 
+    // ── Register task for cancellation support ──
+    let task_key = format!("tg:{}:{}", user_id, chat_id);
+    let cancel_token = crate::task_registry::register_task(&task_key);
+    let task_key_cleanup = task_key.clone();
+
     // ── Spawn the agent turn in background (with per-turn timeout) ──
     let turn_timeout = std::time::Duration::from_secs(120);
     let agent_handle = tokio::spawn(async move {
-        match tokio::time::timeout(
+        let result = match tokio::time::timeout(
             turn_timeout,
             runtime::run_agent_turn_streaming(
                 provider.as_ref(),
@@ -215,13 +220,16 @@ pub async fn handle_message(
                 &tools,
                 event_tx,
                 image_urls,
+                Some(cancel_token),
             ),
         )
         .await
         {
             Ok(result) => result,
             Err(_) => Err(anyhow::anyhow!("Agent turn timed out after 120s")),
-        }
+        };
+        crate::task_registry::unregister_task(&task_key_cleanup);
+        result
     });
 
     // ── Stream loop: receive events, edit Telegram message in real-time ──
@@ -428,6 +436,7 @@ async fn handle_command(
                 /version — build info and uptime\n\
                 /stats — gateway request stats\n\
                 /whoami — show your user info\n\
+                /cancel — stop the running task\n\
                 /cron — list and manage cron jobs\n\
                 /help — show this help\n\n\
                 You can also send voice messages — I'll transcribe and respond.",
@@ -437,6 +446,14 @@ async fn handle_command(
         "/ping" => {
             let start = std::time::Instant::now();
             bot.send_message(chat_id, &format!("🏓 Pong! ({}ms)", start.elapsed().as_millis())).await?;
+        }
+        "/cancel" | "/stop" => {
+            let task_key = format!("tg:{}:{}", user_id, chat_id);
+            if crate::task_registry::cancel_task(&task_key) {
+                bot.send_message(chat_id, "⛔ Cancelled running task.").await?;
+            } else {
+                bot.send_message(chat_id, "ℹ️ No task is currently running.").await?;
+            }
         }
         "/whoami" => {
             let session_key = format!("tg:{}:{}:{}", config.agent.name, user_id, chat_id);
@@ -488,7 +505,7 @@ async fn handle_command(
                 "🦀 *openclaw-gateway* v{}\n\
                 Uptime: {}h {}m\n\
                 Agent: {}\n\
-                Commands: 15",
+                Commands: 17",
                 env!("CARGO_PKG_VERSION"), hours, mins, config.agent.name,
             )).await?;
         }
@@ -752,6 +769,7 @@ async fn handle_command(
                     &tools,
                     event_tx,
                     Vec::new(),
+                    None,
                 ).await?;
 
                 let response_text = if !result.response.is_empty() {

@@ -6,6 +6,7 @@ mod discord_handler;
 mod handler;
 mod metrics;
 mod ratelimit;
+mod task_registry;
 mod telegram;
 
 use axum::{routing::get, Json, Router};
@@ -32,7 +33,7 @@ async fn main() -> anyhow::Result<()> {
     if let Some(ref dc) = config.discord {
         info!("Discord enabled | allowed users: {:?}", dc.allowed_user_ids);
     }
-    info!("Commands: 15 (/help /new /status /model /sessions /export /voice /ping /history /clear /db /version /stats /whoami /cron)");
+    info!("Commands: 17 (/help /new /status /model /sessions /export /voice /ping /history /clear /db /version /stats /whoami /cancel /stop /cron)");
 
     // ── Verify bot token ──
     let bot = telegram::TelegramBot::new(&config.telegram.bot_token);

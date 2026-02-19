@@ -261,6 +261,7 @@ pub async fn run_agent_turn(
 
 /// Run a streaming agent turn — sends StreamEvents via channel as tokens arrive.
 /// The caller can use these events to update a Telegram message in real-time.
+/// If `cancel_token` is provided, the turn will abort when the token is cancelled.
 pub async fn run_agent_turn_streaming(
     provider: &dyn LlmProvider,
     user_message: &str,
@@ -268,6 +269,7 @@ pub async fn run_agent_turn_streaming(
     tools: &ToolRegistry,
     event_tx: tokio::sync::mpsc::UnboundedSender<StreamEvent>,
     image_urls: Vec<String>,
+    cancel_token: Option<tokio_util::sync::CancellationToken>,
 ) -> Result<AgentTurnResult> {
     let t_start = Instant::now();
 
@@ -301,6 +303,23 @@ pub async fn run_agent_turn_streaming(
     let mut rounds = 0;
 
     loop {
+        // ── Check cancellation before each round ──
+        if let Some(ref ct) = cancel_token {
+            if ct.is_cancelled() {
+                warn!("Agent turn cancelled by user before round {}", rounds + 1);
+                let _ = event_tx.send(StreamEvent::Done);
+                return Ok(AgentTurnResult {
+                    response: "⛔ Cancelled by user.".to_string(),
+                    reasoning: None,
+                    model_name: provider.name().to_string(),
+                    tool_calls_made,
+                    total_rounds: rounds,
+                    total_usage,
+                    elapsed_ms: t_start.elapsed().as_millis(),
+                });
+            }
+        }
+
         rounds += 1;
         if rounds > MAX_TOOL_ROUNDS {
             warn!("Agent hit max tool rounds ({}), forcing stop", MAX_TOOL_ROUNDS);
@@ -322,9 +341,29 @@ pub async fn run_agent_turn_streaming(
 
         debug!("Streaming round {} — sending {} messages to LLM", rounds, messages.len());
 
-        let (completion, usage) = provider
-            .complete_streaming(&messages, &tool_defs, event_tx.clone())
-            .await
+        // ── LLM call with cancellation support ──
+        let llm_result = if let Some(ref ct) = cancel_token {
+            tokio::select! {
+                result = provider.complete_streaming(&messages, &tool_defs, event_tx.clone()) => result,
+                _ = ct.cancelled() => {
+                    warn!("Agent turn cancelled during LLM streaming on round {}", rounds);
+                    let _ = event_tx.send(StreamEvent::Done);
+                    return Ok(AgentTurnResult {
+                        response: "⛔ Cancelled by user.".to_string(),
+                        reasoning: None,
+                        model_name: provider.name().to_string(),
+                        tool_calls_made,
+                        total_rounds: rounds,
+                        total_usage,
+                        elapsed_ms: t_start.elapsed().as_millis(),
+                    });
+                }
+            }
+        } else {
+            provider.complete_streaming(&messages, &tool_defs, event_tx.clone()).await
+        };
+
+        let (completion, usage) = llm_result
             .with_context(|| format!("LLM streaming call failed on round {}", rounds))?;
 
         total_usage.prompt_tokens += usage.prompt_tokens;
