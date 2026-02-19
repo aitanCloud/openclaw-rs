@@ -432,7 +432,7 @@ async fn health_handler() -> axum::response::Response {
         .ok()
         .map(|fb| fb.provider_labels().iter().map(|s| s.to_string()).collect())
         .unwrap_or_default();
-    let (error_rate, total_requests, total_errors, avg_latency, webhook_reqs, agent_turns, tool_calls) = metrics::global()
+    let (error_rate, total_requests, total_errors, avg_latency, webhook_reqs, agent_turns, tool_calls, completed_reqs) = metrics::global()
         .map(|m| (
             (m.error_rate_pct() * 100.0).round() / 100.0,
             m.total_requests(),
@@ -441,8 +441,9 @@ async fn health_handler() -> axum::response::Response {
             m.webhook_requests(),
             m.agent_turns(),
             m.tool_calls(),
+            m.completed_requests(),
         ))
-        .unwrap_or((0.0, 0, 0, 0, 0, 0, 0));
+        .unwrap_or((0.0, 0, 0, 0, 0, 0, 0, 0));
     let checks = doctor::run_checks("main").await;
     let checks_total = checks.len();
     let checks_passed = checks.iter().filter(|(_, ok, _)| *ok).count();
@@ -473,6 +474,7 @@ async fn health_handler() -> axum::response::Response {
             "webhook_requests": webhook_reqs,
             "agent_turns": agent_turns,
             "tool_calls": tool_calls,
+            "completed_requests": completed_reqs,
             "provider_count": providers.len(),
             "fallback_chain": providers,
             "doctor_checks_total": checks_total,
@@ -855,16 +857,42 @@ mod tests {
             "http_endpoint_count", "tool_count",
             "total_requests", "total_errors", "error_rate_pct",
             "avg_latency_ms", "webhook_requests",
-            "agent_turns", "tool_calls",
+            "agent_turns", "tool_calls", "completed_requests",
             "provider_count", "fallback_chain",
             "doctor_checks_total", "doctor_checks_passed", "response_time_ms",
         ];
-        assert_eq!(expected.len(), 27, "Should have 27 /health JSON fields");
+        assert_eq!(expected.len(), 28, "Should have 28 /health JSON fields");
         // Verify no duplicates
         let mut sorted = expected.to_vec();
         sorted.sort();
         sorted.dedup();
-        assert_eq!(sorted.len(), 27, "/health fields should have no duplicates");
+        assert_eq!(sorted.len(), 28, "/health fields should have no duplicates");
+    }
+
+    #[test]
+    fn test_ready_expected_fields() {
+        let expected = ["ready", "checks_total", "checks_passed", "failed", "response_time_ms"];
+        assert_eq!(expected.len(), 5, "Should have 5 /ready JSON fields");
+        let mut sorted = expected.to_vec();
+        sorted.sort();
+        sorted.dedup();
+        assert_eq!(sorted.len(), 5, "/ready fields should have no duplicates");
+    }
+
+    #[test]
+    fn test_metrics_summary_format() {
+        let summary = format!(
+            "reqs={} errs={} err%={:.1} avg_lat={}ms turns={} tools={} webhooks={} up={}",
+            0, 0, 0.0, 0, 0, 0, 0, human_uptime(0)
+        );
+        assert!(summary.contains("reqs="), "Summary should contain reqs=");
+        assert!(summary.contains("errs="), "Summary should contain errs=");
+        assert!(summary.contains("err%="), "Summary should contain err%=");
+        assert!(summary.contains("avg_lat="), "Summary should contain avg_lat=");
+        assert!(summary.contains("turns="), "Summary should contain turns=");
+        assert!(summary.contains("tools="), "Summary should contain tools=");
+        assert!(summary.contains("webhooks="), "Summary should contain webhooks=");
+        assert!(summary.contains("up="), "Summary should contain up=");
     }
 
     #[test]

@@ -144,6 +144,10 @@ impl GatewayMetrics {
         self.tool_calls.load(Ordering::Relaxed)
     }
 
+    pub fn completed_requests(&self) -> u64 {
+        self.completed_requests.load(Ordering::Relaxed)
+    }
+
     pub fn error_rate_pct(&self) -> f64 {
         let total = self.total_requests();
         if total == 0 {
