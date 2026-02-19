@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.16.0
+**Version:** 0.17.0
 **Last updated:** 2026-02-18
 **Maintainer:** Cascade + Shawaz
 
@@ -151,12 +151,18 @@
 - ✅ **reqwest multipart** — added multipart feature for file uploads across all crates
 - ✅ **115 tests** — 91 agent + 7 core + 17 gateway
 
-## v0.17.0 — Daemon & Polish
+## v0.17.0 — Voice Replies (shipped)
+
+- ✅ **`/voice` command** — full pipeline: user text → LLM response → Piper TTS (WAV) → ffmpeg (OGG/Opus) → Telegram voice message, with AItan pronunciation fix, caption support, graceful fallbacks for missing piper/ffmpeg/model
+- ✅ **8 Telegram commands** — /help, /new, /status, /model, /sessions, /export, /voice, /cron
+- ✅ **115 tests** — 91 agent + 7 core + 17 gateway
+
+## v0.18.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**
-- 📋 **Auto-TTS voice replies** — detect /voice command or voice preference, generate and send TTS audio
 - 📋 **Session migration** — migrate old channel-based sessions to new user-based keys
+- 📋 **Discord /voice command** — port voice pipeline to Discord (file upload)
 - 💡 **WhatsApp integration**
 
 ---

@@ -385,6 +385,7 @@ async fn handle_command(
                 /model — show current model info\n\
                 /sessions — list recent sessions\n\
                 /export — export current session as markdown\n\
+                /voice — get a voice response (TTS)\n\
                 /cron — list and manage cron jobs\n\
                 /help — show this help",
             )
@@ -521,6 +522,153 @@ async fn handle_command(
                     ));
                 }
                 bot.send_message(chat_id, &msg).await?;
+            }
+        }
+        "/voice" => {
+            // /voice <text> — get LLM response, convert to speech, send as voice message
+            let voice_text = text.strip_prefix("/voice").unwrap_or("").trim();
+            if voice_text.is_empty() {
+                bot.send_message(chat_id, "Usage: /voice <text to speak>\n\nI'll respond and send it as a voice message.").await?;
+            } else {
+                bot.send_typing(chat_id).await.ok();
+
+                // Get LLM response for the text
+                let provider: Box<dyn LlmProvider> = if config.agent.fallback {
+                    match FallbackProvider::from_config() {
+                        Ok(fb) => Box::new(fb),
+                        Err(e) => {
+                            bot.send_message(chat_id, &format!("❌ Provider error: {}", e)).await?;
+                            return Ok(());
+                        }
+                    }
+                } else {
+                    match FallbackProvider::from_config() {
+                        Ok(fb) => Box::new(fb),
+                        Err(e) => {
+                            bot.send_message(chat_id, &format!("❌ Provider error: {}", e)).await?;
+                            return Ok(());
+                        }
+                    }
+                };
+
+                let workspace_dir = workspace::resolve_workspace_dir(&config.agent.name);
+                let session_key = format!("tg:{}:{}:{}", config.agent.name, user_id, chat_id);
+                let store = SessionStore::open(&config.agent.name)?;
+                store.create_session(&session_key, &config.agent.name, provider.name())?;
+
+                let tools = ToolRegistry::with_defaults();
+                let agent_config = AgentTurnConfig {
+                    agent_name: config.agent.name.clone(),
+                    session_key: session_key.clone(),
+                    workspace_dir: workspace_dir.to_string_lossy().to_string(),
+                    minimal_context: true,
+                };
+
+                let (event_tx, _event_rx) = tokio::sync::mpsc::unbounded_channel::<StreamEvent>();
+                let result = runtime::run_agent_turn_streaming(
+                    provider.as_ref(),
+                    voice_text,
+                    &agent_config,
+                    &tools,
+                    event_tx,
+                    Vec::new(),
+                ).await?;
+
+                let response_text = if !result.response.is_empty() {
+                    result.response.clone()
+                } else {
+                    "I have nothing to say.".to_string()
+                };
+
+                // Persist messages
+                store.append_message(&session_key, &Message::user(voice_text))?;
+                store.append_message(&session_key, &Message::assistant(&response_text))?;
+
+                // Generate TTS via Piper
+                let tts_dir = workspace_dir.join("tts-output");
+                std::fs::create_dir_all(&tts_dir)?;
+                let ts = chrono::Utc::now().format("%Y%m%d_%H%M%S");
+                let wav_path = tts_dir.join(format!("voice_{}.wav", ts));
+                let ogg_path = tts_dir.join(format!("voice_{}.ogg", ts));
+
+                // Resolve Piper model
+                let home = dirs::home_dir()
+                    .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?;
+                let model_path = home
+                    .join(".openclaw/projects/voice-control/models/en_GB-jenny_dioco-medium.onnx");
+
+                if !model_path.exists() {
+                    // Fallback: send text response instead
+                    bot.send_message(chat_id, &format!("🗣️ {}\n\n_(Piper TTS model not found for voice)_", response_text)).await?;
+                    return Ok(());
+                }
+
+                // Run Piper to generate WAV
+                let mut piper_cmd = tokio::process::Command::new("piper");
+                piper_cmd
+                    .arg("--model").arg(&model_path)
+                    .arg("--output_file").arg(&wav_path)
+                    .stdin(std::process::Stdio::piped())
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::piped());
+
+                let mut piper_child = piper_cmd.spawn().map_err(|e| {
+                    anyhow::anyhow!("Failed to spawn piper: {}", e)
+                })?;
+
+                if let Some(mut stdin) = piper_child.stdin.take() {
+                    use tokio::io::AsyncWriteExt;
+                    // Replace "AItan" with phonetic hint for correct pronunciation
+                    let tts_text = response_text.replace("AItan", "Ay-tawn");
+                    stdin.write_all(tts_text.as_bytes()).await?;
+                    drop(stdin);
+                }
+
+                let piper_output = tokio::time::timeout(
+                    std::time::Duration::from_secs(30),
+                    piper_child.wait_with_output(),
+                ).await;
+
+                match piper_output {
+                    Ok(Ok(output)) if output.status.success() => {
+                        // Convert WAV to OGG/Opus using ffmpeg
+                        let ffmpeg_result = tokio::process::Command::new("ffmpeg")
+                            .args(["-y", "-i"])
+                            .arg(&wav_path)
+                            .args(["-c:a", "libopus", "-b:a", "64k", "-vbr", "on", "-application", "voip"])
+                            .arg(&ogg_path)
+                            .stdout(std::process::Stdio::null())
+                            .stderr(std::process::Stdio::null())
+                            .status()
+                            .await;
+
+                        match ffmpeg_result {
+                            Ok(status) if status.success() && ogg_path.exists() => {
+                                // Send as voice message
+                                let caption = if response_text.len() > 200 {
+                                    Some(format!("{}...", &response_text[..197]))
+                                } else {
+                                    Some(response_text.clone())
+                                };
+                                bot.send_voice(chat_id, &ogg_path, caption.as_deref()).await?;
+
+                                // Cleanup temp files
+                                let _ = std::fs::remove_file(&wav_path);
+                                let _ = std::fs::remove_file(&ogg_path);
+                            }
+                            _ => {
+                                // ffmpeg failed — send text fallback
+                                warn!("ffmpeg conversion failed, sending text response");
+                                bot.send_message(chat_id, &format!("🗣️ {}\n\n_(Voice conversion failed)_", response_text)).await?;
+                                let _ = std::fs::remove_file(&wav_path);
+                            }
+                        }
+                    }
+                    _ => {
+                        warn!("Piper TTS failed, sending text response");
+                        bot.send_message(chat_id, &format!("🗣️ {}\n\n_(TTS generation failed)_", response_text)).await?;
+                    }
+                }
             }
         }
         "/cron" => {
