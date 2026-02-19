@@ -72,6 +72,10 @@ async fn status(client: &reqwest::Client, base: &str) -> Result<()> {
     println!("  {} {}", "PID:".bold(), json["pid"]);
     println!("  {} {}", "Active tasks:".bold(), json["active_tasks"]);
     println!("  {} {}", "Providers:".bold(), json["provider_count"]);
+    println!("  {} {}", "LLM calls:".bold(), json["llm_calls"]);
+    if json["llm_errors"].as_u64().unwrap_or(0) > 0 {
+        println!("  {} {}", "LLM errors:".bold(), json["llm_errors"].to_string().red());
+    }
     Ok(())
 }
 

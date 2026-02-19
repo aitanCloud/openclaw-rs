@@ -889,8 +889,8 @@ async fn status_handler(
         "webhook_configured": config.webhook.is_some(),
         "built": env!("BUILD_TIMESTAMP"),
         "boot_time": *handler::BOOT_TIMESTAMP,
-        "http_endpoints": ["/health", "/health/lite", "/version", "/ping", "/ready", "/status", "/metrics", "/metrics/json", "/metrics/summary", "/doctor", "/doctor/json", "/webhook"],
-        "http_endpoint_count": 12,
+        "http_endpoints": ["/health", "/health/lite", "/version", "/ping", "/ready", "/status", "/metrics", "/metrics/json", "/metrics/summary", "/doctor", "/doctor/json", "/webhook", "/logs", "/logs/:id"],
+        "http_endpoint_count": 14,
         "commands": {
             "telegram": tg_commands,
             "discord": dc_commands,

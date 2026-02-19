@@ -848,20 +848,27 @@
 - ✅ **Updated endpoint field count summary** — 97 total JSON fields across all endpoints
 - ✅ **224 total tests** — 124 agent + 7 core + 93 gateway
 
-## v1.8.0 — Channel Plugin Abstraction
+## v1.8.0 — Status Endpoint & CLI Polish (shipped)
+
+- ✅ **`/status` http_endpoints updated** — now lists all 14 endpoints including `/logs` and `/logs/:id`
+- ✅ **`/status` http_endpoint_count** — updated from 12 to 14
+- ✅ **CLI status enriched** — shows LLM call count and error count (red) from `/health/lite`
+- ✅ **224 total tests** — 124 agent + 7 core + 93 gateway
+
+## v1.9.0 — Channel Plugin Abstraction
 
 - 📋 **`Channel` trait** — abstract interface for message channels (send, edit, upload, typing)
 - 📋 **Telegram channel plugin** — refactor handler.rs to implement Channel trait
 - 📋 **Discord channel plugin** — refactor discord_handler.rs to implement Channel trait
 - 📋 **Plugin loader** — dynamic channel registration from config
 
-## v1.9.0 — WebSocket Protocol
+## v1.10.0 — WebSocket Protocol
 
 - 📋 **WS endpoint** — `ws://gateway:3100/ws` for CLI↔Gateway real-time communication
 - 📋 **CLI connect mode** — `openclaw chat` opens interactive WS session
 - 📋 **TUI** — terminal UI with streaming responses
 
-## v1.10.0+ — Extended Features
+## v1.11.0+ — Extended Features
 
 - 📋 **Multi-agent routing** — per-agent workspaces, auth, routing
 - 📋 **Device pairing** — QR codes, setup codes, token management
