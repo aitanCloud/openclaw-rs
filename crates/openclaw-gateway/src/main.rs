@@ -23,13 +23,16 @@ async fn main() -> anyhow::Result<()> {
 
     let config = config::GatewayConfig::from_file_or_env("/etc/openclaw-gateway/config.json")?;
 
-    info!("Starting openclaw-gateway v{}", env!("CARGO_PKG_VERSION"));
-    info!("Agent: {}", config.agent.name);
-    info!("Fallback: {}", config.agent.fallback);
-    info!(
-        "Allowed users: {:?}",
-        config.telegram.allowed_user_ids
-    );
+    // ── Startup banner ──
+    info!("╔══════════════════════════════════════════╗");
+    info!("║  openclaw-gateway v{}              ║", env!("CARGO_PKG_VERSION"));
+    info!("╚══════════════════════════════════════════╝");
+    info!("Agent: {} | Fallback: {}", config.agent.name, config.agent.fallback);
+    info!("Telegram allowed users: {:?}", config.telegram.allowed_user_ids);
+    if let Some(ref dc) = config.discord {
+        info!("Discord enabled | allowed users: {:?}", dc.allowed_user_ids);
+    }
+    info!("Commands: 13 (/help /new /status /model /sessions /export /voice /ping /history /clear /db /version /cron)");
 
     // ── Verify bot token ──
     let bot = telegram::TelegramBot::new(&config.telegram.bot_token);
@@ -54,6 +57,15 @@ async fn main() -> anyhow::Result<()> {
                 Ok(0) => {}
                 Ok(n) => info!("Pruned {} stale session(s) older than 30 days", n),
                 Err(e) => warn!("Session pruning failed: {}", e),
+            }
+            // Log DB stats
+            if let Ok(stats) = store.db_stats(&config.agent.name) {
+                let size = if stats.db_size_bytes > 1_048_576 {
+                    format!("{:.1} MB", stats.db_size_bytes as f64 / 1_048_576.0)
+                } else {
+                    format!("{:.1} KB", stats.db_size_bytes as f64 / 1024.0)
+                };
+                info!("Session DB: {} sessions, {} messages, {}", stats.session_count, stats.message_count, size);
             }
         }
         Err(e) => warn!("Could not open session store for maintenance: {}", e),

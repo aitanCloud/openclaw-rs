@@ -396,6 +396,13 @@ async fn run_gateway_loop(
             Err(e) => {
                 consecutive_failures += 1;
                 let err_str = e.to_string();
+
+                // Fatal errors — stop reconnecting
+                if err_str.contains("Fatal:") || err_str.contains("Fatal Discord error") {
+                    error!("Fatal gateway error, not reconnecting: {}", err_str);
+                    break;
+                }
+
                 error!(
                     "Discord Gateway session error (attempt {}): {}. Reconnecting in {}s...",
                     consecutive_failures, err_str, reconnect_delay
@@ -545,7 +552,33 @@ async fn run_gateway_session(
                 match msg {
                     Some(Ok(ws_msg)) => {
                         if ws_msg.is_close() {
-                            info!("Discord Gateway closed");
+                            // Extract close code for error classification
+                            if let tokio_tungstenite::tungstenite::Message::Close(Some(frame)) = &ws_msg {
+                                let code = frame.code.into();
+                                warn!("Discord Gateway closed with code {}: {}", code, frame.reason);
+                                match code {
+                                    4004u16 => {
+                                        error!("Authentication failed (4004) — token is invalid. Stopping.");
+                                        return Err(anyhow::anyhow!("Fatal: authentication failed (4004)"));
+                                    }
+                                    4010u16 | 4011u16 | 4012u16 | 4013u16 | 4014u16 => {
+                                        error!("Fatal Discord error ({}): {}. Stopping.", code, frame.reason);
+                                        return Err(anyhow::anyhow!("Fatal Discord error ({})", code));
+                                    }
+                                    _ => {
+                                        // Save resume state for transient closes
+                                        if let (Some(sid), Some(seq)) = (&session_id, sequence) {
+                                            *resume_state = Some(ResumeState {
+                                                session_id: sid.clone(),
+                                                sequence: seq,
+                                                resume_url: resume_gateway_url.clone(),
+                                            });
+                                        }
+                                    }
+                                }
+                            } else {
+                                info!("Discord Gateway closed (no code)");
+                            }
                             return Ok(());
                         }
                         if let Ok(text) = ws_msg.to_text() {

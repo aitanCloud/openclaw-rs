@@ -436,6 +436,7 @@ async fn handle_command(
                 `/history` — last 5 messages in session\n\
                 `/clear` — delete current session\n\
                 `/db` — session database stats\n\
+                `/version` — build info and uptime\n\
                 `/cron` — list and manage cron jobs\n\
                 `/help` — show this help\n\n\
                 You can also use `!` prefix instead of `/`. Send images for vision analysis.",
@@ -445,6 +446,18 @@ async fn handle_command(
         "ping" => {
             let start = std::time::Instant::now();
             bot.send_reply(channel_id, reply_to, &format!("🏓 Pong! ({}ms)", start.elapsed().as_millis())).await?;
+        }
+        "version" => {
+            let uptime = crate::handler::BOOT_TIME.elapsed();
+            let hours = uptime.as_secs() / 3600;
+            let mins = (uptime.as_secs() % 3600) / 60;
+            bot.send_reply(channel_id, reply_to, &format!(
+                "🦀 **openclaw-gateway** v{}\n\
+                Uptime: {}h {}m\n\
+                Agent: {}\n\
+                Commands: 13",
+                env!("CARGO_PKG_VERSION"), hours, mins, config.agent.name,
+            )).await?;
         }
         "clear" => {
             let store = SessionStore::open(&config.agent.name)?;

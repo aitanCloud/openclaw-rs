@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.26.0
+**Version:** 0.27.0
 **Last updated:** 2026-02-18
 **Maintainer:** Cascade + Shawaz
 
@@ -224,7 +224,16 @@
 - ✅ **12 commands on both channels** — /help, /new, /status, /model, /sessions, /export, /voice, /ping, /history, /clear, /db, /cron
 - ✅ **125 tests** — 93 agent + 7 core + 25 gateway
 
-## v0.27.0 — Daemon & Polish
+## v0.27.0 — Observability & Safety (shipped)
+
+- ✅ **Startup banner** — log version box, config summary, command count, DB stats (sessions, messages, size) on boot
+- ✅ **`/version` command** — show build version, uptime, agent name on both Telegram and Discord
+- ✅ **WebSocket error classification** — fatal errors (4004 auth invalid, 4010–4014) stop reconnecting; transient closes save resume state
+- ✅ **`BOOT_TIME` static** — `LazyLock<Instant>` for uptime tracking across commands
+- ✅ **13 commands on both channels** — /help, /new, /status, /model, /sessions, /export, /voice, /ping, /history, /clear, /db, /version, /cron
+- ✅ **125 tests** — 93 agent + 7 core + 25 gateway
+
+## v0.28.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**
