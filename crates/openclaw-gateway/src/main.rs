@@ -496,6 +496,7 @@ async fn health_handler() -> axum::response::Response {
             "disk_usage": crate::doctor::human_bytes_pub(disk_bytes),
             "os_name": std::env::consts::OS,
             "os_arch": std::env::consts::ARCH,
+            "rust_version": env!("RUST_VERSION"),
             "cron_jobs_count": cron_jobs_count,
             "sessions_db_size_bytes": sessions_db_size,
             "sessions_db_size": crate::doctor::human_bytes_pub(sessions_db_size),
@@ -916,7 +917,7 @@ mod tests {
             "status", "version", "agent", "built", "boot_time", "active_tasks",
             "uptime", "uptime_seconds", "memory_rss_bytes", "memory_rss",
             "disk_usage_bytes", "disk_usage",
-            "os_name", "os_arch",
+            "os_name", "os_arch", "rust_version",
             "cron_jobs_count", "sessions_db_size_bytes", "sessions_db_size",
             "skills", "sessions", "commands",
             "http_endpoint_count", "tool_count",
@@ -929,12 +930,12 @@ mod tests {
             "provider_count", "fallback_chain",
             "doctor_checks_total", "doctor_checks_passed", "response_time_ms",
         ];
-        assert_eq!(expected.len(), 42, "Should have 42 /health JSON fields");
+        assert_eq!(expected.len(), 43, "Should have 43 /health JSON fields");
         // Verify no duplicates
         let mut sorted = expected.to_vec();
         sorted.sort();
         sorted.dedup();
-        assert_eq!(sorted.len(), 42, "/health fields should have no duplicates");
+        assert_eq!(sorted.len(), 43, "/health fields should have no duplicates");
     }
 
     #[test]
@@ -997,6 +998,22 @@ mod tests {
     }
 
     #[test]
+    fn test_status_expected_fields() {
+        let expected = [
+            "status", "version", "agent", "fallback", "model", "providers",
+            "uptime", "uptime_seconds", "channels", "sessions",
+            "metrics", "tools", "tool_count", "active_tasks",
+            "webhook_configured", "built", "boot_time",
+            "http_endpoints", "http_endpoint_count", "commands",
+        ];
+        assert_eq!(expected.len(), 20, "Should have 20 /status JSON fields");
+        let mut sorted = expected.to_vec();
+        sorted.sort();
+        sorted.dedup();
+        assert_eq!(sorted.len(), 20, "/status fields should have no duplicates");
+    }
+
+    #[test]
     fn test_doctor_json_expected_fields() {
         let expected = ["checks_total", "checks_passed", "all_ok", "checks"];
         assert_eq!(expected.len(), 4, "Should have 4 /doctor/json top-level fields");
@@ -1045,22 +1062,6 @@ mod tests {
         sorted.sort();
         sorted.dedup();
         assert_eq!(sorted.len(), 4, "/version fields should have no duplicates");
-    }
-
-    #[test]
-    fn test_status_expected_fields() {
-        let expected = [
-            "status", "version", "agent", "fallback", "model", "providers",
-            "uptime", "uptime_seconds", "channels", "sessions", "metrics",
-            "tools", "tool_count", "active_tasks",
-            "webhook_configured", "built", "boot_time",
-            "http_endpoints", "http_endpoint_count", "commands",
-        ];
-        assert_eq!(expected.len(), 20, "Should have 20 /status JSON fields");
-        let mut sorted = expected.to_vec();
-        sorted.sort();
-        sorted.dedup();
-        assert_eq!(sorted.len(), 20, "/status fields should have no duplicates");
     }
 
     #[test]

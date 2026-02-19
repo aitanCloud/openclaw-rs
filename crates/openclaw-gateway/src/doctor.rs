@@ -303,6 +303,16 @@ mod tests {
         assert_eq!(human_bytes(1023), "1023 B");
     }
 
+    #[tokio::test]
+    async fn test_doctor_check_names_unique() {
+        let checks = run_checks("test-agent").await;
+        let names: Vec<&str> = checks.iter().map(|(n, _, _)| n.as_str()).collect();
+        let mut sorted = names.clone();
+        sorted.sort();
+        sorted.dedup();
+        assert_eq!(names.len(), sorted.len(), "Doctor check names should be unique, found duplicates");
+    }
+
     #[test]
     fn test_human_bytes_boundary_values() {
         assert_eq!(human_bytes(0), "0 B");
