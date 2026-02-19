@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.77.0
+**Version:** 0.78.0
 **Last updated:** 2026-02-19
 **Maintainer:** Cascade + Shawaz
 
@@ -603,7 +603,16 @@
 - ✅ **HTTP endpoint count test** — verifies 8 endpoints with no duplicates
 - ✅ **184 tests** — 111 agent + 7 core + 66 gateway (was 65)
 
-## v0.78.0 — Daemon & Polish
+## v0.78.0 — /ping Endpoint & Error Rate Test (shipped)
+
+- ✅ **`GET /ping` endpoint** — minimal plaintext "pong" response for load balancer health checks
+- ✅ **`total_requests` in `/health`** — combined telegram + discord request count
+- ✅ **`total_requests()` method** — refactored `error_rate_pct()` to use it
+- ✅ **Error rate calculation test** — verifies 0% with no requests, 0% with no errors, 20% with 2/10 errors
+- ✅ **9 HTTP endpoints** — /health, /version, /ping, /ready, /status, /metrics, /metrics/json, /doctor, /webhook
+- ✅ **185 tests** — 111 agent + 7 core + 67 gateway (was 66)
+
+## v0.79.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**

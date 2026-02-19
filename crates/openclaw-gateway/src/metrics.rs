@@ -122,9 +122,13 @@ impl GatewayMetrics {
         self.total_latency_ms.load(Ordering::Relaxed) / completed
     }
 
+    pub fn total_requests(&self) -> u64 {
+        self.telegram_requests.load(Ordering::Relaxed)
+            + self.discord_requests.load(Ordering::Relaxed)
+    }
+
     pub fn error_rate_pct(&self) -> f64 {
-        let total = self.telegram_requests.load(Ordering::Relaxed)
-            + self.discord_requests.load(Ordering::Relaxed);
+        let total = self.total_requests();
         if total == 0 {
             return 0.0;
         }
@@ -550,5 +554,26 @@ mod tests {
                 "JSON metrics missing field: {}", field);
         }
         assert_eq!(expected_fields.len(), 22, "Expected 22 JSON metrics fields");
+    }
+
+    #[test]
+    fn test_error_rate_pct_calculation() {
+        let m = GatewayMetrics::new();
+        // No requests → 0% error rate
+        assert_eq!(m.error_rate_pct(), 0.0);
+        assert_eq!(m.total_requests(), 0);
+
+        // 10 telegram requests, 0 errors → 0%
+        for _ in 0..10 {
+            m.record_telegram_request();
+        }
+        assert_eq!(m.total_requests(), 10);
+        assert_eq!(m.error_rate_pct(), 0.0);
+
+        // 2 telegram errors out of 10 → 20%
+        m.record_telegram_error();
+        m.record_telegram_error();
+        assert!((m.error_rate_pct() - 20.0).abs() < 0.01,
+            "Expected ~20% error rate, got {}", m.error_rate_pct());
     }
 }

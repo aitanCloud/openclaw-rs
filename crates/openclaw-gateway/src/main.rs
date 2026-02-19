@@ -95,6 +95,7 @@ async fn main() -> anyhow::Result<()> {
     let app = Router::new()
         .route("/health", get(health_handler))
         .route("/version", get(version_handler))
+        .route("/ping", get(ping_handler))
         .route(
             "/ready",
             get({
@@ -387,6 +388,10 @@ pub fn human_uptime(secs: u64) -> String {
     }
 }
 
+async fn ping_handler() -> &'static str {
+    "pong"
+}
+
 async fn version_handler() -> Json<serde_json::Value> {
     Json(serde_json::json!({
         "version": env!("CARGO_PKG_VERSION"),
@@ -412,9 +417,12 @@ async fn health_handler() -> axum::response::Response {
         .map(|stats| stats.session_count)
         .unwrap_or(0);
     let rss = process_rss_bytes();
-    let error_rate = metrics::global()
-        .map(|m| (m.error_rate_pct() * 100.0).round() / 100.0)
-        .unwrap_or(0.0);
+    let (error_rate, total_requests) = metrics::global()
+        .map(|m| (
+            (m.error_rate_pct() * 100.0).round() / 100.0,
+            m.total_requests(),
+        ))
+        .unwrap_or((0.0, 0));
     let checks = doctor::run_checks("main").await;
     let checks_total = checks.len();
     let checks_passed = checks.iter().filter(|(_, ok, _)| *ok).count();
@@ -435,6 +443,7 @@ async fn health_handler() -> axum::response::Response {
             "skills": skills_count,
             "sessions": session_count,
             "commands": 22,
+            "total_requests": total_requests,
             "error_rate_pct": error_rate,
             "doctor_checks_total": checks_total,
             "doctor_checks_passed": checks_passed,
@@ -705,8 +714,8 @@ async fn status_handler(
         "webhook_configured": config.webhook.is_some(),
         "built": env!("BUILD_TIMESTAMP"),
         "boot_time": *handler::BOOT_TIMESTAMP,
-        "http_endpoints": ["/health", "/version", "/ready", "/status", "/metrics", "/metrics/json", "/doctor", "/webhook"],
-        "http_endpoint_count": 8,
+        "http_endpoints": ["/health", "/version", "/ping", "/ready", "/status", "/metrics", "/metrics/json", "/doctor", "/webhook"],
+        "http_endpoint_count": 9,
         "commands": {
             "telegram": tg_commands,
             "discord": dc_commands,
@@ -792,13 +801,13 @@ mod tests {
 
     #[test]
     fn test_http_endpoints_count() {
-        let endpoints = ["/health", "/version", "/ready", "/status", "/metrics", "/metrics/json", "/doctor", "/webhook"];
-        assert_eq!(endpoints.len(), 8, "Should have 8 HTTP endpoints");
+        let endpoints = ["/health", "/version", "/ping", "/ready", "/status", "/metrics", "/metrics/json", "/doctor", "/webhook"];
+        assert_eq!(endpoints.len(), 9, "Should have 9 HTTP endpoints");
         // Verify no duplicates
         let mut sorted = endpoints.to_vec();
         sorted.sort();
         sorted.dedup();
-        assert_eq!(sorted.len(), 8, "HTTP endpoints should have no duplicates");
+        assert_eq!(sorted.len(), 9, "HTTP endpoints should have no duplicates");
     }
 
     #[test]
