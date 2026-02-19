@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.42.0
+**Version:** 0.43.0
 **Last updated:** 2026-02-18
 **Maintainer:** Cascade + Shawaz
 
@@ -338,7 +338,13 @@
 - ✅ **Discord `/stats` timeouts** — added Timeouts field to /stats embed for full parity with Telegram
 - ✅ **139 tests** — 96 agent + 7 core + 36 gateway
 
-## v0.43.0 — Daemon & Polish
+## v0.43.0 — Stats & Health Polish (shipped)
+
+- ✅ **Telegram `/stats` timeouts** — added Timeouts line for full parity with Discord /stats embed
+- ✅ **`/health` version** — added `version` field to /health JSON endpoint
+- ✅ **139 tests** — 96 agent + 7 core + 36 gateway
+
+## v0.44.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**
