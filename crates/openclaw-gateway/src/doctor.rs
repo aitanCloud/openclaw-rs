@@ -210,7 +210,16 @@ pub async fn run_checks(agent_name: &str) -> Vec<(String, bool, String)> {
         format!("12 endpoints on port {}", http_port),
     ));
 
-    // 14. Uptime
+    // 14. Hostname
+    let hostname = std::fs::read_to_string("/etc/hostname")
+        .unwrap_or_default().trim().to_string();
+    checks.push((
+        "Hostname".to_string(),
+        !hostname.is_empty(),
+        if hostname.is_empty() { "Unknown".to_string() } else { hostname },
+    ));
+
+    // 15. Uptime
     let uptime_secs = crate::handler::BOOT_TIME.elapsed().as_secs();
     checks.push((
         "Uptime".to_string(),
@@ -233,8 +242,8 @@ mod tests {
     #[tokio::test]
     async fn test_doctor_returns_checks() {
         let checks = run_checks("test-agent").await;
-        // Should always return at least 14 checks
-        assert!(checks.len() >= 14, "Expected >=14 checks, got {}", checks.len());
+        // Should always return at least 15 checks
+        assert!(checks.len() >= 15, "Expected >=15 checks, got {}", checks.len());
 
         // Verify check names are present
         let names: Vec<&str> = checks.iter().map(|(n, _, _)| n.as_str()).collect();
@@ -251,8 +260,9 @@ mod tests {
         assert!(names.contains(&"Active Tasks"));
         assert!(names.contains(&"LLM Providers"));
         assert!(names.contains(&"HTTP"));
+        assert!(names.contains(&"Hostname"));
         assert!(names.contains(&"Uptime"));
-        assert_eq!(names.len(), 14, "Should have exactly 14 doctor checks");
+        assert_eq!(names.len(), 15, "Should have exactly 15 doctor checks");
     }
 
     #[tokio::test]

@@ -500,6 +500,7 @@ async fn health_handler() -> axum::response::Response {
             "os_arch": std::env::consts::ARCH,
             "rust_version": env!("RUST_VERSION"),
             "pid": std::process::id(),
+            "hostname": std::fs::read_to_string("/etc/hostname").unwrap_or_default().trim().to_string(),
             "cron_jobs_count": cron_jobs_count,
             "sessions_db_size_bytes": sessions_db_size,
             "sessions_db_size": crate::doctor::human_bytes_pub(sessions_db_size),
@@ -920,7 +921,7 @@ mod tests {
             "status", "version", "agent", "built", "boot_time", "active_tasks",
             "uptime", "uptime_seconds", "memory_rss_bytes", "memory_rss",
             "disk_usage_bytes", "disk_usage",
-            "os_name", "os_arch", "rust_version", "pid",
+            "os_name", "os_arch", "rust_version", "pid", "hostname",
             "cron_jobs_count", "sessions_db_size_bytes", "sessions_db_size",
             "skills", "sessions", "commands",
             "http_endpoint_count", "tool_count",
@@ -933,12 +934,12 @@ mod tests {
             "provider_count", "fallback_chain",
             "doctor_checks_total", "doctor_checks_passed", "response_time_ms",
         ];
-        assert_eq!(expected.len(), 44, "Should have 44 /health JSON fields");
+        assert_eq!(expected.len(), 45, "Should have 45 /health JSON fields");
         // Verify no duplicates
         let mut sorted = expected.to_vec();
         sorted.sort();
         sorted.dedup();
-        assert_eq!(sorted.len(), 44, "/health fields should have no duplicates");
+        assert_eq!(sorted.len(), 45, "/health fields should have no duplicates");
     }
 
     #[test]
@@ -997,6 +998,15 @@ mod tests {
         let rss = process_rss_bytes();
         // RSS should be a valid u64 (0 is acceptable on systems without /proc)
         assert!(rss < u64::MAX, "RSS should be a reasonable value");
+    }
+
+    #[test]
+    fn test_error_rate_pct_range() {
+        let m = metrics::GatewayMetrics::new();
+        let rate = m.error_rate_pct();
+        assert!(rate >= 0.0 && rate <= 100.0, "Error rate should be between 0 and 100, got {}", rate);
+        // With no requests, error rate should be 0
+        assert_eq!(rate, 0.0, "Error rate with no requests should be 0");
     }
 
     #[test]

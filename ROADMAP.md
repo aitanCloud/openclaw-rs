@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.95.0
+**Version:** 0.96.0
 **Last updated:** 2026-02-19
 **Maintainer:** Cascade + Shawaz
 
@@ -746,7 +746,15 @@
 - ✅ **`human_uptime` seconds-only test** — verifies 45s and 59s boundary values
 - ✅ **207 tests** — 111 agent + 7 core + 89 gateway (was 88)
 
-## v0.96.0 — Daemon & Polish
+## v0.96.0 — Hostname & 15th Doctor Check (shipped)
+
+- ✅ **`hostname` in `/health`** — 45 total fields, reads from /etc/hostname
+- ✅ **15th doctor check: Hostname** — verifies hostname is resolvable
+- ✅ **`error_rate_pct` range test** — verifies rate is between 0 and 100, 0 with no requests
+- ✅ **15 doctor checks** — workspace, config, sessions, skills, LLM, metrics, cron, disk, webhook, memory, tasks, LLM providers, HTTP, hostname, uptime
+- ✅ **208 tests** — 111 agent + 7 core + 90 gateway (was 89)
+
+## v0.97.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**
