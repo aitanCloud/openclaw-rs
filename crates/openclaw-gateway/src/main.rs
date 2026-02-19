@@ -38,6 +38,18 @@ async fn main() -> anyhow::Result<()> {
         me.first_name
     );
 
+    // ── Migrate old session keys (v0.15 → v0.16 format) ──
+    match openclaw_agent::sessions::SessionStore::open(&config.agent.name) {
+        Ok(store) => {
+            match store.migrate_old_session_keys() {
+                Ok(0) => {}
+                Ok(n) => info!("Migrated {} old session key(s) to user-based format", n),
+                Err(e) => warn!("Session key migration failed: {}", e),
+            }
+        }
+        Err(e) => warn!("Could not open session store for migration: {}", e),
+    }
+
     // ── Start cron executor ──
     let cron_bot = Arc::new(telegram::TelegramBot::new(&config.telegram.bot_token));
     let cron_config = Arc::new(config.clone());
@@ -269,13 +281,58 @@ async fn status_handler(
         format!("{}m {}s", uptime_secs / 60, uptime_secs % 60)
     };
 
+    // Session stats
+    let session_info = match openclaw_agent::sessions::SessionStore::open(&config.agent.name) {
+        Ok(store) => {
+            let sessions = store.list_sessions(&config.agent.name, 1000).unwrap_or_default();
+            let total_messages: i64 = sessions.iter().map(|s| s.message_count).sum();
+            let total_tokens: i64 = sessions.iter().map(|s| s.total_tokens).sum();
+            let tg_sessions = sessions.iter().filter(|s| s.session_key.starts_with("tg:")).count();
+            let dc_sessions = sessions.iter().filter(|s| s.session_key.starts_with("dc:")).count();
+            serde_json::json!({
+                "total": sessions.len(),
+                "telegram": tg_sessions,
+                "discord": dc_sessions,
+                "total_messages": total_messages,
+                "total_tokens": total_tokens,
+            })
+        }
+        Err(_) => serde_json::json!({"error": "failed to open session store"}),
+    };
+
+    // Channels info
+    let channels = serde_json::json!({
+        "telegram": {
+            "enabled": true,
+            "allowed_users": config.telegram.allowed_user_ids.len(),
+        },
+        "discord": {
+            "enabled": config.discord.is_some(),
+            "allowed_users": config.discord.as_ref()
+                .map(|d| d.allowed_user_ids.len())
+                .unwrap_or(0),
+        },
+    });
+
+    // Commands
+    let tg_commands = ["help", "new", "status", "model", "sessions", "export", "voice", "cron"];
+    let dc_commands = ["help", "new", "status", "model", "sessions", "export", "voice", "cron"];
+
     Json(serde_json::json!({
         "status": "running",
         "version": env!("CARGO_PKG_VERSION"),
         "agent": config.agent.name,
         "fallback": config.agent.fallback,
+        "model": config.agent.model,
         "uptime": uptime,
+        "uptime_seconds": uptime_secs,
+        "channels": channels,
+        "sessions": session_info,
         "tools": *tool_names,
         "tool_count": tool_names.len(),
+        "commands": {
+            "telegram": tg_commands,
+            "discord": dc_commands,
+        },
     }))
 }

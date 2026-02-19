@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.18.0
+**Version:** 0.19.0
 **Last updated:** 2026-02-18
 **Maintainer:** Cascade + Shawaz
 
@@ -164,12 +164,18 @@
 - ✅ **8 commands on both channels** — Telegram and Discord now both have: /help, /new, /status, /model, /sessions, /export, /voice, /cron
 - ✅ **115 tests** — 91 agent + 7 core + 17 gateway
 
-## v0.19.0 — Daemon & Polish
+## v0.19.0 — Status & Migration (shipped)
+
+- ✅ **Enhanced /status endpoint** — rich JSON: version, uptime (human + seconds), agent config, session stats (total/telegram/discord/messages/tokens), channel info (enabled, allowed users), command lists, tool inventory
+- ✅ **Session key migration** — auto-migrate old 3-part keys (`prefix:agent:channel`) to new 4-part format (`prefix:agent:0:channel`) on gateway startup, with FK-safe SQLite updates
+- ✅ **116 tests** — 92 agent + 7 core + 17 gateway
+
+## v0.20.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**
-- 📋 **Session migration** — migrate old channel-based sessions to new user-based keys
 - 📋 **Gateway metrics** — Prometheus-compatible /metrics endpoint
+- 📋 **Dockerfile update** — multi-stage build with Discord support
 - 💡 **WhatsApp integration**
 
 ---

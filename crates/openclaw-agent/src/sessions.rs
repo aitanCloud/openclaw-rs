@@ -265,6 +265,61 @@ impl SessionStore {
             Err(e) => Err(e.into()),
         }
     }
+
+    /// Migrate old-format session keys (without user_id) to new format.
+    /// Old format: `{prefix}:{agent}:{channel}` → New format: `{prefix}:{agent}:0:{channel}`
+    /// Returns the number of sessions migrated.
+    pub fn migrate_old_session_keys(&self) -> Result<usize> {
+        // Temporarily disable foreign key checks for the migration
+        self.conn.execute_batch("PRAGMA foreign_keys = OFF;")?;
+
+        let mut stmt = self.conn.prepare(
+            "SELECT session_key FROM sessions WHERE session_key LIKE 'tg:%' OR session_key LIKE 'dc:%'"
+        )?;
+
+        let keys: Vec<String> = stmt
+            .query_map([], |row| row.get(0))?
+            .filter_map(|r| r.ok())
+            .collect();
+        drop(stmt);
+
+        let mut migrated = 0;
+
+        for key in &keys {
+            let parts: Vec<&str> = key.split(':').collect();
+            // Old format has 3 parts: prefix:agent:channel
+            // New format has 4+ parts: prefix:agent:user:channel[:uuid]
+            if parts.len() == 3 {
+                // Insert user_id=0 as placeholder
+                let new_key = format!("{}:{}:0:{}", parts[0], parts[1], parts[2]);
+
+                // Check if new key already exists
+                let exists: bool = self.conn.query_row(
+                    "SELECT COUNT(*) > 0 FROM sessions WHERE session_key = ?1",
+                    params![new_key],
+                    |row| row.get(0),
+                ).unwrap_or(false);
+
+                if !exists {
+                    // Update messages first, then sessions
+                    self.conn.execute(
+                        "UPDATE messages SET session_key = ?1 WHERE session_key = ?2",
+                        params![new_key, key],
+                    )?;
+                    self.conn.execute(
+                        "UPDATE sessions SET session_key = ?1 WHERE session_key = ?2",
+                        params![new_key, key],
+                    )?;
+                    migrated += 1;
+                }
+            }
+        }
+
+        // Re-enable foreign key checks
+        self.conn.execute_batch("PRAGMA foreign_keys = ON;")?;
+
+        Ok(migrated)
+    }
 }
 
 fn resolve_db_path(agent_name: &str) -> Result<PathBuf> {
@@ -429,5 +484,40 @@ mod tests {
         assert!(loaded[0].tool_calls.is_some());
         assert_eq!(loaded[0].tool_calls.as_ref().unwrap().len(), 1);
         assert_eq!(loaded[1].tool_call_id.as_deref(), Some("call_123"));
+    }
+
+    #[test]
+    fn test_migrate_old_session_keys() {
+        let store = SessionStore::open_memory().unwrap();
+
+        // Create old-format sessions (3 parts: prefix:agent:channel)
+        store.create_session("tg:main:12345", "main", "model").unwrap();
+        store.append_message("tg:main:12345", &Message::user("hello")).unwrap();
+
+        store.create_session("dc:main:67890", "main", "model").unwrap();
+        store.append_message("dc:main:67890", &Message::user("hi discord")).unwrap();
+
+        // Create new-format session (4 parts: prefix:agent:user:channel) — should NOT be migrated
+        store.create_session("tg:main:999:12345", "main", "model").unwrap();
+
+        let migrated = store.migrate_old_session_keys().unwrap();
+        assert_eq!(migrated, 2);
+
+        // Old keys should no longer exist
+        let old_msgs = store.load_messages("tg:main:12345").unwrap();
+        assert!(old_msgs.is_empty());
+
+        // New keys should have the messages
+        let new_msgs = store.load_messages("tg:main:0:12345").unwrap();
+        assert_eq!(new_msgs.len(), 1);
+        assert_eq!(new_msgs[0].content.as_deref(), Some("hello"));
+
+        let dc_msgs = store.load_messages("dc:main:0:67890").unwrap();
+        assert_eq!(dc_msgs.len(), 1);
+        assert_eq!(dc_msgs[0].content.as_deref(), Some("hi discord"));
+
+        // Running again should migrate 0
+        let migrated2 = store.migrate_old_session_keys().unwrap();
+        assert_eq!(migrated2, 0);
     }
 }
