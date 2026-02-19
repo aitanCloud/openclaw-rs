@@ -160,7 +160,21 @@ pub async fn run_checks(agent_name: &str) -> Vec<(String, bool, String)> {
         },
     ));
 
-    // 10. Active tasks
+    // 10. Memory (RSS)
+    let rss = crate::process_rss_bytes();
+    let rss_mb = rss as f64 / 1_048_576.0;
+    let mem_ok = rss_mb < 512.0;
+    checks.push((
+        "Memory".to_string(),
+        mem_ok,
+        if mem_ok {
+            format!("{} RSS", human_bytes(rss))
+        } else {
+            format!("⚠ {:.0} MB RSS (>512 MB threshold)", rss_mb)
+        },
+    ));
+
+    // 11. Active tasks
     let active = crate::task_registry::active_count();
     checks.push((
         "Active Tasks".to_string(),
@@ -168,14 +182,12 @@ pub async fn run_checks(agent_name: &str) -> Vec<(String, bool, String)> {
         format!("{} running", active),
     ));
 
-    // 11. Uptime
-    let uptime = crate::handler::BOOT_TIME.elapsed();
-    let hours = uptime.as_secs() / 3600;
-    let mins = (uptime.as_secs() % 3600) / 60;
+    // 12. Uptime
+    let uptime_secs = crate::handler::BOOT_TIME.elapsed().as_secs();
     checks.push((
         "Uptime".to_string(),
         true,
-        format!("{}h {}m", hours, mins),
+        crate::human_uptime(uptime_secs),
     ));
 
     debug!("Doctor: {}/{} checks passed",
@@ -193,8 +205,8 @@ mod tests {
     #[tokio::test]
     async fn test_doctor_returns_checks() {
         let checks = run_checks("test-agent").await;
-        // Should always return at least 11 checks
-        assert!(checks.len() >= 11, "Expected >=11 checks, got {}", checks.len());
+        // Should always return at least 12 checks
+        assert!(checks.len() >= 12, "Expected >=12 checks, got {}", checks.len());
 
         // Verify check names are present
         let names: Vec<&str> = checks.iter().map(|(n, _, _)| n.as_str()).collect();
@@ -207,6 +219,7 @@ mod tests {
         assert!(names.contains(&"Cron Jobs"));
         assert!(names.contains(&"Disk Usage"));
         assert!(names.contains(&"Webhook"));
+        assert!(names.contains(&"Memory"));
         assert!(names.contains(&"Active Tasks"));
         assert!(names.contains(&"Uptime"));
     }

@@ -218,6 +218,20 @@ impl GatewayMetrics {
         out.push_str(&format!("openclaw_gateway_process_rss_bytes {}\n",
             crate::process_rss_bytes()));
 
+        out.push_str("# HELP openclaw_gateway_uptime_seconds Gateway process uptime in seconds\n");
+        out.push_str("# TYPE openclaw_gateway_uptime_seconds gauge\n");
+        out.push_str(&format!("openclaw_gateway_uptime_seconds {}\n",
+            crate::handler::BOOT_TIME.elapsed().as_secs()));
+
+        out.push_str("# HELP openclaw_gateway_sessions_total Total sessions in the database\n");
+        out.push_str("# TYPE openclaw_gateway_sessions_total gauge\n");
+        let session_count = openclaw_agent::sessions::SessionStore::open("main")
+            .ok()
+            .and_then(|s| s.db_stats("main").ok())
+            .map(|stats| stats.session_count)
+            .unwrap_or(0);
+        out.push_str(&format!("openclaw_gateway_sessions_total {}\n", session_count));
+
         out
     }
 

@@ -1,6 +1,6 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.66.0
+**Version:** 0.67.0
 **Last updated:** 2026-02-19
 **Maintainer:** Cascade + Shawaz
 
@@ -523,7 +523,15 @@
 - ✅ **2 new metrics tests** — verify RSS presence in both Prometheus and JSON output
 - ✅ **175 tests** — 111 agent + 7 core + 57 gateway (was 55)
 
-## v0.67.0 — Daemon & Polish
+## v0.67.0 — Prometheus Gauges & Memory Doctor (shipped)
+
+- ✅ **`uptime_seconds` Prometheus gauge** — `openclaw_gateway_uptime_seconds` for dashboard uptime tracking
+- ✅ **`sessions_total` Prometheus gauge** — `openclaw_gateway_sessions_total` for session count monitoring
+- ✅ **Memory doctor check** — 12th check: shows RSS, warns (fails) if RSS > 512 MB
+- ✅ **Uptime uses `human_uptime()`** — doctor uptime check now uses consistent formatter with days support
+- ✅ **175 tests** — 111 agent + 7 core + 57 gateway
+
+## v0.68.0 — Daemon & Polish
 
 - 📋 **Unix socket daemon mode** — long-running agent process, CLI connects via socket
 - 📋 **Slack integration**
