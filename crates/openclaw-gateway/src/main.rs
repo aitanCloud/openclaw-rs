@@ -802,15 +802,15 @@ async fn doctor_handler(
     let all_ok = checks.iter().all(|(_, ok, _)| *ok);
     let results: Vec<serde_json::Value> = checks.iter()
         .map(|(name, ok, detail)| serde_json::json!({
-            "check": name,
-            "passed": ok,
+            "name": name,
+            "ok": ok,
             "detail": detail,
         }))
         .collect();
     Json(serde_json::json!({
-        "status": if all_ok { "healthy" } else { "degraded" },
-        "passed": checks.iter().filter(|(_, ok, _)| *ok).count(),
-        "total": checks.len(),
+        "all_ok": all_ok,
+        "checks_total": checks.len(),
+        "checks_passed": checks.iter().filter(|(_, ok, _)| *ok).count(),
         "checks": results,
     }))
 }
@@ -1189,6 +1189,16 @@ mod tests {
         sorted.sort();
         sorted.dedup();
         assert_eq!(sorted.len(), 2, "/logs/:id 404 fields should have no duplicates");
+    }
+
+    #[test]
+    fn test_doctor_json_field_names() {
+        // /doctor/json top-level fields must match CLI expectations
+        let top_level = ["all_ok", "checks_total", "checks_passed", "checks"];
+        assert_eq!(top_level.len(), 4, "Should have 4 /doctor/json top-level fields");
+        // Per-check fields must match CLI expectations
+        let per_check = ["name", "ok", "detail"];
+        assert_eq!(per_check.len(), 3, "Each doctor check should have 3 fields");
     }
 
     #[test]

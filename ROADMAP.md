@@ -883,20 +883,27 @@
 - ✅ **7 new tests** — format_duration (4 tests), split_message (3 tests)
 - ✅ **233 total tests** — 124 agent + 7 core + 102 gateway (+7 new)
 
-## v1.12.0 — Channel Plugin Abstraction
+## v1.12.0 — Doctor JSON & CLI Alignment (shipped)
+
+- ✅ **Fix doctor_handler JSON field names** — `check`→`name`, `passed`→`ok` to match CLI expectations
+- ✅ **Fix doctor top-level fields** — `status`/`passed`/`total` → `all_ok`/`checks_total`/`checks_passed`
+- ✅ **Add doctor JSON field name test** — ensures handler↔CLI contract stays aligned
+- ✅ **234 total tests** — 124 agent + 7 core + 103 gateway (+1 new)
+
+## v1.13.0 — Channel Plugin Abstraction
 
 - 📋 **`Channel` trait** — abstract interface for message channels (send, edit, upload, typing)
 - 📋 **Telegram channel plugin** — refactor handler.rs to implement Channel trait
 - 📋 **Discord channel plugin** — refactor discord_handler.rs to implement Channel trait
 - 📋 **Plugin loader** — dynamic channel registration from config
 
-## v1.13.0 — WebSocket Protocol
+## v1.14.0 — WebSocket Protocol
 
 - 📋 **WS endpoint** — `ws://gateway:3100/ws` for CLI↔Gateway real-time communication
 - 📋 **CLI connect mode** — `openclaw chat` opens interactive WS session
 - 📋 **TUI** — terminal UI with streaming responses
 
-## v1.14.0+ — Extended Features
+## v1.15.0+ — Extended Features
 
 - 📋 **Multi-agent routing** — per-agent workspaces, auth, routing
 - 📋 **Device pairing** — QR codes, setup codes, token management
