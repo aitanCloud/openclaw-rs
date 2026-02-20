@@ -88,6 +88,7 @@ impl Tool for DelegateTool {
             &ctx.agent_name,
             &ctx.workspace_dir,
             None,
+            None, // no event forwarding for blocking delegate calls
         )
         .await;
 

@@ -16,11 +16,14 @@ use crate::tools::ToolRegistry;
 /// Run a subagent turn with the given prompt.
 /// Uses the same provider config as the parent agent but with a fresh message history.
 /// Returns the subagent's text response.
+/// If `event_forward_tx` is provided, subagent stream events are forwarded to it
+/// (for real-time activity display in the chat).
 pub async fn run_subagent_turn(
     prompt: &str,
     agent_name: &str,
     workspace_dir: &str,
     cancel_token: Option<tokio_util::sync::CancellationToken>,
+    event_forward_tx: Option<tokio::sync::mpsc::UnboundedSender<StreamEvent>>,
 ) -> Result<String> {
     info!("Starting subagent turn for agent={}", agent_name);
 
@@ -45,9 +48,13 @@ pub async fn run_subagent_turn(
 
     let (event_tx, mut event_rx) = tokio::sync::mpsc::unbounded_channel::<StreamEvent>();
 
-    // Drain events in background (subagent events are not streamed to user)
+    // Forward events to caller if provided, otherwise drain silently
     let drain_handle = tokio::spawn(async move {
-        while event_rx.recv().await.is_some() {}
+        while let Some(event) = event_rx.recv().await {
+            if let Some(ref fwd) = event_forward_tx {
+                let _ = fwd.send(event);
+            }
+        }
     });
 
     let subagent_preamble = "[Subagent Context] You are running as a focused subagent. \

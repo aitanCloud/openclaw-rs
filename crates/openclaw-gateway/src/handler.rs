@@ -220,58 +220,155 @@ pub async fn handle_message(
 
     // ── Spawn delegate listener (background subagent tasks) ──
     let delegate_bot_token = config.telegram.bot_token.clone();
+    let delegate_agent_name = config.agent.name.clone();
     let subagent_timeout_secs = config.agent.sandbox.as_ref()
         .and_then(|s| s.subagent_timeout_secs).unwrap_or(300);
+    let delegate_session_key = session_key.clone();
     tokio::spawn(async move {
         while let Some(req) = delegate_rx.recv().await {
             let bot = TelegramBot::new(&delegate_bot_token);
+            let activity_bot_token = delegate_bot_token.clone();
             let timeout_secs = subagent_timeout_secs;
+            let parent_session_key = delegate_session_key.clone();
+            let parent_agent_name = delegate_agent_name.clone();
             tokio::spawn(async move {
                 let task_desc = req.task[..req.task.len().min(80)].to_string();
                 let (task_id, cancel_token) = crate::subagent_registry::register_subagent(
                     &task_desc, &req.agent_name, req.chat_id,
                 );
 
-                let _ = bot.send_message(
+                // Send a status message that we'll edit with live progress
+                let status_msg_id = bot.send_message_with_id(
                     req.chat_id,
                     &format!("\u{1F680} *Task #{}* started: {}", task_id, task_desc),
-                ).await;
+                ).await.unwrap_or(0);
+
+                // Set up event forwarding for real-time activity display
+                let (fwd_tx, mut fwd_rx) = tokio::sync::mpsc::unbounded_channel::<openclaw_agent::llm::streaming::StreamEvent>();
+                let activity_bot = TelegramBot::new(&activity_bot_token);
+                let activity_chat_id = req.chat_id;
+                let activity_msg_id = status_msg_id;
+                let activity_task_id = task_id;
+                let activity_desc = task_desc.clone();
+                let activity_handle = tokio::spawn(async move {
+                    let mut tool_log: Vec<String> = Vec::new();
+                    let mut last_edit = std::time::Instant::now();
+
+                    while let Some(event) = fwd_rx.recv().await {
+                        let updated = match event {
+                            openclaw_agent::llm::streaming::StreamEvent::ToolCallStart { name } => {
+                                tool_log.push(format!("\u{1F527} Calling `{}`...", name));
+                                true
+                            }
+                            openclaw_agent::llm::streaming::StreamEvent::ToolResult { name, success } => {
+                                // Replace the last "Calling X..." with result
+                                if let Some(last) = tool_log.last_mut() {
+                                    if last.contains("Calling") {
+                                        let icon = if success { "\u{2705}" } else { "\u{274C}" };
+                                        *last = format!("{} `{}`", icon, name);
+                                    }
+                                }
+                                true
+                            }
+                            openclaw_agent::llm::streaming::StreamEvent::RoundStart { round } => {
+                                tool_log.push(format!("\u{1F504} Round {}...", round));
+                                true
+                            }
+                            _ => false,
+                        };
+
+                        // Rate-limit edits to avoid Telegram API throttling
+                        if updated && activity_msg_id != 0 && last_edit.elapsed().as_millis() >= 1500 {
+                            let progress = format!(
+                                "\u{1F680} *Task #{}*: {}\n\n{}",
+                                activity_task_id,
+                                activity_desc,
+                                tool_log.join("\n"),
+                            );
+                            let display = if progress.len() > 4000 {
+                                format!("{}...", &progress[..3997])
+                            } else {
+                                progress
+                            };
+                            let _ = activity_bot.edit_message(activity_chat_id, activity_msg_id, &display).await;
+                            last_edit = std::time::Instant::now();
+                        }
+                    }
+                });
 
                 let timeout = std::time::Duration::from_secs(timeout_secs);
                 let result = tokio::time::timeout(
                     timeout,
                     openclaw_agent::subagent::run_subagent_turn(
                         &req.task, &req.agent_name, &req.workspace_dir, Some(cancel_token),
+                        Some(fwd_tx),
                     ),
                 ).await;
+
+                // Stop the activity display task
+                activity_handle.abort();
+
+                // Inject subagent result into main agent's session history
+                let inject_into_session = |result_text: &str| {
+                    let session_msg = format!(
+                        "[Subagent Task #{} result]: {}",
+                        task_id, result_text
+                    );
+                    if let Ok(store) = openclaw_agent::sessions::SessionStore::open(&parent_agent_name) {
+                        let msg = openclaw_agent::llm::Message::assistant(&session_msg);
+                        let _ = store.append_message(&parent_session_key, &msg);
+                    }
+                    // Also write to Postgres
+                    if let Some(pool) = openclaw_db::pool() {
+                        let pool = pool.clone();
+                        let sk = parent_session_key.clone();
+                        let sm = session_msg;
+                        tokio::spawn(async move {
+                            if let Ok(Some(sid)) = openclaw_db::sessions::get_session_id(&pool, &sk).await {
+                                let _ = openclaw_db::messages::record_message(
+                                    &pool, sid, "assistant", Some(&sm), None, None, None,
+                                ).await;
+                            }
+                        });
+                    }
+                };
 
                 match result {
                     Ok(Ok(response)) => {
                         crate::subagent_registry::complete_subagent(task_id);
+                        inject_into_session(&response);
                         let truncated = if response.len() > 3000 {
                             format!("{}...\n\n_(truncated, {}B total)_", &response[..3000], response.len())
                         } else {
                             response
                         };
-                        let _ = bot.send_message(
-                            req.chat_id,
-                            &format!("\u{2705} *Task #{}* complete:\n\n{}", task_id, truncated),
-                        ).await;
+                        let msg = format!("\u{2705} *Task #{}* complete:\n\n{}", task_id, truncated);
+                        if status_msg_id != 0 {
+                            let _ = bot.edit_message(req.chat_id, status_msg_id, &msg).await;
+                        } else {
+                            let _ = bot.send_message(req.chat_id, &msg).await;
+                        }
                     }
                     Ok(Err(e)) => {
                         crate::subagent_registry::fail_subagent(task_id, &e.to_string());
-                        let _ = bot.send_message(
-                            req.chat_id,
-                            &format!("\u{274C} *Task #{}* failed: {}", task_id, e),
-                        ).await;
+                        inject_into_session(&format!("FAILED: {}", e));
+                        let msg = format!("\u{274C} *Task #{}* failed: {}", task_id, e);
+                        if status_msg_id != 0 {
+                            let _ = bot.edit_message(req.chat_id, status_msg_id, &msg).await;
+                        } else {
+                            let _ = bot.send_message(req.chat_id, &msg).await;
+                        }
                     }
                     Err(_) => {
-                        let msg = format!("timed out after {}s", timeout_secs);
-                        crate::subagent_registry::fail_subagent(task_id, &msg);
-                        let _ = bot.send_message(
-                            req.chat_id,
-                            &format!("\u{23F0} *Task #{}* {}", task_id, msg),
-                        ).await;
+                        let err_msg = format!("timed out after {}s", timeout_secs);
+                        crate::subagent_registry::fail_subagent(task_id, &err_msg);
+                        inject_into_session(&format!("TIMED OUT: {}", err_msg));
+                        let msg = format!("\u{23F0} *Task #{}* {}", task_id, err_msg);
+                        if status_msg_id != 0 {
+                            let _ = bot.edit_message(req.chat_id, status_msg_id, &msg).await;
+                        } else {
+                            let _ = bot.send_message(req.chat_id, &msg).await;
+                        }
                     }
                 }
                 crate::subagent_registry::gc();
