@@ -1,6 +1,9 @@
 pub mod context;
+pub mod cron;
 pub mod llm_log;
+pub mod messages;
 pub mod metrics;
+pub mod sessions;
 
 use anyhow::Result;
 use sqlx::postgres::PgPoolOptions;

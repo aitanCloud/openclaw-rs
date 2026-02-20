@@ -351,7 +351,7 @@ pub async fn handle_discord_message(
     typing_token.cancel();
     let elapsed = t_start.elapsed().as_millis();
 
-    // ── Persist messages ──
+    // ── Persist messages (SQLite + Postgres) ──
     store.append_message(
         &session_key,
         &openclaw_agent::llm::Message::user(&user_text),
@@ -363,6 +363,33 @@ pub async fn handle_discord_message(
         )?;
     }
     store.add_tokens(&session_key, result.total_usage.total_tokens as i64)?;
+
+    // Postgres dual-write (fire-and-forget)
+    if let Some(pool) = openclaw_db::pool() {
+        let pool = pool.clone();
+        let sk = session_key.clone();
+        let agent = config.agent.name.clone();
+        let model = result.model_name.clone();
+        let uid = user_id.to_string();
+        let u_msg = user_text.clone();
+        let b_msg = result.response.clone();
+        let tokens = result.total_usage.total_tokens as i64;
+        tokio::spawn(async move {
+            if let Ok(sid) = openclaw_db::sessions::upsert_session(
+                &pool, &sk, &agent, &model, Some("discord"), Some(&uid),
+            ).await {
+                let _ = openclaw_db::messages::record_message(
+                    &pool, sid, "user", Some(&u_msg), None, None, None,
+                ).await;
+                if !b_msg.is_empty() {
+                    let _ = openclaw_db::messages::record_message(
+                        &pool, sid, "assistant", Some(&b_msg), None, None, None,
+                    ).await;
+                }
+                let _ = openclaw_db::sessions::add_tokens(&pool, &sk, tokens).await;
+            }
+        });
+    }
 
     // ── Final edit with stats footer ──
     let response = if !result.response.is_empty() {
