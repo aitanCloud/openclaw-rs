@@ -918,12 +918,14 @@
 
 **Problem:** Bot cannot see its own running tasks. LLM fabricates "Task dispatched" text without calling tools. Subagents can hang indefinitely with no visibility.
 
-- 🚧 **`tasks` tool** — 18th built-in tool; LLM can query its own running subagents (list, status, cancel) via tool call instead of relying on /tasks command
-- 🚧 **Fabrication detection** — runtime rejects text responses claiming tool actions (e.g. "Task dispatched") when no tool was called; injects correction and retries
-- 🚧 **Turn message persistence** — all tool call + tool result messages saved to SQLite and Postgres session history (prevents LLM from learning fabrication patterns)
-- 📋 **Subagent hard timeout** — 120s max per subagent turn, auto-cancel and report failure to parent
-- 📋 **Subagent result injection** — when subagent completes, result is appended to parent session history so LLM can reference it in future turns
-- 📋 **Anti-fabrication tests** — unit tests for `detect_fabrication()` patterns, retry behavior
+- ✅ **`tasks` tool** — 18th built-in tool; LLM can query its own running subagents (list, status, cancel) via tool call instead of relying on /tasks command
+- ✅ **Fabrication detection** — runtime rejects text responses claiming tool actions (e.g. "Task dispatched") when no tool was called; injects correction and retries
+- ✅ **Turn message persistence** — all tool call + tool result messages saved to SQLite and Postgres session history (prevents LLM from learning fabrication patterns)
+- ✅ **Subagent hard timeout** — configurable timeout (default 300s) with auto-cancel and failure report to parent (already existed)
+- ✅ **Subagent result injection** — when subagent completes, result is appended to parent session history so LLM can reference it in future turns (already existed)
+- ✅ **Anti-fabrication tests** — 12 unit tests for `detect_fabrication()` (7 positive, 5 negative)
+- ✅ **253 total tests** — 139 agent + 10 core + 104 gateway
+- ✅ **18 tools** — added `tasks` (subagent introspection)
 
 ## v1.17.0 — Postgres-Primary & Task Lifecycle
 
