@@ -7,12 +7,26 @@ use tracing::info;
 
 use super::{Tool, ToolContext, ToolResult};
 
-/// Persistent memory tool — stores and retrieves key-value notes per agent.
-/// Memory is persisted as a JSON file in the agent's workspace directory.
+/// Unified persistent memory tool — searches BOTH the built-in key-value store
+/// AND the MCP knowledge graph when recalling information.
+///
+/// - Built-in store: `.memory-{agent}.json` in workspace (key-value pairs)
+/// - Knowledge graph: `~/.openclaw/memory/knowledge-graph.json` (entities, relations, observations)
+///
+/// On `get` or `list`, this tool automatically searches both sources and merges results.
+/// On `set`, this tool writes to the built-in store (use mcp_memory_* for knowledge graph writes).
 pub struct MemoryTool;
 
 fn memory_path(workspace_dir: &str, agent_name: &str) -> PathBuf {
     PathBuf::from(workspace_dir).join(format!(".memory-{}.json", agent_name))
+}
+
+fn knowledge_graph_path() -> PathBuf {
+    dirs::home_dir()
+        .unwrap_or_default()
+        .join(".openclaw")
+        .join("memory")
+        .join("knowledge-graph.json")
 }
 
 fn load_memory(path: &PathBuf) -> HashMap<String, String> {
@@ -29,6 +43,91 @@ fn save_memory(path: &PathBuf, memory: &HashMap<String, String>) -> Result<()> {
     Ok(())
 }
 
+/// Search the knowledge graph file for a query string.
+/// Returns matching entities with their observations.
+fn search_knowledge_graph(query: &str) -> String {
+    let kg_path = knowledge_graph_path();
+    let content = match std::fs::read_to_string(&kg_path) {
+        Ok(c) => c,
+        Err(_) => return String::new(),
+    };
+
+    let query_lower = query.to_lowercase();
+    let mut results = Vec::new();
+
+    // Knowledge graph is JSONL (one JSON object per line)
+    for line in content.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        if let Ok(entity) = serde_json::from_str::<Value>(line) {
+            let name = entity.get("name").and_then(|v| v.as_str()).unwrap_or("");
+            let entity_type = entity.get("entityType").and_then(|v| v.as_str()).unwrap_or("");
+            let observations: Vec<&str> = entity
+                .get("observations")
+                .and_then(|v| v.as_array())
+                .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect())
+                .unwrap_or_default();
+
+            // Match against name, type, or any observation
+            let matches = name.to_lowercase().contains(&query_lower)
+                || entity_type.to_lowercase().contains(&query_lower)
+                || observations
+                    .iter()
+                    .any(|o| o.to_lowercase().contains(&query_lower));
+
+            if matches {
+                let obs_str = observations
+                    .iter()
+                    .map(|o| format!("  - {}", o))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                results.push(format!("[{}] {}\n{}", entity_type, name, obs_str));
+            }
+        }
+    }
+
+    results.join("\n\n")
+}
+
+/// List all entities in the knowledge graph (summary).
+fn list_knowledge_graph() -> String {
+    let kg_path = knowledge_graph_path();
+    let content = match std::fs::read_to_string(&kg_path) {
+        Ok(c) => c,
+        Err(_) => return String::new(),
+    };
+
+    let mut entities = Vec::new();
+    for line in content.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        if let Ok(entity) = serde_json::from_str::<Value>(line) {
+            let name = entity.get("name").and_then(|v| v.as_str()).unwrap_or("?");
+            let entity_type = entity.get("entityType").and_then(|v| v.as_str()).unwrap_or("?");
+            let obs_count = entity
+                .get("observations")
+                .and_then(|v| v.as_array())
+                .map(|a| a.len())
+                .unwrap_or(0);
+            entities.push(format!("[{}] {} ({} observations)", entity_type, name, obs_count));
+        }
+    }
+
+    if entities.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "Knowledge graph ({} entities):\n{}",
+            entities.len(),
+            entities.join("\n")
+        )
+    }
+}
+
 #[async_trait]
 impl Tool for MemoryTool {
     fn name(&self) -> &str {
@@ -36,8 +135,11 @@ impl Tool for MemoryTool {
     }
 
     fn description(&self) -> &str {
-        "Persistent memory: store, retrieve, list, or delete key-value notes that persist across sessions. \
-         Use 'set' to remember something, 'get' to recall, 'list' to see all keys, 'delete' to forget."
+        "Unified persistent memory: searches BOTH the key-value store AND the knowledge graph. \
+         Use 'set' to store a key-value pair, 'get' to search ALL memory sources for a key/query, \
+         'list' to see everything stored, 'delete' to remove a key-value entry. \
+         When recalling information, this tool automatically searches the knowledge graph too — \
+         you do NOT need to call mcp_memory_search_nodes separately."
     }
 
     fn parameters(&self) -> Value {
@@ -51,7 +153,7 @@ impl Tool for MemoryTool {
                 },
                 "key": {
                     "type": "string",
-                    "description": "The memory key (required for set/get/delete)"
+                    "description": "The memory key or search query (required for set/get/delete)"
                 },
                 "value": {
                     "type": "string",
@@ -88,19 +190,57 @@ impl Tool for MemoryTool {
                 let key = args.get("key").and_then(|v| v.as_str())
                     .ok_or_else(|| anyhow::anyhow!("Missing 'key' for get"))?;
 
+                let mut parts = Vec::new();
+
+                // 1. Search built-in key-value store
                 let mem = load_memory(&path);
-                match mem.get(key) {
-                    Some(value) => Ok(ToolResult::success(value.clone())),
-                    None => Ok(ToolResult::success(format!("No memory found for key '{}'", key))),
+                if let Some(value) = mem.get(key) {
+                    parts.push(format!("[Key-value store] {} = {}", key, value));
+                } else {
+                    // Also try fuzzy match on keys
+                    let key_lower = key.to_lowercase();
+                    let matches: Vec<_> = mem.iter()
+                        .filter(|(k, v)| k.to_lowercase().contains(&key_lower) || v.to_lowercase().contains(&key_lower))
+                        .collect();
+                    if !matches.is_empty() {
+                        for (k, v) in &matches {
+                            parts.push(format!("[Key-value store] {} = {}", k, v));
+                        }
+                    }
+                }
+
+                // 2. Search knowledge graph
+                let kg_results = search_knowledge_graph(key);
+                if !kg_results.is_empty() {
+                    parts.push(format!("[Knowledge graph]\n{}", kg_results));
+                }
+
+                if parts.is_empty() {
+                    Ok(ToolResult::success(format!("No memory found for '{}' in any source.", key)))
+                } else {
+                    Ok(ToolResult::success(parts.join("\n\n")))
                 }
             }
             "list" => {
+                let mut parts = Vec::new();
+
+                // 1. Built-in key-value store
                 let mem = load_memory(&path);
-                if mem.is_empty() {
-                    Ok(ToolResult::success("No memories stored."))
+                if !mem.is_empty() {
+                    let kv_list: Vec<_> = mem.keys().map(|k| k.as_str()).collect();
+                    parts.push(format!("Key-value store ({} entries): {}", kv_list.len(), kv_list.join(", ")));
+                }
+
+                // 2. Knowledge graph
+                let kg_list = list_knowledge_graph();
+                if !kg_list.is_empty() {
+                    parts.push(kg_list);
+                }
+
+                if parts.is_empty() {
+                    Ok(ToolResult::success("No memories stored in any source."))
                 } else {
-                    let keys: Vec<_> = mem.keys().map(|k| k.as_str()).collect();
-                    Ok(ToolResult::success(format!("{} memories: {}", keys.len(), keys.join(", "))))
+                    Ok(ToolResult::success(parts.join("\n\n")))
                 }
             }
             "delete" => {
@@ -130,7 +270,8 @@ mod tests {
     fn test_memory_tool_definition() {
         let tool = MemoryTool;
         assert_eq!(tool.name(), "memory");
-        assert!(tool.description().contains("Persistent"));
+        assert!(tool.description().contains("Unified"));
+        assert!(tool.description().contains("knowledge graph"));
         let params = tool.parameters();
         assert!(params["properties"]["action"].is_object());
         assert!(params["properties"]["key"].is_object());
@@ -156,7 +297,7 @@ mod tests {
 
         // Get
         let result = tool.execute(serde_json::json!({"action": "get", "key": "name"}), &ctx).await.unwrap();
-        assert_eq!(result.output, "Alice");
+        assert!(result.output.contains("Alice"));
 
         // List
         let result = tool.execute(serde_json::json!({"action": "list"}), &ctx).await.unwrap();
@@ -176,5 +317,14 @@ mod tests {
         let path = PathBuf::from("/tmp/nonexistent-memory-test-12345.json");
         let mem = load_memory(&path);
         assert!(mem.is_empty());
+    }
+
+    #[test]
+    fn test_search_knowledge_graph_no_file() {
+        // Should return empty string when file doesn't exist
+        let result = search_knowledge_graph("test");
+        // May or may not find results depending on whether the file exists on this machine
+        // Just verify it doesn't panic
+        let _ = result;
     }
 }
