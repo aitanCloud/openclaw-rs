@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use openclaw_agent::tools::mcp_bridge::McpServerConfig;
 
 /// Gateway configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -9,6 +10,8 @@ pub struct GatewayConfig {
     pub agent: AgentConfig,
     #[serde(default)]
     pub webhook: Option<WebhookConfig>,
+    #[serde(default)]
+    pub mcp_servers: Vec<McpServerConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -174,6 +177,7 @@ impl GatewayConfig {
                 sandbox: None,
             },
             webhook: None,
+            mcp_servers: Vec::new(),
         })
     }
 

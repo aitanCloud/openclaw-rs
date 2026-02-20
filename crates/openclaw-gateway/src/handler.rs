@@ -24,12 +24,37 @@ pub static BOOT_TIMESTAMP: std::sync::LazyLock<String> =
 /// Agent name, set once at startup via init_agent_name()
 static AGENT_NAME: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
+/// MCP server configs, set once at startup
+static MCP_CONFIGS: std::sync::OnceLock<Vec<openclaw_agent::tools::mcp_bridge::McpServerConfig>> = std::sync::OnceLock::new();
+
 pub fn init_agent_name(name: &str) {
     let _ = AGENT_NAME.set(name.to_string());
 }
 
+pub fn init_mcp_configs(configs: Vec<openclaw_agent::tools::mcp_bridge::McpServerConfig>) {
+    let _ = MCP_CONFIGS.set(configs);
+}
+
+pub fn mcp_configs() -> &'static [openclaw_agent::tools::mcp_bridge::McpServerConfig] {
+    MCP_CONFIGS.get().map(|v| v.as_slice()).unwrap_or(&[])
+}
+
 pub fn agent_name() -> &'static str {
     AGENT_NAME.get().map(|s| s.as_str()).unwrap_or("unknown")
+}
+
+/// Build a ToolRegistry with defaults + MCP client tools.
+pub async fn build_tool_registry(workspace_dir: &std::path::Path) -> ToolRegistry {
+    let mut tools = ToolRegistry::with_defaults();
+    tools.load_plugins(workspace_dir);
+    let mcp = mcp_configs();
+    if !mcp.is_empty() {
+        let count = tools.load_mcp_tools(mcp).await;
+        if count > 0 {
+            info!("Loaded {} MCP client tool(s)", count);
+        }
+    }
+    tools
 }
 
 /// Minimum chars between Telegram message edits (avoid rate limits)
@@ -200,12 +225,8 @@ pub async fn handle_message(
     };
     store.create_session(&session_key, &config.agent.name, provider.name())?;
 
-    // ── Tools + config (load plugins from workspace) ──
-    let mut tools = ToolRegistry::with_defaults();
-    let plugin_count = tools.load_plugins(&workspace_dir);
-    if plugin_count > 0 {
-        info!("Loaded {} plugin tool(s) from workspace", plugin_count);
-    }
+    // ── Tools + config (load plugins + MCP client tools from workspace) ──
+    let tools = build_tool_registry(&workspace_dir).await;
     // ── Set up delegate channel for async subagent dispatch ──
     let (delegate_tx, mut delegate_rx) = mpsc::unbounded_channel::<openclaw_agent::tools::DelegateRequest>();
 
@@ -919,9 +940,10 @@ async fn handle_command(
             bot.send_message(chat_id, &msg_text).await?;
         }
         "/tools" => {
-            let tools = openclaw_agent::tools::ToolRegistry::with_defaults();
+            let workspace_dir = workspace::resolve_workspace_dir(&config.agent.name);
+            let tools = build_tool_registry(&workspace_dir).await;
             let names = tools.tool_names();
-            let mut msg_text = format!("🔧 *Built-in Tools* ({} total)\n\n", names.len());
+            let mut msg_text = format!("🔧 *Tools* ({} total)\n\n", names.len());
             for name in &names {
                 msg_text.push_str(&format!("• `{}`\n", name));
             }
@@ -1241,7 +1263,7 @@ async fn handle_command(
                 let store = SessionStore::open(&config.agent.name)?;
                 store.create_session(&session_key, &config.agent.name, provider.name())?;
 
-                let tools = ToolRegistry::with_defaults();
+                let tools = build_tool_registry(&workspace_dir).await;
                 let agent_config = AgentTurnConfig {
                     agent_name: config.agent.name.clone(),
                     session_key: session_key.clone(),

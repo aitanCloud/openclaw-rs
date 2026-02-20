@@ -195,12 +195,8 @@ pub async fn handle_discord_message(
     };
     store.create_session(&session_key, &config.agent.name, provider.name())?;
 
-    // ── Tools + config ──
-    let mut tools = ToolRegistry::with_defaults();
-    let plugin_count = tools.load_plugins(&workspace_dir);
-    if plugin_count > 0 {
-        info!("Loaded {} plugin tool(s) from workspace", plugin_count);
-    }
+    // ── Tools + config (load plugins + MCP client tools) ──
+    let tools = crate::handler::build_tool_registry(&workspace_dir).await;
     let dc_chat_id: i64 = channel_id.parse().unwrap_or(0);
     let task_chat_id = dc_chat_id;
     let task_query_fn: Option<openclaw_agent::tools::TaskQueryFn> = Some(std::sync::Arc::new(move |_cid| {
@@ -654,7 +650,8 @@ async fn handle_command(
             ).await?;
         }
         "tools" => {
-            let tools = openclaw_agent::tools::ToolRegistry::with_defaults();
+            let workspace_dir = workspace::resolve_workspace_dir(&config.agent.name);
+            let tools = crate::handler::build_tool_registry(&workspace_dir).await;
             let names = tools.tool_names();
             let tool_list = names.iter()
                 .map(|n| format!("`{}`", n))
@@ -662,7 +659,7 @@ async fn handle_command(
                 .join(" · ");
             bot.send_embed(
                 channel_id, Some(reply_to),
-                "🔧 Built-in Tools",
+                "🔧 Tools",
                 &format!("{} tools available", names.len()),
                 0x5865F2,
                 &[("Tools", &tool_list, false)],
@@ -1059,7 +1056,7 @@ async fn handle_command(
                 let store = SessionStore::open(&config.agent.name)?;
                 store.create_session(&session_key, &config.agent.name, provider.name())?;
 
-                let tools = ToolRegistry::with_defaults();
+                let tools = crate::handler::build_tool_registry(&workspace_dir).await;
                 let agent_config = AgentTurnConfig {
                     agent_name: config.agent.name.clone(),
                     session_key: session_key.clone(),

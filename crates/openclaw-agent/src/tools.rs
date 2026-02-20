@@ -6,6 +6,7 @@ pub mod find;
 pub mod grep;
 pub mod image;
 pub mod list_dir;
+pub mod mcp_bridge;
 pub mod memory;
 pub mod patch;
 pub mod process;
@@ -241,6 +242,20 @@ impl ToolRegistry {
 
     pub fn tool_names(&self) -> Vec<&str> {
         self.tools.iter().map(|t| t.name()).collect()
+    }
+
+    /// Connect to external MCP servers and register their tools.
+    /// Returns the number of MCP tools loaded.
+    pub async fn load_mcp_tools(
+        &mut self,
+        configs: &[mcp_bridge::McpServerConfig],
+    ) -> usize {
+        let tools = mcp_bridge::load_mcp_tools(configs).await;
+        let count = tools.len();
+        for tool in tools {
+            self.register(tool);
+        }
+        count
     }
 }
 

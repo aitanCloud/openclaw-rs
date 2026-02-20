@@ -27,7 +27,9 @@ async fn main() -> anyhow::Result<()> {
         )
         .init();
 
-    let config = config::GatewayConfig::from_file_or_env("/etc/openclaw-gateway/config.json")?;
+    let config_path = std::env::var("GATEWAY_CONFIG")
+        .unwrap_or_else(|_| "/etc/openclaw-gateway/config.json".to_string());
+    let config = config::GatewayConfig::from_file_or_env(&config_path)?;
 
     // ── Startup banner ──
     info!("╔══════════════════════════════════════════╗");
@@ -49,8 +51,12 @@ async fn main() -> anyhow::Result<()> {
         me.first_name
     );
 
-    // ── Store agent name for HTTP endpoints ──
+    // ── Store agent name and MCP configs for HTTP endpoints ──
     handler::init_agent_name(&config.agent.name);
+    if !config.mcp_servers.is_empty() {
+        info!("MCP client: {} server(s) configured", config.mcp_servers.len());
+        handler::init_mcp_configs(config.mcp_servers.clone());
+    }
 
     // ── Session maintenance on startup ──
     match openclaw_agent::sessions::SessionStore::open(&config.agent.name) {
@@ -102,11 +108,13 @@ async fn main() -> anyhow::Result<()> {
     };
     metrics::init_global(metrics_ref);
 
-    // ── Start health check HTTP server ──
+    // ── Start health check HTTP server (build tool registry with MCP tools) ──
     let start_time = std::time::Instant::now();
     let health_config = Arc::new(config.clone());
-    let tools = openclaw_agent::tools::ToolRegistry::with_defaults();
-    let tool_names: Vec<String> = tools.tool_names().iter().map(|s| s.to_string()).collect();
+    let workspace_dir = openclaw_agent::workspace::resolve_workspace_dir(&config.agent.name);
+    let startup_tools = handler::build_tool_registry(&workspace_dir).await;
+    let tool_names: Vec<String> = startup_tools.tool_names().iter().map(|s| s.to_string()).collect();
+    info!("MCP server enabled (SSE: /sse, Messages: /messages)");
     let tool_names = Arc::new(tool_names);
     let app = Router::new()
         .route("/health", get(health_handler))
@@ -817,7 +825,7 @@ async fn webhook_handler(
     ..AgentTurnConfig::default()
     };
 
-    let tools = openclaw_agent::tools::ToolRegistry::with_defaults();
+    let tools = handler::build_tool_registry(&workspace_dir).await;
     let (event_tx, _event_rx) = tokio::sync::mpsc::unbounded_channel();
 
     let t_start = std::time::Instant::now();
