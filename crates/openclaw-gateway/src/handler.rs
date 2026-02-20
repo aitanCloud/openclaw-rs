@@ -596,12 +596,18 @@ pub async fn handle_message(
     let elapsed = t_start.elapsed().as_millis();
 
     // ── Persist messages (SQLite + Postgres) ──
+    // Save the user message first
     let user_text = msg.text.as_deref().unwrap_or("");
     store.append_message(
         &session_key,
         &openclaw_agent::llm::Message::user(user_text),
     )?;
-    if !result.response.is_empty() {
+    // Save ALL turn messages (tool calls, tool results, final assistant) to SQLite
+    for turn_msg in &result.turn_messages {
+        store.append_message(&session_key, turn_msg)?;
+    }
+    // If no turn messages but there's a response, save it (fallback for simple text replies)
+    if result.turn_messages.is_empty() && !result.response.is_empty() {
         store.append_message(
             &session_key,
             &openclaw_agent::llm::Message::assistant(&result.response),
@@ -618,6 +624,7 @@ pub async fn handle_message(
         let channel = Some("telegram".to_string());
         let uid = user_id.to_string();
         let user_msg = user_text.to_string();
+        let turn_msgs = result.turn_messages.clone();
         let bot_msg = result.response.clone();
         let tokens = result.total_usage.total_tokens as i64;
         tokio::spawn(async move {
@@ -627,7 +634,26 @@ pub async fn handle_message(
                 let _ = openclaw_db::messages::record_message(
                     &pool, sid, "user", Some(&user_msg), None, None, None,
                 ).await;
-                if !bot_msg.is_empty() {
+                // Persist all turn messages (tool calls + tool results + final text)
+                for turn_msg in &turn_msgs {
+                    let role = match turn_msg.role {
+                        openclaw_agent::llm::Role::Assistant => "assistant",
+                        openclaw_agent::llm::Role::Tool => "tool",
+                        openclaw_agent::llm::Role::User => "user",
+                        openclaw_agent::llm::Role::System => "system",
+                    };
+                    let tc_json = turn_msg.tool_calls.as_ref()
+                        .map(|tc| serde_json::to_value(tc).unwrap_or_default());
+                    let _ = openclaw_db::messages::record_message(
+                        &pool, sid, role,
+                        turn_msg.content.as_deref(),
+                        turn_msg.reasoning_content.as_deref(),
+                        tc_json.as_ref(),
+                        turn_msg.tool_call_id.as_deref(),
+                    ).await;
+                }
+                // Fallback: if no turn messages, save the response directly
+                if turn_msgs.is_empty() && !bot_msg.is_empty() {
                     let _ = openclaw_db::messages::record_message(
                         &pool, sid, "assistant", Some(&bot_msg), None, None, None,
                     ).await;

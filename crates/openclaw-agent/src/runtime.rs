@@ -179,6 +179,9 @@ pub struct AgentTurnResult {
     pub total_rounds: usize,
     pub total_usage: UsageStats,
     pub elapsed_ms: u128,
+    /// All messages generated during this turn (tool calls + tool results + final assistant).
+    /// Excludes the system prompt and loaded history — only new messages from this turn.
+    pub turn_messages: Vec<Message>,
 }
 
 /// Run a single agent turn: assemble context, call LLM, execute tools, loop until text response
@@ -226,6 +229,7 @@ pub async fn run_agent_turn(
     let mut tool_calls_made = 0;
     let mut rounds = 0;
     let mut loop_detector = LoopDetector::new();
+    let turn_start_idx = messages.len(); // track where new messages begin
 
     loop {
         rounds += 1;
@@ -240,6 +244,7 @@ pub async fn run_agent_turn(
                 total_rounds: rounds,
                 total_usage,
                 elapsed_ms: t_start.elapsed().as_millis(),
+                turn_messages: messages[turn_start_idx..].to_vec(),
             });
         }
 
@@ -272,6 +277,7 @@ pub async fn run_agent_turn(
                     total_rounds: rounds,
                     total_usage,
                     elapsed_ms: t_start.elapsed().as_millis(),
+                    turn_messages: messages[turn_start_idx..].to_vec(),
                 });
             }
 
@@ -434,6 +440,7 @@ pub async fn run_agent_turn_streaming(
     let mut tool_calls_made = 0;
     let mut rounds = 0;
     let mut loop_detector = LoopDetector::new();
+    let turn_start_idx = messages.len(); // track where new messages begin
 
     loop {
         // ── Check cancellation before each round ──
@@ -450,6 +457,7 @@ pub async fn run_agent_turn_streaming(
                     total_rounds: rounds,
                     total_usage,
                     elapsed_ms: t_start.elapsed().as_millis(),
+                    turn_messages: messages[turn_start_idx..].to_vec(),
                 });
             }
         }
@@ -467,6 +475,7 @@ pub async fn run_agent_turn_streaming(
                 total_rounds: rounds,
                 total_usage,
                 elapsed_ms: t_start.elapsed().as_millis(),
+                turn_messages: messages[turn_start_idx..].to_vec(),
             });
         }
 
@@ -492,6 +501,7 @@ pub async fn run_agent_turn_streaming(
                         total_rounds: rounds,
                         total_usage,
                         elapsed_ms: t_start.elapsed().as_millis(),
+                        turn_messages: messages[turn_start_idx..].to_vec(),
                     });
                 }
             }
@@ -524,6 +534,7 @@ pub async fn run_agent_turn_streaming(
                     total_rounds: rounds,
                     total_usage,
                     elapsed_ms: t_start.elapsed().as_millis(),
+                    turn_messages: messages[turn_start_idx..].to_vec(),
                 });
             }
 
