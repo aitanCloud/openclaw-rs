@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::sync::{Mutex, OnceLock};
 
 /// Maximum entries in the ring buffer
@@ -88,8 +88,9 @@ pub fn total_count() -> u64 {
         .unwrap_or(0)
 }
 
-/// Current session context — set before LLM calls so log entries get tagged
-static CURRENT_SESSION: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+/// Per-task session context — keyed by tokio task ID so concurrent agent turns
+/// (main + subagent) don't clobber each other's session keys.
+static CURRENT_SESSION: std::sync::Mutex<Option<HashMap<String, String>>> = std::sync::Mutex::new(None);
 
 /// Current provider attempt number (1-based, for fallback chains)
 static CURRENT_PROVIDER_ATTEMPT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
@@ -104,23 +105,39 @@ pub fn current_provider_attempt() -> u32 {
     CURRENT_PROVIDER_ATTEMPT.load(std::sync::atomic::Ordering::Relaxed)
 }
 
-/// Set the current session key (call before running an agent turn)
+/// Set the current session key for this tokio task (call before running an agent turn)
 pub fn set_session_context(session_key: &str) {
+    let task_id = current_task_id();
     if let Ok(mut ctx) = CURRENT_SESSION.lock() {
-        *ctx = Some(session_key.to_string());
+        let map = ctx.get_or_insert_with(HashMap::new);
+        map.insert(task_id, session_key.to_string());
     }
 }
 
-/// Clear the current session key (call after agent turn completes)
+/// Clear the current session key for this tokio task (call after agent turn completes)
 pub fn clear_session_context() {
+    let task_id = current_task_id();
     if let Ok(mut ctx) = CURRENT_SESSION.lock() {
-        *ctx = None;
+        if let Some(map) = ctx.as_mut() {
+            map.remove(&task_id);
+        }
     }
 }
 
-/// Get the current session key (used internally by log entry creation)
+/// Get the current session key for this tokio task (used internally by log entry creation)
 pub fn current_session_key() -> Option<String> {
-    CURRENT_SESSION.lock().ok().and_then(|ctx| ctx.clone())
+    let task_id = current_task_id();
+    CURRENT_SESSION
+        .lock()
+        .ok()
+        .and_then(|ctx| ctx.as_ref().and_then(|map| map.get(&task_id).cloned()))
+}
+
+/// Get a stable identifier for the current tokio task (or "0" if not in a task).
+fn current_task_id() -> String {
+    tokio::task::try_id()
+        .map(|id| format!("{:?}", id))
+        .unwrap_or_else(|| "0".to_string())
 }
 
 /// Get summary stats for the log
