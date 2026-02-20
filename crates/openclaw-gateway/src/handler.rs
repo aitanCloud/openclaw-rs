@@ -220,9 +220,12 @@ pub async fn handle_message(
 
     // ── Spawn delegate listener (background subagent tasks) ──
     let delegate_bot_token = config.telegram.bot_token.clone();
+    let subagent_timeout_secs = config.agent.sandbox.as_ref()
+        .and_then(|s| s.subagent_timeout_secs).unwrap_or(300);
     tokio::spawn(async move {
         while let Some(req) = delegate_rx.recv().await {
             let bot = TelegramBot::new(&delegate_bot_token);
+            let timeout_secs = subagent_timeout_secs;
             tokio::spawn(async move {
                 let task_desc = req.task[..req.task.len().min(80)].to_string();
                 let (task_id, cancel_token) = crate::subagent_registry::register_subagent(
@@ -234,7 +237,7 @@ pub async fn handle_message(
                     &format!("\u{1F680} *Task #{}* started: {}", task_id, task_desc),
                 ).await;
 
-                let timeout = std::time::Duration::from_secs(60);
+                let timeout = std::time::Duration::from_secs(timeout_secs);
                 let result = tokio::time::timeout(
                     timeout,
                     openclaw_agent::subagent::run_subagent_turn(
@@ -263,10 +266,11 @@ pub async fn handle_message(
                         ).await;
                     }
                     Err(_) => {
-                        crate::subagent_registry::fail_subagent(task_id, "timed out after 60s");
+                        let msg = format!("timed out after {}s", timeout_secs);
+                        crate::subagent_registry::fail_subagent(task_id, &msg);
                         let _ = bot.send_message(
                             req.chat_id,
-                            &format!("\u{23F0} *Task #{}* timed out after 60s", task_id),
+                            &format!("\u{23F0} *Task #{}* {}", task_id, msg),
                         ).await;
                     }
                 }

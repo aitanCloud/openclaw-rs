@@ -49,6 +49,8 @@ pub struct SandboxConfig {
     pub max_exec_timeout_secs: Option<u64>,
     /// Per-turn timeout in seconds
     pub turn_timeout_secs: Option<u64>,
+    /// Subagent (delegate) timeout in seconds (default 300)
+    pub subagent_timeout_secs: Option<u64>,
     /// Max concurrent tasks
     pub max_concurrent: Option<usize>,
     /// Rate limit: messages per window
