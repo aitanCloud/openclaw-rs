@@ -862,7 +862,9 @@ async fn handle_command(
             let store = SessionStore::open(&config.agent.name)?;
             let old_key = format!("tg:{}:{}:{}", config.agent.name, user_id, chat_id);
             let old_msgs = store.load_messages(&old_key)?;
-            let msg_count = old_msgs.len();
+            let msg_count = old_msgs.iter()
+                .filter(|m| m.role == "user" || m.role == "assistant")
+                .count();
 
             let new_key = format!("tg:{}:{}:{}:{}", config.agent.name, user_id, chat_id, uuid::Uuid::new_v4());
             store.create_session(&new_key, &config.agent.name, "pending")?;
