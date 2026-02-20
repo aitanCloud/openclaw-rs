@@ -1,5 +1,8 @@
 //! MCP Client Bridge — connects to external MCP servers via stdio and
 //! exposes their tools as agent Tool trait objects.
+//!
+//! Uses a global persistent connection pool so MCP server processes are
+//! spawned once at startup and reused across all agent turns.
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -10,7 +13,7 @@ use std::process::Stdio;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, OnceCell};
 use tracing::{debug, error, info, warn};
 
 use super::{Tool, ToolContext, ToolResult};
@@ -26,6 +29,57 @@ pub struct McpServerConfig {
     pub args: Vec<String>,
     #[serde(default)]
     pub env: HashMap<String, String>,
+}
+
+// ── Global persistent pool ──
+
+/// Global pool of MCP clients + their discovered tools, initialized once.
+static MCP_POOL: OnceCell<McpPool> = OnceCell::const_new();
+
+struct McpPool {
+    tools: Vec<PooledTool>,
+}
+
+struct PooledTool {
+    prefixed_name: String,
+    tool_name: String,
+    description: String,
+    input_schema: Value,
+    server_name: String,
+    client: Arc<McpClient>,
+}
+
+async fn init_pool(configs: &[McpServerConfig]) -> McpPool {
+    let mut tools = Vec::new();
+
+    for config in configs {
+        match McpClient::connect(config).await {
+            Ok(client) => {
+                let client = Arc::new(client);
+                match client.list_tools().await {
+                    Ok(discovered) => {
+                        for t in discovered {
+                            let prefixed = format!("mcp_{}_{}", t.server_name.replace('-', "_"), t.name);
+                            debug!("  → {}: {}", prefixed, t.description);
+                            tools.push(PooledTool {
+                                prefixed_name: prefixed,
+                                tool_name: t.name,
+                                description: t.description,
+                                input_schema: t.input_schema,
+                                server_name: t.server_name,
+                                client: Arc::clone(&client),
+                            });
+                        }
+                    }
+                    Err(e) => error!("Failed to list tools from MCP '{}': {}", config.name, e),
+                }
+            }
+            Err(e) => error!("Failed to connect to MCP '{}': {}", config.name, e),
+        }
+    }
+
+    info!("MCP pool: {} tools from {} servers (persistent)", tools.len(), configs.len());
+    McpPool { tools }
 }
 
 // ── MCP Client (stdio transport) ──
@@ -140,6 +194,12 @@ impl McpClient {
         Ok(output)
     }
 
+    /// Check if the child process is still alive
+    async fn is_alive(&self) -> bool {
+        let mut inner = self.inner.lock().await;
+        matches!(inner.child.try_wait(), Ok(None))
+    }
+
     async fn request(&self, method: &str, params: Option<Value>) -> Result<Value> {
         let mut inner = self.inner.lock().await;
         let id = inner.next_id;
@@ -205,7 +265,7 @@ struct DiscoveredTool {
     server_name: String,
 }
 
-// ── McpTool: wraps a discovered tool as an agent Tool ──
+// ── McpTool: wraps a pooled tool as an agent Tool ──
 
 pub struct McpTool {
     prefixed_name: String,
@@ -241,38 +301,28 @@ impl Tool for McpTool {
 
 // ── Public API ──
 
-/// Connect to external MCP servers and return their tools as boxed Tool objects.
+/// Initialize the global MCP pool (call once at startup).
+/// Subsequent calls are no-ops — the pool is initialized exactly once.
+pub async fn init_mcp_pool(configs: &[McpServerConfig]) {
+    MCP_POOL.get_or_init(|| init_pool(configs)).await;
+}
+
+/// Get MCP tools from the persistent pool as boxed Tool objects.
+/// Must call `init_mcp_pool` first. Returns empty vec if pool not initialized.
 pub async fn load_mcp_tools(configs: &[McpServerConfig]) -> Vec<Box<dyn Tool>> {
-    let mut all_tools: Vec<Box<dyn Tool>> = Vec::new();
+    // Ensure pool is initialized (idempotent)
+    let pool = MCP_POOL.get_or_init(|| init_pool(configs)).await;
 
-    for config in configs {
-        match McpClient::connect(config).await {
-            Ok(client) => {
-                let client = Arc::new(client);
-                match client.list_tools().await {
-                    Ok(tools) => {
-                        for t in tools {
-                            let prefixed = format!("mcp_{}_{}", t.server_name.replace('-', "_"), t.name);
-                            debug!("  → {}: {}", prefixed, t.description);
-                            all_tools.push(Box::new(McpTool {
-                                prefixed_name: prefixed,
-                                tool_name: t.name,
-                                desc: t.description,
-                                schema: t.input_schema,
-                                server_name: t.server_name,
-                                client: Arc::clone(&client),
-                            }));
-                        }
-                    }
-                    Err(e) => error!("Failed to list tools from MCP '{}': {}", config.name, e),
-                }
-            }
-            Err(e) => error!("Failed to connect to MCP '{}': {}", config.name, e),
-        }
-    }
-
-    info!("MCP bridge: {} tools from {} servers", all_tools.len(), configs.len());
-    all_tools
+    pool.tools.iter().map(|t| -> Box<dyn Tool> {
+        Box::new(McpTool {
+            prefixed_name: t.prefixed_name.clone(),
+            tool_name: t.tool_name.clone(),
+            desc: t.description.clone(),
+            schema: t.input_schema.clone(),
+            server_name: t.server_name.clone(),
+            client: Arc::clone(&t.client),
+        })
+    }).collect()
 }
 
 #[cfg(test)]
