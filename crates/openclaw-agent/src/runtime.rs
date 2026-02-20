@@ -757,6 +757,26 @@ mod tests {
         assert_eq!(estimate_tokens("a".repeat(100).as_str()), 25);
     }
 
+    #[test]
+    fn test_detect_fabrication_positive() {
+        assert!(detect_fabrication("**Task dispatched.**\n\nBoston forecast running."));
+        assert!(detect_fabrication("Task dispatched successfully."));
+        assert!(detect_fabrication("I've dispatched the subagent."));
+        assert!(detect_fabrication("The subagent is running in background."));
+        assert!(detect_fabrication("Check status: /tasks"));
+        assert!(detect_fabrication("Delegated to a background subagent."));
+        assert!(detect_fabrication("Running in background now."));
+    }
+
+    #[test]
+    fn test_detect_fabrication_negative() {
+        assert!(!detect_fabrication("The weather in Boston is 45°F."));
+        assert!(!detect_fabrication("I'll search for that information."));
+        assert!(!detect_fabrication("Here are the results:"));
+        assert!(!detect_fabrication("Let me check the current tasks."));
+        assert!(!detect_fabrication(""));
+    }
+
     /// Mock LLM provider that sleeps before responding — used to test cancellation.
     struct SlowMockProvider;
 
