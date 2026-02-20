@@ -128,6 +128,8 @@ pub struct AgentTurnConfig {
     pub minimal_context: bool,
     pub chat_id: i64,
     pub delegate_tx: Option<crate::tools::DelegateTx>,
+    pub task_query_fn: Option<crate::tools::TaskQueryFn>,
+    pub task_cancel_fn: Option<crate::tools::TaskCancelFn>,
 }
 
 impl Default for AgentTurnConfig {
@@ -139,6 +141,8 @@ impl Default for AgentTurnConfig {
             minimal_context: false,
             chat_id: 0,
             delegate_tx: None,
+            task_query_fn: None,
+            task_cancel_fn: None,
         }
     }
 }
@@ -245,6 +249,8 @@ pub async fn run_agent_turn(
         sandbox: crate::sandbox::SandboxPolicy::default(),
         chat_id: config.chat_id,
         delegate_tx: config.delegate_tx.clone(),
+        task_query_fn: config.task_query_fn.clone(),
+        task_cancel_fn: config.task_cancel_fn.clone(),
     };
 
     let mut total_usage = UsageStats::default();
@@ -470,6 +476,8 @@ pub async fn run_agent_turn_streaming(
         sandbox: crate::sandbox::SandboxPolicy::default(),
         chat_id: config.chat_id,
         delegate_tx: config.delegate_tx.clone(),
+        task_query_fn: config.task_query_fn.clone(),
+        task_cancel_fn: config.task_cancel_fn.clone(),
     };
 
     let mut total_usage = UsageStats::default();

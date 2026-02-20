@@ -12,6 +12,7 @@ pub mod process;
 pub mod read;
 pub mod script_plugin;
 pub mod sessions;
+pub mod tasks;
 pub mod tts;
 pub mod web_fetch;
 pub mod web_search;
@@ -20,9 +21,14 @@ pub mod write;
 use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::Value;
+use std::sync::Arc;
 
 use crate::llm::{FunctionDefinition, ToolDefinition};
 use crate::sandbox::SandboxPolicy;
+
+pub use tasks::{TaskInfo, TaskQueryFn};
+/// Callback type for cancelling a task by ID. Returns true if cancelled.
+pub type TaskCancelFn = Arc<dyn Fn(u64) -> bool + Send + Sync>;
 
 /// A delegate request sent from the agent to the gateway for background execution.
 #[derive(Debug, Clone)]
@@ -38,7 +44,7 @@ pub struct DelegateRequest {
 pub type DelegateTx = tokio::sync::mpsc::UnboundedSender<DelegateRequest>;
 
 /// Context passed to every tool execution.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ToolContext {
     pub workspace_dir: String,
     pub agent_name: String,
@@ -48,6 +54,23 @@ pub struct ToolContext {
     pub chat_id: i64,
     /// If set, delegate tool dispatches async instead of blocking.
     pub delegate_tx: Option<DelegateTx>,
+    /// If set, tasks tool can query running subagents.
+    pub task_query_fn: Option<TaskQueryFn>,
+    /// If set, tasks tool can cancel subagents by ID.
+    pub task_cancel_fn: Option<TaskCancelFn>,
+}
+
+impl std::fmt::Debug for ToolContext {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ToolContext")
+            .field("workspace_dir", &self.workspace_dir)
+            .field("agent_name", &self.agent_name)
+            .field("session_key", &self.session_key)
+            .field("chat_id", &self.chat_id)
+            .field("has_delegate_tx", &self.delegate_tx.is_some())
+            .field("has_task_query_fn", &self.task_query_fn.is_some())
+            .finish()
+    }
 }
 
 impl Default for ToolContext {
@@ -59,6 +82,8 @@ impl Default for ToolContext {
             sandbox: SandboxPolicy::default(),
             chat_id: 0,
             delegate_tx: None,
+            task_query_fn: None,
+            task_cancel_fn: None,
         }
     }
 }
@@ -124,6 +149,7 @@ impl ToolRegistry {
         registry.register(Box::new(tts::TtsTool));
         registry.register(Box::new(browser::BrowserTool));
         registry.register(Box::new(delegate::DelegateTool));
+        registry.register(Box::new(tasks::TasksTool));
         registry.register(Box::new(memory::MemoryTool));
         registry
     }
@@ -249,14 +275,14 @@ mod tests {
         assert!(names.contains(&"browser"));
         assert!(names.contains(&"delegate"));
         assert!(names.contains(&"memory"));
-        assert_eq!(names.len(), 17);
+        assert_eq!(names.len(), 18);
     }
 
     #[test]
     fn test_definitions_format() {
         let registry = ToolRegistry::with_defaults();
         let defs = registry.definitions();
-        assert_eq!(defs.len(), 17);
+        assert_eq!(defs.len(), 18);
         for def in &defs {
             assert_eq!(def.tool_type, "function");
             assert!(!def.function.name.is_empty());
@@ -268,10 +294,10 @@ mod tests {
     fn test_without_tool_removes_delegate() {
         let registry = ToolRegistry::with_defaults();
         assert!(registry.tool_names().contains(&"delegate"));
-        assert_eq!(registry.tool_names().len(), 17);
+        assert_eq!(registry.tool_names().len(), 18);
 
         let filtered = ToolRegistry::without_tool(registry, "delegate");
         assert!(!filtered.tool_names().contains(&"delegate"));
-        assert_eq!(filtered.tool_names().len(), 16);
+        assert_eq!(filtered.tool_names().len(), 17);
     }
 }

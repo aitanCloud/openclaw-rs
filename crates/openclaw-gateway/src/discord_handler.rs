@@ -201,11 +201,32 @@ pub async fn handle_discord_message(
     if plugin_count > 0 {
         info!("Loaded {} plugin tool(s) from workspace", plugin_count);
     }
+    let dc_chat_id: i64 = channel_id.parse().unwrap_or(0);
+    let task_chat_id = dc_chat_id;
+    let task_query_fn: Option<openclaw_agent::tools::TaskQueryFn> = Some(std::sync::Arc::new(move |_cid| {
+        crate::subagent_registry::list_tasks()
+            .into_iter()
+            .filter(|t| t.chat_id == task_chat_id)
+            .map(|t| openclaw_agent::tools::TaskInfo {
+                id: t.id,
+                description: t.description.clone(),
+                status: t.status.to_string(),
+                elapsed_secs: t.started_at.elapsed().as_secs(),
+                chat_id: t.chat_id,
+            })
+            .collect()
+    }));
+    let task_cancel_fn: Option<openclaw_agent::tools::TaskCancelFn> = Some(std::sync::Arc::new(|id| {
+        crate::subagent_registry::cancel_subagent(id)
+    }));
     let agent_config = AgentTurnConfig {
         agent_name: config.agent.name.clone(),
         session_key: session_key.clone(),
         workspace_dir: workspace_dir.to_string_lossy().to_string(),
         minimal_context: false,
+        chat_id: dc_chat_id,
+        task_query_fn,
+        task_cancel_fn,
     ..AgentTurnConfig::default()
     };
 

@@ -209,6 +209,24 @@ pub async fn handle_message(
     // ── Set up delegate channel for async subagent dispatch ──
     let (delegate_tx, mut delegate_rx) = mpsc::unbounded_channel::<openclaw_agent::tools::DelegateRequest>();
 
+    let task_chat_id = chat_id;
+    let task_query_fn: Option<openclaw_agent::tools::TaskQueryFn> = Some(std::sync::Arc::new(move |_cid| {
+        crate::subagent_registry::list_tasks()
+            .into_iter()
+            .filter(|t| t.chat_id == task_chat_id)
+            .map(|t| openclaw_agent::tools::TaskInfo {
+                id: t.id,
+                description: t.description.clone(),
+                status: t.status.to_string(),
+                elapsed_secs: t.started_at.elapsed().as_secs(),
+                chat_id: t.chat_id,
+            })
+            .collect()
+    }));
+    let task_cancel_fn: Option<openclaw_agent::tools::TaskCancelFn> = Some(std::sync::Arc::new(|id| {
+        crate::subagent_registry::cancel_subagent(id)
+    }));
+
     let agent_config = AgentTurnConfig {
         agent_name: config.agent.name.clone(),
         session_key: session_key.clone(),
@@ -216,6 +234,8 @@ pub async fn handle_message(
         minimal_context: false,
         chat_id,
         delegate_tx: Some(delegate_tx),
+        task_query_fn,
+        task_cancel_fn,
     };
 
     // ── Spawn delegate listener (background subagent tasks) ──
