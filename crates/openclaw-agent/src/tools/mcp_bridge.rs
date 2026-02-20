@@ -301,10 +301,20 @@ impl Tool for McpTool {
 
 // ── Public API ──
 
+/// Configs stored for subagent access
+static MCP_CONFIGS: std::sync::OnceLock<Vec<McpServerConfig>> = std::sync::OnceLock::new();
+
 /// Initialize the global MCP pool (call once at startup).
 /// Subsequent calls are no-ops — the pool is initialized exactly once.
 pub async fn init_mcp_pool(configs: &[McpServerConfig]) {
+    let _ = MCP_CONFIGS.set(configs.to_vec());
     MCP_POOL.get_or_init(|| init_pool(configs)).await;
+}
+
+/// Get the MCP pool configs (for subagents to load tools from the same pool).
+/// Returns empty slice if pool not initialized.
+pub fn get_mcp_pool_configs() -> Vec<McpServerConfig> {
+    MCP_CONFIGS.get().cloned().unwrap_or_default()
 }
 
 /// Get MCP tools from the persistent pool as boxed Tool objects.

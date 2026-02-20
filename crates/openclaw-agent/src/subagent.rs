@@ -42,6 +42,12 @@ pub async fn run_subagent_turn(
     let workspace_path = std::path::Path::new(workspace_dir);
     tools.load_plugins(workspace_path);
 
+    // Load MCP client tools (from persistent pool, no extra process spawn)
+    let mcp_configs = crate::tools::mcp_bridge::get_mcp_pool_configs();
+    if !mcp_configs.is_empty() {
+        tools.load_mcp_tools(&mcp_configs).await;
+    }
+
     // Remove the delegate tool from subagent to prevent infinite recursion
     // (subagents cannot spawn further subagents)
     let tools = ToolRegistry::without_tool(tools, "delegate");

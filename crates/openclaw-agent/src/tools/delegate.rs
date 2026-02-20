@@ -18,7 +18,9 @@ impl Tool for DelegateTool {
 
     fn description(&self) -> &str {
         "Delegate a subtask to a background subagent. Returns immediately with a task ID. \
-         The subagent runs asynchronously — use /tasks to check status. \
+         The subagent runs asynchronously and its result will appear in chat automatically when done. \
+         IMPORTANT: After delegating, do NOT poll the tasks tool for status — just tell the user the task \
+         was dispatched and move on. The result will be delivered to the chat when ready. \
          Use this for tasks that benefit from focused, isolated reasoning."
     }
 
@@ -69,8 +71,8 @@ impl Tool for DelegateTool {
             };
             if tx.send(req).is_ok() {
                 return Ok(ToolResult::success(format!(
-                    "Task dispatched to background. The user will see progress updates in chat. \
-                     Use /tasks to check status. Task: {}",
+                    "Task dispatched to background. The result will appear in chat automatically when done. \
+                     Do NOT call the tasks tool to poll status — just inform the user and move on. Task: {}",
                     &task[..task.len().min(120)]
                 )));
             }
