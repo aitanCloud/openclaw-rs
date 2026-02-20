@@ -27,6 +27,9 @@ static AGENT_NAME: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 /// MCP server configs, set once at startup
 static MCP_CONFIGS: std::sync::OnceLock<Vec<openclaw_agent::tools::mcp_bridge::McpServerConfig>> = std::sync::OnceLock::new();
 
+/// Total tool count (built-in + plugins + MCP), set at startup
+static TOOL_COUNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
 pub fn init_agent_name(name: &str) {
     let _ = AGENT_NAME.set(name.to_string());
 }
@@ -41,6 +44,14 @@ pub fn mcp_configs() -> &'static [openclaw_agent::tools::mcp_bridge::McpServerCo
 
 pub fn agent_name() -> &'static str {
     AGENT_NAME.get().map(|s| s.as_str()).unwrap_or("unknown")
+}
+
+pub fn set_tool_count(count: usize) {
+    TOOL_COUNT.store(count, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn tool_count() -> usize {
+    TOOL_COUNT.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 /// Build a ToolRegistry with defaults + MCP client tools.

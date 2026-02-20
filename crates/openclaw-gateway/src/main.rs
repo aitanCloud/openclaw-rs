@@ -114,6 +114,8 @@ async fn main() -> anyhow::Result<()> {
     let workspace_dir = openclaw_agent::workspace::resolve_workspace_dir(&config.agent.name);
     let startup_tools = handler::build_tool_registry(&workspace_dir).await;
     let tool_names: Vec<String> = startup_tools.tool_names().iter().map(|s| s.to_string()).collect();
+    handler::set_tool_count(tool_names.len());
+    info!("Tools: {} (built-in + MCP client)", tool_names.len());
     info!("MCP server enabled (SSE: /sse, Messages: /messages)");
     let tool_names = Arc::new(tool_names);
     let app = Router::new()
@@ -602,7 +604,7 @@ async fn health_handler() -> axum::response::Response {
             "sessions": session_count,
             "commands": 23,
             "http_endpoint_count": 14,
-            "tool_count": 17,
+            "tool_count": handler::tool_count(),
             "total_requests": total_requests,
             "total_errors": total_errors,
             "error_rate_pct": error_rate,
