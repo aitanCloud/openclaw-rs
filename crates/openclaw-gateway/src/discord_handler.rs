@@ -348,7 +348,16 @@ pub async fn handle_discord_message(
     }
 
     // ── Wait for agent turn to finish ──
-    let result = agent_handle.await??;
+    let result = match agent_handle.await? {
+        Ok(r) => r,
+        Err(e) => {
+            typing_token.cancel();
+            warn!("Agent turn failed: {}", e);
+            let error_msg = format!("❌ {}", e);
+            stream_bot.edit_message(&stream_channel, &stream_placeholder, &error_msg).await?;
+            return Ok(());
+        }
+    };
     typing_token.cancel();
     let elapsed = t_start.elapsed().as_millis();
 
