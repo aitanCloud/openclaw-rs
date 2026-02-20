@@ -1,7 +1,7 @@
 # OpenClaw Rust Port — Roadmap
 
-**Version:** 0.99.0
-**Last updated:** 2026-02-19
+**Version:** 1.16.0-dev
+**Last updated:** 2026-02-20
 **Maintainer:** Cascade + Shawaz
 
 ---
@@ -914,27 +914,71 @@
 - ✅ **`openclaw-core::models` module** — shared provider/model parsing with 3 new tests
 - ✅ **236 total tests** — 124 agent + 10 core + 102 gateway (+3 new)
 
-## v1.16.0 — Channel Plugin Abstraction
+## v1.16.0 — Task Introspection & Anti-Fabrication (upgrade cycle)
+
+**Problem:** Bot cannot see its own running tasks. LLM fabricates "Task dispatched" text without calling tools. Subagents can hang indefinitely with no visibility.
+
+- 🚧 **`tasks` tool** — 18th built-in tool; LLM can query its own running subagents (list, status, cancel) via tool call instead of relying on /tasks command
+- 🚧 **Fabrication detection** — runtime rejects text responses claiming tool actions (e.g. "Task dispatched") when no tool was called; injects correction and retries
+- 🚧 **Turn message persistence** — all tool call + tool result messages saved to SQLite and Postgres session history (prevents LLM from learning fabrication patterns)
+- 📋 **Subagent hard timeout** — 120s max per subagent turn, auto-cancel and report failure to parent
+- 📋 **Subagent result injection** — when subagent completes, result is appended to parent session history so LLM can reference it in future turns
+- 📋 **Anti-fabrication tests** — unit tests for `detect_fabrication()` patterns, retry behavior
+
+## v1.17.0 — Postgres-Primary & Task Lifecycle
+
+**Problem:** SQLite is the primary store but doesn't scale. Task lifecycle (start, progress, completion, failure) is invisible. Tool I/O is not queryable.
+
+- 📋 **`tasks` table in Postgres** — track subagent tasks: id, chat_id, session_key, status (running/completed/failed/cancelled), task description, result, started_at, completed_at, error
+- 📋 **Task registry backed by Postgres** — replace in-memory `CancellationToken` map with DB-backed registry; survives gateway restarts
+- 📋 **Tool I/O persistence** — save tool name, args, output, duration to `tool_calls` Postgres table for post-hoc debugging
+- 📋 **Postgres session history as primary** — `load_session_history()` reads from Postgres instead of SQLite; SQLite becomes local cache/fallback
+- 📋 **`/tasks` shows DB state** — command queries Postgres for task history, not just in-memory registry
+- 📋 **Migration system** — versioned SQL migrations for schema changes
+
+## v1.18.0 — Smart Context & Error Recovery
+
+**Problem:** Context window fills up with stale messages. Failed subagents silently disappear. No automatic recovery from transient failures.
+
+- 📋 **Context summarization** — when history exceeds token budget, summarize old messages into a single "conversation summary" message instead of dropping them
+- 📋 **Subagent auto-retry** — on transient failure (network, timeout), retry subagent once with exponential backoff before reporting failure
+- 📋 **Dead task reaper** — background task scans for tasks stuck in "running" state >5min, marks as failed, notifies chat
+- 📋 **Tool error classification** — categorize tool errors as transient (retry) vs permanent (report); web_fetch 429/503 → retry, 404 → report
+- 📋 **Session health scoring** — track error rate per session; if >50% of recent turns had errors, suggest /new
+
+## v1.19.0 — Performance & Smart Routing
+
+**Problem:** All tasks use the same expensive model. Simple queries waste tokens. No caching of repeated lookups.
+
+- 📋 **Multi-model routing** — route simple queries (greetings, status checks) to fast/cheap model; complex tasks (research, code) to capable model
+- 📋 **Tool result caching** — cache web_fetch/web_search results by URL/query with TTL (5min); avoid re-fetching same page in same session
+- 📋 **Parallel subagent spawning** — allow multiple subagents to run concurrently for independent subtasks (e.g. "research X and Y")
+- 📋 **Streaming subagent results** — forward subagent ContentDelta events to parent chat in real-time (already partially implemented)
+- 📋 **Token budget optimization** — track actual token usage per provider, adjust context window dynamically
+
+## v1.20.0 — Channel Abstraction & Extensibility
 
 - 📋 **`Channel` trait** — abstract interface for message channels (send, edit, upload, typing)
 - 📋 **Telegram channel plugin** — refactor handler.rs to implement Channel trait
 - 📋 **Discord channel plugin** — refactor discord_handler.rs to implement Channel trait
 - 📋 **Plugin loader** — dynamic channel registration from config
+- 📋 **Slack integration** — third channel via Channel trait
 
-## v1.17.0 — WebSocket Protocol
+## v1.21.0 — WebSocket Protocol & TUI
 
 - 📋 **WS endpoint** — `ws://gateway:3100/ws` for CLI↔Gateway real-time communication
-- 📋 **CLI connect mode** — `openclaw chat` opens interactive WS session
-- 📋 **TUI** — terminal UI with streaming responses
+- 📋 **CLI connect mode** — `openclaw chat` opens interactive WS session with streaming
+- 📋 **TUI** — terminal UI with streaming responses, tool status, task list
 
-## v1.18.0+ — Extended Features
+## v1.22.0+ — Extended Features
 
 - 📋 **Multi-agent routing** — per-agent workspaces, auth, routing
 - 📋 **Device pairing** — QR codes, setup codes, token management
-- 📋 **Slack integration**
-- 📋 **Grafana dashboard template** — JSON dashboard for gateway metrics
-- 💡 **WhatsApp integration**
+- 📋 **Grafana dashboard template** — JSON dashboard for all 27 gateway metrics
+- � **Webhook v2** — streaming webhook responses, task submission endpoint
+- �� **WhatsApp integration**
 - 💡 **Unix socket daemon mode**
+- 💡 **Agent-to-agent communication** — subagents can message each other
 
 ---
 
