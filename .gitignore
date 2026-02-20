@@ -3,3 +3,6 @@
 Cargo.lock
 .direnv/
 UPSTREAM-DRIFT.md
+*.sync-conflict-*
+.stfolder/
+.stversions/
