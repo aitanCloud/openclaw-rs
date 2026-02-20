@@ -98,11 +98,19 @@ enum Commands {
     Doctor,
     /// Shortcut: fetch health from the running gateway (same as `gateway status`)
     Health,
+    /// Postgres context store (deployments, issues, tasks, config snapshots)
+    Db {
+        #[command(subcommand)]
+        action: commands::db::DbAction,
+    },
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
+
+    // Init Postgres for db commands (non-fatal if unavailable)
+    openclaw_db::try_init().await;
 
     match cli.command {
         Some(Commands::Sessions { action }) => commands::sessions::run(action),
@@ -143,6 +151,7 @@ async fn main() -> anyhow::Result<()> {
         Some(Commands::Health) => {
             commands::gateway::run(commands::gateway::GatewayAction::Status).await
         }
+        Some(Commands::Db { action }) => commands::db::run(action).await,
         None => {
             println!("openclaw-rs {}", env!("CARGO_PKG_VERSION"));
             Ok(())

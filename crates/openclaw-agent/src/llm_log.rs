@@ -13,8 +13,39 @@ pub fn init_global() {
     let _ = GLOBAL_LOG.get_or_init(|| Mutex::new(LlmActivityLog::new(MAX_LOG_ENTRIES)));
 }
 
-/// Record an LLM interaction
+/// Record an LLM interaction (in-memory + Postgres if available)
 pub fn record(entry: LlmLogEntry) {
+    // Dual-write to Postgres (fire-and-forget)
+    if let Some(pool) = openclaw_db::pool() {
+        let id = uuid::Uuid::parse_str(&entry.id).unwrap_or_else(|_| uuid::Uuid::new_v4());
+        let session_key = entry.session_key.clone();
+        let model = entry.model.clone();
+        let provider_attempt = entry.provider_attempt as i16;
+        let messages_count = entry.messages_count as i32;
+        let request_tokens_est = entry.request_tokens_est as i32;
+        let streaming = entry.streaming;
+        let response_content = entry.response_content.clone();
+        let response_reasoning = entry.response_reasoning.clone();
+        let response_tool_calls = entry.response_tool_calls as i32;
+        let tool_call_names = entry.tool_call_names.clone();
+        let usage_prompt = entry.usage_prompt_tokens as i32;
+        let usage_completion = entry.usage_completion_tokens as i32;
+        let usage_total = entry.usage_total_tokens as i32;
+        let latency_ms = entry.latency_ms as i32;
+        let error = entry.error.clone();
+        let pool = pool.clone();
+        tokio::spawn(async move {
+            let _ = openclaw_db::llm_log::record_llm_call(
+                &pool, &id, session_key.as_deref(), &model, provider_attempt,
+                messages_count, request_tokens_est, streaming,
+                response_content.as_deref(), response_reasoning.as_deref(),
+                response_tool_calls, &tool_call_names, usage_prompt,
+                usage_completion, usage_total, latency_ms, error.as_deref(),
+            ).await;
+        });
+    }
+
+    // In-memory ring buffer (always)
     if let Some(log) = GLOBAL_LOG.get() {
         if let Ok(mut log) = log.lock() {
             log.push(entry);

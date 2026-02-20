@@ -2,6 +2,7 @@ pub mod agent;
 pub mod chat;
 pub mod config;
 pub mod cron;
+pub mod db;
 pub mod gateway;
 pub mod models;
 pub mod sessions;

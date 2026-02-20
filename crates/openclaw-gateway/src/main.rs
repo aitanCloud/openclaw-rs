@@ -79,6 +79,12 @@ async fn main() -> anyhow::Result<()> {
         Err(e) => warn!("Could not open session store for maintenance: {}", e),
     }
 
+    // ── Initialize Postgres (non-fatal if unavailable) ──
+    let pg_connected = openclaw_db::try_init().await;
+    if pg_connected {
+        info!("Postgres connected — LLM logs, metrics, and context will be persisted");
+    }
+
     // ── Initialize LLM activity log ──
     openclaw_agent::llm_log::init_global();
 
@@ -177,6 +183,41 @@ async fn main() -> anyhow::Result<()> {
             error!("HTTP server error: {}", e);
         }
     });
+
+    // ── Metrics snapshot loop (every 60s → Postgres) ──
+    if pg_connected {
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+            let hostname = std::fs::read_to_string("/etc/hostname")
+                .unwrap_or_default().trim().to_string();
+            loop {
+                interval.tick().await;
+                if let Some(pool) = openclaw_db::pool() {
+                    if let Some(m) = metrics::global() {
+                        let _ = openclaw_db::metrics::record_snapshot(
+                            pool,
+                            &hostname,
+                            m.telegram_requests.load(std::sync::atomic::Ordering::Relaxed) as i64,
+                            m.discord_requests.load(std::sync::atomic::Ordering::Relaxed) as i64,
+                            m.telegram_errors.load(std::sync::atomic::Ordering::Relaxed) as i64,
+                            m.discord_errors.load(std::sync::atomic::Ordering::Relaxed) as i64,
+                            m.rate_limited() as i64,
+                            m.concurrency_rejected() as i64,
+                            m.completed_requests() as i64,
+                            m.total_latency_ms.load(std::sync::atomic::Ordering::Relaxed) as i64,
+                            m.agent_turns() as i64,
+                            m.tool_calls() as i64,
+                            m.webhook_requests() as i64,
+                            m.tasks_cancelled() as i64,
+                            m.agent_timeouts() as i64,
+                            crate::process_rss_bytes() as i64,
+                            handler::BOOT_TIME.elapsed().as_secs() as i64,
+                        ).await;
+                    }
+                }
+            }
+        });
+    }
 
     // ── Message debouncer (collect rapid messages) ──
     let debouncer = Arc::new(debounce::MessageDebouncer::new(1500, 5));
