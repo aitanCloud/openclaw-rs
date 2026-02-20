@@ -17,6 +17,28 @@ const MAX_HISTORY_TOKENS: usize = 12000;
 /// Max characters of tool output to send to the LLM (prevents token waste on huge outputs)
 const MAX_TOOL_OUTPUT_CHARS: usize = 32000;
 
+/// Detect if the LLM is fabricating tool actions in a text response.
+/// Returns true if the response looks like it's claiming to dispatch/execute something
+/// without actually calling a tool.
+fn detect_fabrication(content: &str) -> bool {
+    let lower = content.to_lowercase();
+    let fabrication_patterns = [
+        "task dispatched",
+        "task has been dispatched",
+        "dispatched to background",
+        "dispatched successfully",
+        "subagent is running",
+        "subagent has been",
+        "delegated to",
+        "i've dispatched",
+        "i have dispatched",
+        "running in background",
+        "check status: /tasks",
+        "check status with /tasks",
+    ];
+    fabrication_patterns.iter().any(|p| lower.contains(p))
+}
+
 /// Create a human-readable summary of tool arguments for activity display.
 fn summarize_tool_args(tool_name: &str, args: &serde_json::Value) -> String {
     match tool_name {
@@ -261,6 +283,20 @@ pub async fn run_agent_turn(
 
         match completion {
             Completion::Text { content, reasoning } => {
+                // ── Fabrication detection ──
+                if tool_calls_made == 0 && rounds == 1 && detect_fabrication(&content) {
+                    warn!("Fabrication detected: LLM generated action text without tool calls, retrying");
+                    messages.push(Message::assistant(&content));
+                    messages.push(Message::user(
+                        "[SYSTEM] Your previous response was REJECTED. You claimed to dispatch a task \
+                         or perform an action, but you did NOT call any tool. Text responses cannot \
+                         dispatch tasks or run commands. You MUST use the appropriate tool (e.g. \
+                         `delegate` for subagent tasks, `exec` for commands). Try again — call the \
+                         tool this time."
+                    ));
+                    continue;
+                }
+
                 info!(
                     "Agent turn complete: {} rounds, {} tool calls, {:.0}ms",
                     rounds,
@@ -518,6 +554,20 @@ pub async fn run_agent_turn_streaming(
 
         match completion {
             Completion::Text { content, reasoning } => {
+                // ── Fabrication detection: catch LLM claiming tool actions in text ──
+                if tool_calls_made == 0 && rounds == 1 && detect_fabrication(&content) {
+                    warn!("Fabrication detected: LLM generated action text without tool calls, retrying");
+                    messages.push(Message::assistant(&content));
+                    messages.push(Message::user(
+                        "[SYSTEM] Your previous response was REJECTED. You claimed to dispatch a task \
+                         or perform an action, but you did NOT call any tool. Text responses cannot \
+                         dispatch tasks or run commands. You MUST use the appropriate tool (e.g. \
+                         `delegate` for subagent tasks, `exec` for commands). Try again — call the \
+                         tool this time."
+                    ));
+                    continue; // retry the round
+                }
+
                 info!(
                     "Streaming agent turn complete: {} rounds, {} tool calls, {:.0}ms",
                     rounds, tool_calls_made, t_start.elapsed().as_millis()
