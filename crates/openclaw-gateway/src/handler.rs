@@ -251,47 +251,106 @@ pub async fn handle_message(
                 let activity_task_id = task_id;
                 let activity_desc = task_desc.clone();
                 let activity_handle = tokio::spawn(async move {
-                    let mut tool_log: Vec<String> = Vec::new();
+                    let mut activity_log: Vec<String> = Vec::new();
+                    let mut thinking_buf = String::new();
                     let mut last_edit = std::time::Instant::now();
+                    let mut dirty = false;
 
                     while let Some(event) = fwd_rx.recv().await {
-                        let updated = match event {
-                            openclaw_agent::llm::streaming::StreamEvent::ToolCallStart { name } => {
-                                tool_log.push(format!("\u{1F527} Calling `{}`...", name));
-                                true
+                        match event {
+                            openclaw_agent::llm::streaming::StreamEvent::ToolExec { name, args_summary, .. } => {
+                                // Flush any accumulated thinking text
+                                if !thinking_buf.is_empty() {
+                                    let thought = thinking_buf.trim().to_string();
+                                    if !thought.is_empty() {
+                                        let preview = if thought.len() > 150 {
+                                            format!("{}...", &thought[..147])
+                                        } else {
+                                            thought
+                                        };
+                                        activity_log.push(format!("\u{1F4AD} _{}_", preview));
+                                    }
+                                    thinking_buf.clear();
+                                }
+                                let detail = if args_summary.is_empty() {
+                                    format!("\u{2699}\u{FE0F} `{}` ...", name)
+                                } else {
+                                    format!("\u{2699}\u{FE0F} `{}` \u{2014} {}", name, args_summary)
+                                };
+                                activity_log.push(detail);
+                                dirty = true;
                             }
-                            openclaw_agent::llm::streaming::StreamEvent::ToolResult { name, success } => {
-                                // Replace the last "Calling X..." with result
-                                if let Some(last) = tool_log.last_mut() {
-                                    if last.contains("Calling") {
-                                        let icon = if success { "\u{2705}" } else { "\u{274C}" };
-                                        *last = format!("{} `{}`", icon, name);
+                            openclaw_agent::llm::streaming::StreamEvent::ToolResult { name, success, output_preview } => {
+                                // Find the matching ToolExec line and append result
+                                let icon = if success { "\u{2705}" } else { "\u{274C}" };
+                                if let Some(last) = activity_log.last_mut() {
+                                    if last.contains(&format!("`{}`", name)) && !last.starts_with('\u{2705}') && !last.starts_with('\u{274C}') {
+                                        let preview = if !output_preview.is_empty() && output_preview.len() > 2 {
+                                            let p = if output_preview.len() > 100 {
+                                                format!("{}...", &output_preview[..97])
+                                            } else {
+                                                output_preview
+                                            };
+                                            format!("\n   \u{2192} _{}_", p)
+                                        } else {
+                                            String::new()
+                                        };
+                                        *last = format!("{} `{}`{}", icon, name, preview);
                                     }
                                 }
-                                true
+                                dirty = true;
+                            }
+                            openclaw_agent::llm::streaming::StreamEvent::ContentDelta(delta) => {
+                                thinking_buf.push_str(&delta);
+                                // Only mark dirty on substantial thinking chunks
+                                if thinking_buf.len() > 40 {
+                                    dirty = true;
+                                }
                             }
                             openclaw_agent::llm::streaming::StreamEvent::RoundStart { round } => {
-                                tool_log.push(format!("\u{1F504} Round {}...", round));
-                                true
+                                // Flush thinking before new round
+                                if !thinking_buf.is_empty() {
+                                    let thought = thinking_buf.trim().to_string();
+                                    if !thought.is_empty() {
+                                        let preview = if thought.len() > 150 {
+                                            format!("{}...", &thought[..147])
+                                        } else {
+                                            thought
+                                        };
+                                        activity_log.push(format!("\u{1F4AD} _{}_", preview));
+                                    }
+                                    thinking_buf.clear();
+                                }
+                                activity_log.push(format!("\u{1F504} *Round {}*", round));
+                                dirty = true;
                             }
-                            _ => false,
-                        };
+                            _ => {}
+                        }
 
                         // Rate-limit edits to avoid Telegram API throttling
-                        if updated && activity_msg_id != 0 && last_edit.elapsed().as_millis() >= 1500 {
+                        if dirty && activity_msg_id != 0 && last_edit.elapsed().as_millis() >= 2000 {
                             let progress = format!(
                                 "\u{1F680} *Task #{}*: {}\n\n{}",
                                 activity_task_id,
                                 activity_desc,
-                                tool_log.join("\n"),
+                                activity_log.join("\n"),
                             );
                             let display = if progress.len() > 4000 {
-                                format!("{}...", &progress[..3997])
+                                // Keep the header + last entries that fit
+                                let header = format!("\u{1F680} *Task #{}*: {}\n\n", activity_task_id, activity_desc);
+                                let max_body = 4000 - header.len() - 20;
+                                let body = activity_log.join("\n");
+                                if body.len() > max_body {
+                                    format!("{}...{}", header, &body[body.len().saturating_sub(max_body)..])
+                                } else {
+                                    format!("{}{}", header, body)
+                                }
                             } else {
                                 progress
                             };
                             let _ = activity_bot.edit_message(activity_chat_id, activity_msg_id, &display).await;
                             last_edit = std::time::Instant::now();
+                            dirty = false;
                         }
                     }
                 });
@@ -471,8 +530,12 @@ pub async fn handle_message(
                     .ok();
             }
 
-            StreamEvent::ToolExec { name, .. } => {
-                tool_status = format!("⚙️ Running {}...", name);
+            StreamEvent::ToolExec { name, args_summary, .. } => {
+                tool_status = if args_summary.is_empty() {
+                    format!("⚙️ Running {}...", name)
+                } else {
+                    format!("⚙️ Running {} — {}...", name, args_summary)
+                };
                 let display = if accumulated.is_empty() {
                     tool_status.clone()
                 } else {
@@ -484,7 +547,7 @@ pub async fn handle_message(
                     .ok();
             }
 
-            StreamEvent::ToolResult { name, success } => {
+            StreamEvent::ToolResult { name, success, .. } => {
                 let icon = if success { "✅" } else { "❌" };
                 tool_status = format!("{} {}", icon, name);
                 let display = if accumulated.is_empty() {

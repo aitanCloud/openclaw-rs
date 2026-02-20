@@ -302,8 +302,12 @@ pub async fn handle_discord_message(
                     .ok();
             }
 
-            StreamEvent::ToolExec { name, .. } => {
-                tool_status = format!("⚙️ Running {}...", name);
+            StreamEvent::ToolExec { name, args_summary, .. } => {
+                tool_status = if args_summary.is_empty() {
+                    format!("⚙️ Running {}...", name)
+                } else {
+                    format!("⚙️ Running {} — {}...", name, args_summary)
+                };
                 let display = if accumulated.is_empty() {
                     tool_status.clone()
                 } else {
@@ -315,7 +319,7 @@ pub async fn handle_discord_message(
                     .ok();
             }
 
-            StreamEvent::ToolResult { name, success } => {
+            StreamEvent::ToolResult { name, success, .. } => {
                 let icon = if success { "✅" } else { "❌" };
                 tool_status = format!("{} {}", icon, name);
                 let display = if accumulated.is_empty() {

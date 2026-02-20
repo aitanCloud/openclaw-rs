@@ -14,10 +14,10 @@ pub enum StreamEvent {
     ReasoningDelta(String),
     /// Tool call is being assembled (name known)
     ToolCallStart { name: String },
-    /// Tool is being executed
-    ToolExec { name: String, call_id: String },
-    /// Tool execution finished
-    ToolResult { name: String, success: bool },
+    /// Tool is being executed (includes arguments for visibility)
+    ToolExec { name: String, call_id: String, args_summary: String },
+    /// Tool execution finished (includes truncated output for visibility)
+    ToolResult { name: String, success: bool, output_preview: String },
     /// New round starting (after tool calls)
     RoundStart { round: usize },
     /// Stream finished — final completion
@@ -321,8 +321,8 @@ mod tests {
             StreamEvent::ContentDelta("hi".into()),
             StreamEvent::ReasoningDelta("think".into()),
             StreamEvent::ToolCallStart { name: "exec".into() },
-            StreamEvent::ToolExec { name: "exec".into(), call_id: "c1".into() },
-            StreamEvent::ToolResult { name: "exec".into(), success: true },
+            StreamEvent::ToolExec { name: "exec".into(), call_id: "c1".into(), args_summary: "`ls -la`".into() },
+            StreamEvent::ToolResult { name: "exec".into(), success: true, output_preview: "total 42".into() },
             StreamEvent::RoundStart { round: 1 },
             StreamEvent::Done,
         ];

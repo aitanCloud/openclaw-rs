@@ -17,6 +17,58 @@ const MAX_HISTORY_TOKENS: usize = 12000;
 /// Max characters of tool output to send to the LLM (prevents token waste on huge outputs)
 const MAX_TOOL_OUTPUT_CHARS: usize = 32000;
 
+/// Create a human-readable summary of tool arguments for activity display.
+fn summarize_tool_args(tool_name: &str, args: &serde_json::Value) -> String {
+    match tool_name {
+        "web_fetch" | "web_search" => {
+            if let Some(url) = args.get("url").or(args.get("query")).and_then(|v| v.as_str()) {
+                let truncated = if url.len() > 120 { format!("{}...", &url[..117]) } else { url.to_string() };
+                return truncated;
+            }
+        }
+        "exec" => {
+            if let Some(cmd) = args.get("command").and_then(|v| v.as_str()) {
+                let truncated = if cmd.len() > 120 { format!("{}...", &cmd[..117]) } else { cmd.to_string() };
+                return format!("`{}`", truncated);
+            }
+        }
+        "read" | "write" | "patch" | "list_dir" | "grep" | "find" => {
+            if let Some(path) = args.get("path").or(args.get("file")).and_then(|v| v.as_str()) {
+                return path.to_string();
+            }
+        }
+        "browser" => {
+            if let Some(url) = args.get("url").and_then(|v| v.as_str()) {
+                let truncated = if url.len() > 120 { format!("{}...", &url[..117]) } else { url.to_string() };
+                return truncated;
+            }
+            if let Some(action) = args.get("action").and_then(|v| v.as_str()) {
+                return action.to_string();
+            }
+        }
+        "delegate" => {
+            if let Some(task) = args.get("task").and_then(|v| v.as_str()) {
+                let truncated = if task.len() > 100 { format!("{}...", &task[..97]) } else { task.to_string() };
+                return truncated;
+            }
+        }
+        _ => {}
+    }
+    // Fallback: compact JSON, truncated
+    let s = args.to_string();
+    if s.len() > 120 { format!("{}...", &s[..117]) } else { s }
+}
+
+/// Create a truncated preview of tool output for activity display.
+fn preview_tool_output(output: &str) -> String {
+    let first_line = output.lines().take(3).collect::<Vec<_>>().join(" ");
+    if first_line.len() > 200 {
+        format!("{}...", &first_line[..197])
+    } else {
+        first_line
+    }
+}
+
 /// Truncate tool output if it exceeds the limit, preserving head and tail.
 fn truncate_tool_output(output: &str) -> String {
     if output.len() <= MAX_TOOL_OUTPUT_CHARS {
@@ -484,11 +536,14 @@ pub async fn run_agent_turn_streaming(
 
                 messages.push(Message::assistant_tool_calls(calls.clone(), reasoning));
 
-                // Emit tool exec events for all calls
+                // Emit tool exec events for all calls (with args summary for visibility)
                 for call in &calls {
+                    let args_val: serde_json::Value = serde_json::from_str(&call.function.arguments)
+                        .unwrap_or(serde_json::json!({}));
                     let _ = event_tx.send(StreamEvent::ToolExec {
                         name: call.function.name.clone(),
                         call_id: call.id.clone(),
+                        args_summary: summarize_tool_args(&call.function.name, &args_val),
                     });
                 }
 
@@ -562,11 +617,6 @@ pub async fn run_agent_turn_streaming(
                         }
                     };
 
-                    let _ = event_tx.send(StreamEvent::ToolResult {
-                        name: tool_name.clone(),
-                        success: !result.is_error,
-                    });
-
                     tool_calls_made += 1;
 
                     let output = if result.is_error {
@@ -574,6 +624,12 @@ pub async fn run_agent_turn_streaming(
                     } else {
                         result.output
                     };
+
+                    let _ = event_tx.send(StreamEvent::ToolResult {
+                        name: tool_name.clone(),
+                        success: !result.is_error,
+                        output_preview: preview_tool_output(&output),
+                    });
 
                     // Record outcome for no-progress detection (only for executed calls)
                     if *should_execute {
