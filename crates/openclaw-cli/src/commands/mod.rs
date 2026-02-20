@@ -1,4 +1,5 @@
 pub mod agent;
+pub mod arena;
 pub mod chat;
 pub mod config;
 pub mod cron;

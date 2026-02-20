@@ -103,6 +103,12 @@ enum Commands {
         #[command(subcommand)]
         action: commands::db::DbAction,
     },
+    /// Run model arena benchmark (test Ollama models on 3 difficulty levels)
+    Arena {
+        /// Ollama base URL
+        #[arg(long, default_value = "http://localhost:11434")]
+        ollama_url: String,
+    },
 }
 
 #[tokio::main]
@@ -152,6 +158,7 @@ async fn main() -> anyhow::Result<()> {
             commands::gateway::run(commands::gateway::GatewayAction::Status).await
         }
         Some(Commands::Db { action }) => commands::db::run(action).await,
+        Some(Commands::Arena { ollama_url }) => commands::arena::run(&ollama_url).await,
         None => {
             println!("openclaw-rs {}", env!("CARGO_PKG_VERSION"));
             Ok(())
