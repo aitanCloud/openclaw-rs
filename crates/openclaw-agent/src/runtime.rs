@@ -5,6 +5,7 @@ use tracing::{debug, info, warn};
 
 use crate::llm::streaming::StreamEvent;
 use crate::llm::{Completion, LlmProvider, Message, UsageStats};
+use crate::loop_detection::{LoopDetector, LoopVerdict};
 use crate::sessions::SessionStore;
 use crate::tools::{ToolContext, ToolRegistry};
 use crate::workspace;
@@ -172,6 +173,7 @@ pub async fn run_agent_turn(
     let mut total_usage = UsageStats::default();
     let mut tool_calls_made = 0;
     let mut rounds = 0;
+    let mut loop_detector = LoopDetector::new();
 
     loop {
         rounds += 1;
@@ -244,16 +246,57 @@ pub async fn run_agent_turn(
                     })
                     .collect();
 
-                // Execute all tool calls concurrently
-                let results = tools.execute_parallel(&prepared, &tool_ctx).await;
+                // ── Loop detection: check each call before executing ──
+                let mut execute_list: Vec<(usize, bool, String)> = Vec::new();
+                for (idx, (name, args, _call_id)) in prepared.iter().enumerate() {
+                    let verdict = loop_detector.check(name, args);
+                    match verdict {
+                        LoopVerdict::Allow => {
+                            loop_detector.record_call(name, args);
+                            execute_list.push((idx, true, String::new()));
+                        }
+                        LoopVerdict::Warn { message, detector, count } => {
+                            warn!("Loop warning for {} ({}): count={}", name, detector, count);
+                            loop_detector.record_call(name, args);
+                            execute_list.push((idx, true, message));
+                        }
+                        LoopVerdict::Block { message, detector, count } => {
+                            warn!("Loop BLOCKED {} ({}): count={}", name, detector, count);
+                            loop_detector.record_block();
+                            execute_list.push((idx, false, message));
+                        }
+                    }
+                }
 
-                // Process results in order, matching back to call IDs
-                for (i, (name, result)) in results.into_iter().enumerate() {
-                    let call_id = &calls[i].id;
+                let to_execute: Vec<(String, serde_json::Value, String)> = execute_list.iter()
+                    .filter(|(_, should_exec, _)| *should_exec)
+                    .map(|(idx, _, _)| prepared[*idx].clone())
+                    .collect();
+
+                let exec_results = if !to_execute.is_empty() {
+                    tools.execute_parallel(&to_execute, &tool_ctx).await
+                } else {
+                    Vec::new()
+                };
+
+                let mut exec_iter = exec_results.into_iter();
+                for (idx, should_execute, block_msg) in &execute_list {
+                    let call_id = &calls[*idx].id;
+                    let (name, args, _) = &prepared[*idx];
+
+                    let (tool_name, result) = if *should_execute {
+                        let (n, r) = exec_iter.next().unwrap_or_else(|| {
+                            (name.clone(), Err(anyhow::anyhow!("Tool execution missing")))
+                        });
+                        (n, r)
+                    } else {
+                        (name.clone(), Ok(crate::tools::ToolResult::error(block_msg.clone())))
+                    };
+
                     let result = match result {
                         Ok(r) => r,
                         Err(e) => {
-                            warn!("Tool {} execution error: {}", name, e);
+                            warn!("Tool {} execution error: {}", tool_name, e);
                             crate::tools::ToolResult::error(format!("Tool error: {}", e))
                         }
                     };
@@ -266,9 +309,19 @@ pub async fn run_agent_turn(
                         result.output
                     };
 
+                    if *should_execute {
+                        loop_detector.record_outcome(&tool_name, args, &output);
+                    }
+
+                    let output = if !block_msg.is_empty() && *should_execute {
+                        format!("{}\n\n[SYSTEM: {}]", output, block_msg)
+                    } else {
+                        output
+                    };
+
                     debug!(
                         "Tool {} result: {} bytes, error={}",
-                        name,
+                        tool_name,
                         output.len(),
                         result.is_error
                     );
@@ -328,6 +381,7 @@ pub async fn run_agent_turn_streaming(
     let mut total_usage = UsageStats::default();
     let mut tool_calls_made = 0;
     let mut rounds = 0;
+    let mut loop_detector = LoopDetector::new();
 
     loop {
         // ── Check cancellation before each round ──
@@ -451,20 +505,65 @@ pub async fn run_agent_turn_streaming(
                     })
                     .collect();
 
-                let results = tools.execute_parallel(&prepared, &tool_ctx).await;
+                // ── Loop detection: check each call before executing ──
+                let mut execute_list: Vec<(usize, bool, String)> = Vec::new(); // (index, should_execute, block_msg)
+                for (idx, (name, args, _call_id)) in prepared.iter().enumerate() {
+                    let verdict = loop_detector.check(name, args);
+                    match verdict {
+                        LoopVerdict::Allow => {
+                            loop_detector.record_call(name, args);
+                            execute_list.push((idx, true, String::new()));
+                        }
+                        LoopVerdict::Warn { message, detector, count } => {
+                            warn!("Loop warning for {} ({}): {} — count={}", name, detector, message, count);
+                            loop_detector.record_call(name, args);
+                            execute_list.push((idx, true, message));
+                        }
+                        LoopVerdict::Block { message, detector, count } => {
+                            warn!("Loop BLOCKED {} ({}): {} — count={}", name, detector, message, count);
+                            loop_detector.record_block();
+                            execute_list.push((idx, false, message));
+                        }
+                    }
+                }
 
-                for (i, (name, result)) in results.into_iter().enumerate() {
-                    let call_id = &calls[i].id;
+                // Only execute non-blocked calls
+                let to_execute: Vec<(String, serde_json::Value, String)> = execute_list.iter()
+                    .filter(|(_, should_exec, _)| *should_exec)
+                    .map(|(idx, _, _)| prepared[*idx].clone())
+                    .collect();
+
+                let exec_results = if !to_execute.is_empty() {
+                    tools.execute_parallel(&to_execute, &tool_ctx).await
+                } else {
+                    Vec::new()
+                };
+
+                // Merge results back: blocked calls get error messages, executed calls get real results
+                let mut exec_iter = exec_results.into_iter();
+                for (idx, should_execute, block_msg) in &execute_list {
+                    let call_id = &calls[*idx].id;
+                    let (name, args, _) = &prepared[*idx];
+
+                    let (tool_name, result) = if *should_execute {
+                        let (n, r) = exec_iter.next().unwrap_or_else(|| {
+                            (name.clone(), Err(anyhow::anyhow!("Tool execution missing")))
+                        });
+                        (n, r)
+                    } else {
+                        (name.clone(), Ok(crate::tools::ToolResult::error(block_msg.clone())))
+                    };
+
                     let result = match result {
                         Ok(r) => r,
                         Err(e) => {
-                            warn!("Tool {} execution error: {}", name, e);
+                            warn!("Tool {} execution error: {}", tool_name, e);
                             crate::tools::ToolResult::error(format!("Tool error: {}", e))
                         }
                     };
 
                     let _ = event_tx.send(StreamEvent::ToolResult {
-                        name: name.clone(),
+                        name: tool_name.clone(),
                         success: !result.is_error,
                     });
 
@@ -474,6 +573,18 @@ pub async fn run_agent_turn_streaming(
                         format!("[ERROR] {}", result.output)
                     } else {
                         result.output
+                    };
+
+                    // Record outcome for no-progress detection (only for executed calls)
+                    if *should_execute {
+                        loop_detector.record_outcome(&tool_name, args, &output);
+                    }
+
+                    // Append warning to output if loop was detected but not blocked
+                    let output = if !block_msg.is_empty() && *should_execute {
+                        format!("{}\n\n[SYSTEM: {}]", output, block_msg)
+                    } else {
+                        output
                     };
 
                     let output = truncate_tool_output(&output);

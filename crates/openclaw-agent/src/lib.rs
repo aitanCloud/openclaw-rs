@@ -1,5 +1,6 @@
 pub mod llm;
 pub mod llm_log;
+pub mod loop_detection;
 pub mod runtime;
 pub mod sandbox;
 pub mod sessions;

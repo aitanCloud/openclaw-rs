@@ -581,13 +581,22 @@ async fn handle_command(
                     return Ok(());
                 }
             }
-            // /cancel (no args) — cancel the main running task
+            // /cancel (no args) — cancel the main running task + all subagents for this chat
             let task_key = format!("tg:{}:{}", user_id, chat_id);
-            if crate::task_registry::cancel_task(&task_key) {
+            let main_cancelled = crate::task_registry::cancel_task(&task_key);
+            let sub_cancelled = crate::subagent_registry::cancel_all_for_chat(chat_id);
+            if main_cancelled || sub_cancelled > 0 {
                 if let Some(m) = crate::metrics::global() { m.record_task_cancelled(); }
-                bot.send_message(chat_id, "⛔ Cancelled running task.").await?;
+                let mut msg_text = String::from("⛔ Cancelled");
+                if main_cancelled { msg_text.push_str(" running task"); }
+                if sub_cancelled > 0 {
+                    if main_cancelled { msg_text.push_str(" +"); }
+                    msg_text.push_str(&format!(" {} background task(s)", sub_cancelled));
+                }
+                msg_text.push('.');
+                bot.send_message(chat_id, &msg_text).await?;
             } else {
-                bot.send_message(chat_id, "ℹ️ No task is currently running.").await?;
+                bot.send_message(chat_id, "ℹ️ No tasks are currently running.").await?;
             }
         }
         "/tasks" => {

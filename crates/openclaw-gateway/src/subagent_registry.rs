@@ -97,6 +97,20 @@ pub fn cancel_subagent(id: u64) -> bool {
     }
 }
 
+/// Cancel all running subagent tasks for a given chat_id. Returns count cancelled.
+pub fn cancel_all_for_chat(chat_id: i64) -> usize {
+    let mut reg = registry().lock().unwrap();
+    let mut count = 0;
+    for task in reg.tasks.values_mut() {
+        if task.chat_id == chat_id && task.status == TaskStatus::Running {
+            task.cancel_token.cancel();
+            task.status = TaskStatus::Cancelled;
+            count += 1;
+        }
+    }
+    count
+}
+
 /// List all tasks (running first, then recent completed/failed).
 pub fn list_tasks() -> Vec<SubagentTask> {
     let reg = registry().lock().unwrap();

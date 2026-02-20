@@ -50,9 +50,16 @@ pub async fn run_subagent_turn(
         while event_rx.recv().await.is_some() {}
     });
 
+    let subagent_preamble = "[Subagent Context] You are running as a focused subagent. \
+         Complete the task efficiently and return a clear result. \
+         Do NOT busy-poll or repeatedly check status — execute your work and finish. \
+         If a command fails, try a different approach rather than retrying the same command.";
+
+    let prompt = format!("{}\n\n[Subagent Task]: {}", subagent_preamble, prompt);
+
     let result = run_agent_turn_streaming(
         &*provider,
-        prompt,
+        &prompt,
         &config,
         &tools,
         event_tx,
