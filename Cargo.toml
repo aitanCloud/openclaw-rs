@@ -6,6 +6,7 @@ members = [
     "crates/openclaw-agent",
     "crates/openclaw-gateway",
     "crates/openclaw-db",
+    "crates/openclaw-mcp",
 ]
 
 [workspace.package]

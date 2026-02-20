@@ -170,6 +170,27 @@ async fn main() -> anyhow::Result<()> {
             }),
         );
 
+    // ── MCP SSE endpoints ──
+    let mcp_server = openclaw_mcp::create_server(&config.agent.name);
+    let mcp_sessions = openclaw_mcp::transport::sse::new_session_map();
+    let app = {
+        let sessions = mcp_sessions.clone();
+        let server = mcp_server.clone();
+        app.route("/sse", get({
+            let sessions = sessions.clone();
+            let server = server.clone();
+            move || openclaw_mcp::transport::sse::sse_handler(sessions, server)
+        }))
+        .route("/messages", axum::routing::post({
+            let sessions = sessions.clone();
+            let server = server.clone();
+            move |query: axum::extract::Query<std::collections::HashMap<String, String>>, body: String| {
+                openclaw_mcp::transport::sse::messages_handler(sessions, server, query, body)
+            }
+        }))
+    };
+    info!("MCP server enabled (SSE: /sse, Messages: /messages)");
+
     let http_port: u16 = std::env::var("HTTP_PORT")
         .ok()
         .and_then(|p| p.parse().ok())
