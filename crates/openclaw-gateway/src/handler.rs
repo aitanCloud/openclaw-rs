@@ -273,14 +273,11 @@ pub async fn handle_message(
     // ── Spawn delegate listener (background subagent tasks) ──
     let delegate_bot_token = config.telegram.bot_token.clone();
     let delegate_agent_name = config.agent.name.clone();
-    let subagent_timeout_secs = config.agent.sandbox.as_ref()
-        .and_then(|s| s.subagent_timeout_secs).unwrap_or(300);
     let delegate_session_key = session_key.clone();
     tokio::spawn(async move {
         while let Some(req) = delegate_rx.recv().await {
             let bot = TelegramBot::new(&delegate_bot_token);
             let activity_bot_token = delegate_bot_token.clone();
-            let timeout_secs = subagent_timeout_secs;
             let parent_session_key = delegate_session_key.clone();
             let parent_agent_name = delegate_agent_name.clone();
             tokio::spawn(async move {
@@ -302,6 +299,14 @@ pub async fn handle_message(
                 let activity_msg_id = status_msg_id;
                 let activity_task_id = task_id;
                 let activity_desc = task_desc.clone();
+                // Activity-based watchdog for subagent (90s idle, 15min max wall clock)
+                let subagent_watchdog = openclaw_agent::watchdog::ActivityWatchdog::new(
+                    std::time::Duration::from_secs(90),
+                    std::time::Duration::from_secs(900),
+                    cancel_token.clone(),
+                );
+                let subagent_watchdog_handle = subagent_watchdog.spawn(&format!("subagent-{}", task_id));
+
                 let activity_handle = tokio::spawn(async move {
                     let mut activity_log: Vec<String> = Vec::new();
                     let mut thinking_buf = String::new();
@@ -309,6 +314,7 @@ pub async fn handle_message(
                     let mut dirty = false;
 
                     while let Some(event) = fwd_rx.recv().await {
+                        subagent_watchdog.touch(); // Signal progress to watchdog
                         match event {
                             openclaw_agent::llm::streaming::StreamEvent::ToolExec { name, args_summary, .. } => {
                                 // Flush any accumulated thinking text
@@ -407,17 +413,14 @@ pub async fn handle_message(
                     }
                 });
 
-                let timeout = std::time::Duration::from_secs(timeout_secs);
-                let result = tokio::time::timeout(
-                    timeout,
-                    openclaw_agent::subagent::run_subagent_turn(
-                        &req.task, &req.agent_name, &req.workspace_dir, Some(cancel_token),
-                        Some(fwd_tx),
-                    ),
+                let result = openclaw_agent::subagent::run_subagent_turn(
+                    &req.task, &req.agent_name, &req.workspace_dir, Some(cancel_token),
+                    Some(fwd_tx),
                 ).await;
 
-                // Stop the activity display task
+                // Stop the activity display and watchdog
                 activity_handle.abort();
+                subagent_watchdog_handle.abort();
 
                 // Inject subagent result into main agent's session history
                 let inject_into_session = |result_text: &str| {
@@ -445,7 +448,7 @@ pub async fn handle_message(
                 };
 
                 match result {
-                    Ok(Ok(response)) => {
+                    Ok(response) => {
                         crate::subagent_registry::complete_subagent(task_id);
                         inject_into_session(&response);
                         let truncated = if response.len() > 3000 {
@@ -460,21 +463,11 @@ pub async fn handle_message(
                             let _ = bot.send_message(req.chat_id, &msg).await;
                         }
                     }
-                    Ok(Err(e)) => {
-                        crate::subagent_registry::fail_subagent(task_id, &e.to_string());
-                        inject_into_session(&format!("FAILED: {}", e));
-                        let msg = format!("\u{274C} *Task #{}* failed: {}", task_id, e);
-                        if status_msg_id != 0 {
-                            let _ = bot.edit_message(req.chat_id, status_msg_id, &msg).await;
-                        } else {
-                            let _ = bot.send_message(req.chat_id, &msg).await;
-                        }
-                    }
-                    Err(_) => {
-                        let err_msg = format!("timed out after {}s", timeout_secs);
-                        crate::subagent_registry::fail_subagent(task_id, &err_msg);
-                        inject_into_session(&format!("TIMED OUT: {}", err_msg));
-                        let msg = format!("\u{23F0} *Task #{}* {}", task_id, err_msg);
+                    Err(e) => {
+                        let err_str = e.to_string();
+                        crate::subagent_registry::fail_subagent(task_id, &err_str);
+                        inject_into_session(&format!("FAILED: {}", err_str));
+                        let msg = format!("\u{274C} *Task #{}* failed: {}", task_id, err_str);
                         if status_msg_id != 0 {
                             let _ = bot.edit_message(req.chat_id, status_msg_id, &msg).await;
                         } else {
@@ -497,29 +490,25 @@ pub async fn handle_message(
     let cancel_token = crate::task_registry::register_task(&task_key);
     let task_key_cleanup = task_key.clone();
 
-    // ── Spawn the agent turn in background (with per-turn timeout) ──
-    let turn_timeout = std::time::Duration::from_secs(120);
+    // ── Spawn the agent turn with activity-based watchdog ──
+    let watchdog = openclaw_agent::watchdog::ActivityWatchdog::new(
+        std::time::Duration::from_secs(60),  // idle timeout: cancel if no activity for 60s
+        std::time::Duration::from_secs(600), // max wall-clock safety net: 10 minutes
+        cancel_token.clone(),
+    );
+    let watchdog_handle = watchdog.spawn("tg-agent");
+
     let agent_handle = tokio::spawn(async move {
-        let result = match tokio::time::timeout(
-            turn_timeout,
-            runtime::run_agent_turn_streaming(
-                provider.as_ref(),
-                &text,
-                &agent_config,
-                &tools,
-                event_tx,
-                image_urls,
-                Some(cancel_token),
-            ),
+        let result = runtime::run_agent_turn_streaming(
+            provider.as_ref(),
+            &text,
+            &agent_config,
+            &tools,
+            event_tx,
+            image_urls,
+            Some(cancel_token),
         )
-        .await
-        {
-            Ok(result) => result,
-            Err(_) => {
-                if let Some(m) = crate::metrics::global() { m.record_agent_timeout(); }
-                Err(anyhow::anyhow!("Agent turn timed out after 120s"))
-            }
-        };
+        .await;
         crate::task_registry::unregister_task(&task_key_cleanup);
         result
     });
@@ -533,6 +522,7 @@ pub async fn handle_message(
     let mut is_done = false;
 
     while let Some(event) = event_rx.recv().await {
+        watchdog.touch(); // Signal activity to prevent idle timeout
         match event {
             StreamEvent::ContentDelta(delta) => {
                 accumulated.push_str(&delta);
@@ -634,6 +624,7 @@ pub async fn handle_message(
     }
 
     // ── Wait for agent turn to finish, stop typing indicator ──
+    watchdog_handle.abort(); // Agent turn done, stop the watchdog
     let result = match agent_handle.await? {
         Ok(r) => r,
         Err(e) => {

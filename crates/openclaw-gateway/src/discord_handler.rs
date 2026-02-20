@@ -236,30 +236,26 @@ pub async fn handle_discord_message(
     let cancel_token = crate::task_registry::register_task(&task_key);
     let task_key_cleanup = task_key.clone();
 
-    // ── Spawn agent turn ──
-    let turn_timeout = std::time::Duration::from_secs(120);
+    // ── Spawn agent turn with activity-based watchdog ──
+    let watchdog = openclaw_agent::watchdog::ActivityWatchdog::new(
+        std::time::Duration::from_secs(60),  // idle timeout: cancel if no activity for 60s
+        std::time::Duration::from_secs(600), // max wall-clock safety net: 10 minutes
+        cancel_token.clone(),
+    );
+    let watchdog_handle = watchdog.spawn("dc-agent");
+
     let user_text_owned = user_text.clone();
     let agent_handle = tokio::spawn(async move {
-        let result = match tokio::time::timeout(
-            turn_timeout,
-            runtime::run_agent_turn_streaming(
-                provider.as_ref(),
-                &user_text_owned,
-                &agent_config,
-                &tools,
-                event_tx,
-                image_urls,
-                Some(cancel_token),
-            ),
+        let result = runtime::run_agent_turn_streaming(
+            provider.as_ref(),
+            &user_text_owned,
+            &agent_config,
+            &tools,
+            event_tx,
+            image_urls,
+            Some(cancel_token),
         )
-        .await
-        {
-            Ok(result) => result,
-            Err(_) => {
-                if let Some(m) = crate::metrics::global() { m.record_agent_timeout(); }
-                Err(anyhow::anyhow!("Agent turn timed out after 120s"))
-            }
-        };
+        .await;
         crate::task_registry::unregister_task(&task_key_cleanup);
         result
     });
@@ -280,6 +276,7 @@ pub async fn handle_discord_message(
     let mut tool_status = String::new();
 
     while let Some(event) = event_rx.recv().await {
+        watchdog.touch(); // Signal activity to prevent idle timeout
         match event {
             StreamEvent::ContentDelta(delta) => {
                 accumulated.push_str(&delta);
@@ -369,6 +366,7 @@ pub async fn handle_discord_message(
     }
 
     // ── Wait for agent turn to finish ──
+    watchdog_handle.abort(); // Agent turn done, stop the watchdog
     let result = match agent_handle.await? {
         Ok(r) => r,
         Err(e) => {

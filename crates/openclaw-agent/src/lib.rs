@@ -6,4 +6,5 @@ pub mod sandbox;
 pub mod sessions;
 pub mod subagent;
 pub mod tools;
+pub mod watchdog;
 pub mod workspace;
