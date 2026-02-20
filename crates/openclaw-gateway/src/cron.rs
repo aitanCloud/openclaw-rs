@@ -299,6 +299,7 @@ async fn run_cron_agent_turn(config: &GatewayConfig, message: &str) -> Result<Ag
         session_key,
         workspace_dir: ws_str,
         minimal_context: true,
+    ..AgentTurnConfig::default()
     };
 
     let provider: Box<dyn LlmProvider> = match FallbackProvider::from_config() {

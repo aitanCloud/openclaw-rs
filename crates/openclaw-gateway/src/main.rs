@@ -10,6 +10,7 @@ mod handler;
 mod handler_utils;
 mod metrics;
 mod ratelimit;
+mod subagent_registry;
 mod task_registry;
 mod telegram;
 
@@ -792,6 +793,7 @@ async fn webhook_handler(
         session_key: session_key.clone(),
         workspace_dir: workspace_dir.to_string_lossy().to_string(),
         minimal_context: false,
+    ..AgentTurnConfig::default()
     };
 
     let tools = openclaw_agent::tools::ToolRegistry::with_defaults();

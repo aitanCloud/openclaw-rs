@@ -206,12 +206,74 @@ pub async fn handle_message(
     if plugin_count > 0 {
         info!("Loaded {} plugin tool(s) from workspace", plugin_count);
     }
+    // ── Set up delegate channel for async subagent dispatch ──
+    let (delegate_tx, mut delegate_rx) = mpsc::unbounded_channel::<openclaw_agent::tools::DelegateRequest>();
+
     let agent_config = AgentTurnConfig {
         agent_name: config.agent.name.clone(),
         session_key: session_key.clone(),
         workspace_dir: workspace_dir.to_string_lossy().to_string(),
         minimal_context: false,
+        chat_id,
+        delegate_tx: Some(delegate_tx),
     };
+
+    // ── Spawn delegate listener (background subagent tasks) ──
+    let delegate_bot_token = config.telegram.bot_token.clone();
+    tokio::spawn(async move {
+        while let Some(req) = delegate_rx.recv().await {
+            let bot = TelegramBot::new(&delegate_bot_token);
+            tokio::spawn(async move {
+                let task_desc = req.task[..req.task.len().min(80)].to_string();
+                let (task_id, cancel_token) = crate::subagent_registry::register_subagent(
+                    &task_desc, &req.agent_name, req.chat_id,
+                );
+
+                let _ = bot.send_message(
+                    req.chat_id,
+                    &format!("\u{1F680} *Task #{}* started: {}", task_id, task_desc),
+                ).await;
+
+                let timeout = std::time::Duration::from_secs(60);
+                let result = tokio::time::timeout(
+                    timeout,
+                    openclaw_agent::subagent::run_subagent_turn(
+                        &req.task, &req.agent_name, &req.workspace_dir, Some(cancel_token),
+                    ),
+                ).await;
+
+                match result {
+                    Ok(Ok(response)) => {
+                        crate::subagent_registry::complete_subagent(task_id);
+                        let truncated = if response.len() > 3000 {
+                            format!("{}...\n\n_(truncated, {}B total)_", &response[..3000], response.len())
+                        } else {
+                            response
+                        };
+                        let _ = bot.send_message(
+                            req.chat_id,
+                            &format!("\u{2705} *Task #{}* complete:\n\n{}", task_id, truncated),
+                        ).await;
+                    }
+                    Ok(Err(e)) => {
+                        crate::subagent_registry::fail_subagent(task_id, &e.to_string());
+                        let _ = bot.send_message(
+                            req.chat_id,
+                            &format!("\u{274C} *Task #{}* failed: {}", task_id, e),
+                        ).await;
+                    }
+                    Err(_) => {
+                        crate::subagent_registry::fail_subagent(task_id, "timed out after 60s");
+                        let _ = bot.send_message(
+                            req.chat_id,
+                            &format!("\u{23F0} *Task #{}* timed out after 60s", task_id),
+                        ).await;
+                    }
+                }
+                crate::subagent_registry::gc();
+            });
+        }
+    });
 
     // ── Set up streaming channel ──
     let (event_tx, mut event_rx) = mpsc::unbounded_channel::<StreamEvent>();
@@ -504,12 +566,41 @@ async fn handle_command(
             bot.send_message(chat_id, &format!("🏓 Pong! ({}ms)", start.elapsed().as_millis())).await?;
         }
         "/cancel" | "/stop" => {
+            // /cancel <id> — cancel a specific background task
+            if let Some(id_str) = text.split_whitespace().nth(1) {
+                if let Ok(id) = id_str.parse::<u64>() {
+                    if crate::subagent_registry::cancel_subagent(id) {
+                        bot.send_message(chat_id, &format!("⛔ Cancelled task #{}", id)).await?;
+                    } else {
+                        bot.send_message(chat_id, &format!("ℹ️ No task #{} found.", id)).await?;
+                    }
+                    return Ok(());
+                }
+            }
+            // /cancel (no args) — cancel the main running task
             let task_key = format!("tg:{}:{}", user_id, chat_id);
             if crate::task_registry::cancel_task(&task_key) {
                 if let Some(m) = crate::metrics::global() { m.record_task_cancelled(); }
                 bot.send_message(chat_id, "⛔ Cancelled running task.").await?;
             } else {
                 bot.send_message(chat_id, "ℹ️ No task is currently running.").await?;
+            }
+        }
+        "/tasks" => {
+            let tasks = crate::subagent_registry::list_tasks();
+            if tasks.is_empty() {
+                bot.send_message(chat_id, "📋 No background tasks.").await?;
+            } else {
+                let mut msg_text = format!("📋 *Background Tasks* ({} total)\n\n", tasks.len());
+                for t in tasks.iter().take(10) {
+                    let elapsed = t.started_at.elapsed().as_secs();
+                    msg_text.push_str(&format!(
+                        "*#{}* {} — {}s\n  _{}_\n\n",
+                        t.id, t.status, elapsed,
+                        &t.description[..t.description.len().min(60)],
+                    ));
+                }
+                bot.send_message(chat_id, &msg_text).await?;
             }
         }
         "/whoami" => {
@@ -926,6 +1017,7 @@ async fn handle_command(
                     session_key: session_key.clone(),
                     workspace_dir: workspace_dir.to_string_lossy().to_string(),
                     minimal_context: true,
+                ..AgentTurnConfig::default()
                 };
 
                 let (event_tx, _event_rx) = tokio::sync::mpsc::unbounded_channel::<StreamEvent>();

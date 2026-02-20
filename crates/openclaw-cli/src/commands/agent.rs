@@ -114,6 +114,7 @@ pub async fn run(opts: AgentOptions) -> Result<()> {
         session_key: session_key.clone(),
         workspace_dir: workspace_dir.to_string_lossy().to_string(),
         minimal_context: false,
+    ..AgentTurnConfig::default()
     };
 
     // ── Run agent turn ──

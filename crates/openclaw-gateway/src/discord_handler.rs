@@ -206,6 +206,7 @@ pub async fn handle_discord_message(
         session_key: session_key.clone(),
         workspace_dir: workspace_dir.to_string_lossy().to_string(),
         minimal_context: false,
+    ..AgentTurnConfig::default()
     };
 
     // ── Set up streaming channel ──
@@ -1008,6 +1009,7 @@ async fn handle_command(
                     session_key: session_key.clone(),
                     workspace_dir: workspace_dir.to_string_lossy().to_string(),
                     minimal_context: true,
+                ..AgentTurnConfig::default()
                 };
 
                 let (event_tx, _event_rx) = mpsc::unbounded_channel::<StreamEvent>();

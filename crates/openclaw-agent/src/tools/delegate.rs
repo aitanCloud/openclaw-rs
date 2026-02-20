@@ -3,10 +3,11 @@ use async_trait::async_trait;
 use serde_json::Value;
 use tracing::info;
 
-use super::{Tool, ToolContext, ToolResult};
+use super::{DelegateRequest, Tool, ToolContext, ToolResult};
 
 /// Tool that allows the agent to delegate a subtask to a subagent.
-/// The subagent runs a single turn with the given prompt and returns the result.
+/// If a delegate_tx channel is available (gateway context), the task runs in the
+/// background and the tool returns immediately. Otherwise, falls back to blocking.
 pub struct DelegateTool;
 
 #[async_trait]
@@ -16,9 +17,9 @@ impl Tool for DelegateTool {
     }
 
     fn description(&self) -> &str {
-        "Delegate a subtask to a subagent. The subagent runs one turn with the given prompt \
-         and returns its response. Use this for complex tasks that benefit from focused, \
-         isolated reasoning — e.g. code review, summarization, research."
+        "Delegate a subtask to a background subagent. Returns immediately with a task ID. \
+         The subagent runs asynchronously — use /tasks to check status. \
+         Use this for tasks that benefit from focused, isolated reasoning."
     }
 
     fn parameters(&self) -> Value {
@@ -49,12 +50,6 @@ impl Tool for DelegateTool {
             .and_then(|v| v.as_str())
             .unwrap_or("");
 
-        let prompt = if context.is_empty() {
-            task.to_string()
-        } else {
-            format!("{}\n\n---\nContext:\n{}", task, context)
-        };
-
         info!(
             "Subagent delegated: task={} ({}B context), agent={}, session={}",
             &task[..task.len().min(80)],
@@ -63,12 +58,36 @@ impl Tool for DelegateTool {
             ctx.session_key,
         );
 
-        // Use the subagent registry to run a subagent turn
+        // If we have a delegate channel (gateway context), dispatch async
+        if let Some(ref tx) = ctx.delegate_tx {
+            let req = DelegateRequest {
+                task: task.to_string(),
+                context: context.to_string(),
+                agent_name: ctx.agent_name.clone(),
+                workspace_dir: ctx.workspace_dir.clone(),
+                chat_id: ctx.chat_id,
+            };
+            if tx.send(req).is_ok() {
+                return Ok(ToolResult::success(format!(
+                    "Task dispatched to background. The user will see progress updates in chat. \
+                     Use /tasks to check status. Task: {}",
+                    &task[..task.len().min(120)]
+                )));
+            }
+        }
+
+        // Fallback: blocking execution (CLI or no channel)
+        let prompt = if context.is_empty() {
+            task.to_string()
+        } else {
+            format!("{}\n\n---\nContext:\n{}", task, context)
+        };
+
         let result = crate::subagent::run_subagent_turn(
             &prompt,
             &ctx.agent_name,
             &ctx.workspace_dir,
-            None, // cancellation token not available through tool interface
+            None,
         )
         .await;
 

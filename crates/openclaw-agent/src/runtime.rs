@@ -51,6 +51,21 @@ pub struct AgentTurnConfig {
     pub session_key: String,
     pub workspace_dir: String,
     pub minimal_context: bool,
+    pub chat_id: i64,
+    pub delegate_tx: Option<crate::tools::DelegateTx>,
+}
+
+impl Default for AgentTurnConfig {
+    fn default() -> Self {
+        Self {
+            agent_name: String::new(),
+            session_key: String::new(),
+            workspace_dir: String::new(),
+            minimal_context: false,
+            chat_id: 0,
+            delegate_tx: None,
+        }
+    }
 }
 
 /// Load recent conversation history from the session store.
@@ -150,6 +165,8 @@ pub async fn run_agent_turn(
         agent_name: config.agent_name.clone(),
         session_key: config.session_key.clone(),
         sandbox: crate::sandbox::SandboxPolicy::default(),
+        chat_id: config.chat_id,
+        delegate_tx: config.delegate_tx.clone(),
     };
 
     let mut total_usage = UsageStats::default();
@@ -304,6 +321,8 @@ pub async fn run_agent_turn_streaming(
         agent_name: config.agent_name.clone(),
         session_key: config.session_key.clone(),
         sandbox: crate::sandbox::SandboxPolicy::default(),
+        chat_id: config.chat_id,
+        delegate_tx: config.delegate_tx.clone(),
     };
 
     let mut total_usage = UsageStats::default();
@@ -476,6 +495,7 @@ mod tests {
             session_key: "test-session".to_string(),
             workspace_dir: "/tmp".to_string(),
             minimal_context: false,
+        ..AgentTurnConfig::default()
         };
         assert_eq!(config.agent_name, "main");
     }
@@ -536,6 +556,7 @@ mod tests {
             session_key: "cancel-test-session".to_string(),
             workspace_dir: "/tmp".to_string(),
             minimal_context: true,
+        ..AgentTurnConfig::default()
         };
         let tools = crate::tools::ToolRegistry::new();
         let (event_tx, _event_rx) = tokio::sync::mpsc::unbounded_channel::<StreamEvent>();

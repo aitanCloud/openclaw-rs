@@ -226,6 +226,7 @@ mod tests {
             agent_name: "test".to_string(),
             session_key: "test".to_string(),
             sandbox: crate::sandbox::SandboxPolicy::default(),
+        ..ToolContext::default()
         };
 
         // Create a test file
@@ -249,6 +250,7 @@ mod tests {
             agent_name: "test".to_string(),
             session_key: "test".to_string(),
             sandbox: crate::sandbox::SandboxPolicy::default(),
+        ..ToolContext::default()
         };
 
         tokio::fs::write("/tmp/openclaw-test-grep2.txt", "hello world\n")

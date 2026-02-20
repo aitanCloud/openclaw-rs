@@ -270,6 +270,7 @@ mod tests {
             agent_name: "test".to_string(),
             session_key: "test-session".to_string(),
             sandbox: crate::sandbox::SandboxPolicy::default(),
+        ..ToolContext::default()
         };
         let args = serde_json::json!({"question": "what is this?"});
         let result = tool.execute(args, &ctx).await.unwrap();
@@ -285,6 +286,7 @@ mod tests {
             agent_name: "test".to_string(),
             session_key: "test-session".to_string(),
             sandbox: crate::sandbox::SandboxPolicy::default(),
+        ..ToolContext::default()
         };
         let args = serde_json::json!({"url": "/tmp/nonexistent_image_12345.png"});
         let result = tool.execute(args, &ctx).await.unwrap();

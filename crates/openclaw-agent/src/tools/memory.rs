@@ -145,6 +145,7 @@ mod tests {
             agent_name: "test-mem".to_string(),
             session_key: "s1".to_string(),
             sandbox: SandboxPolicy::default(),
+        ..ToolContext::default()
         };
         let tool = MemoryTool;
 

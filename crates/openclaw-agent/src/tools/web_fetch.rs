@@ -236,6 +236,7 @@ mod tests {
             agent_name: "test".to_string(),
             session_key: "test".to_string(),
             sandbox: crate::sandbox::SandboxPolicy::default(),
+        ..ToolContext::default()
         };
         let rt = tokio::runtime::Runtime::new().unwrap();
         let result = rt.block_on(tool.execute(args, &ctx)).unwrap();

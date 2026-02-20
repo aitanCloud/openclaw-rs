@@ -128,6 +128,7 @@ mod tests {
             agent_name: "test".to_string(),
             session_key: "test-session".to_string(),
             sandbox: crate::sandbox::SandboxPolicy::default(),
+        ..ToolContext::default()
         };
         let args = serde_json::json!({"command": "echo hello"});
         let result = tool.execute(args, &ctx).await.unwrap();
@@ -143,6 +144,7 @@ mod tests {
             agent_name: "test".to_string(),
             session_key: "test-session".to_string(),
             sandbox: crate::sandbox::SandboxPolicy::default(),
+        ..ToolContext::default()
         };
         let args = serde_json::json!({"command": "false"});
         let result = tool.execute(args, &ctx).await.unwrap();
@@ -157,6 +159,7 @@ mod tests {
             agent_name: "test".to_string(),
             session_key: "test-session".to_string(),
             sandbox: crate::sandbox::SandboxPolicy::default(),
+        ..ToolContext::default()
         };
         let args = serde_json::json!({"command": "rm -rf /"});
         let result = tool.execute(args, &ctx).await.unwrap();
@@ -172,6 +175,7 @@ mod tests {
             agent_name: "test".to_string(),
             session_key: "test-session".to_string(),
             sandbox: crate::sandbox::SandboxPolicy::default(),
+        ..ToolContext::default()
         };
         let args = serde_json::json!({"command": "cat /etc/shadow"});
         let result = tool.execute(args, &ctx).await.unwrap();
@@ -187,6 +191,7 @@ mod tests {
             agent_name: "test".to_string(),
             session_key: "test-session".to_string(),
             sandbox: crate::sandbox::SandboxPolicy::default(),
+        ..ToolContext::default()
         };
         let args = serde_json::json!({"command": "sleep 10", "timeout_secs": 1});
         let result = tool.execute(args, &ctx).await.unwrap();

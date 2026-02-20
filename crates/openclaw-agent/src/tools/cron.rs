@@ -271,6 +271,7 @@ mod tests {
             agent_name: "test".to_string(),
             session_key: "test-session".to_string(),
             sandbox: crate::sandbox::SandboxPolicy::default(),
+        ..ToolContext::default()
         }
     }
 

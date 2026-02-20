@@ -31,7 +31,8 @@ pub async fn run_subagent_turn(
         agent_name: agent_name.to_string(),
         session_key: format!("subagent:{}:{}", agent_name, uuid::Uuid::new_v4()),
         workspace_dir: workspace_dir.to_string(),
-        minimal_context: true, // subagents use minimal context
+        minimal_context: true,
+        ..AgentTurnConfig::default()
     };
 
     let mut tools = ToolRegistry::with_defaults();

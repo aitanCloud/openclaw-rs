@@ -157,6 +157,7 @@ mod tests {
             agent_name: "test".to_string(),
             session_key: "test-session".to_string(),
             sandbox: crate::sandbox::SandboxPolicy::default(),
+        ..ToolContext::default()
         };
 
         let args = serde_json::json!({
@@ -185,6 +186,7 @@ mod tests {
             agent_name: "test".to_string(),
             session_key: "test-session".to_string(),
             sandbox: crate::sandbox::SandboxPolicy::default(),
+        ..ToolContext::default()
         };
 
         tokio::fs::write("/tmp/openclaw-test-append.txt", "first\n")

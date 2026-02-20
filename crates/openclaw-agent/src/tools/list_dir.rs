@@ -145,6 +145,7 @@ mod tests {
             agent_name: "test".to_string(),
             session_key: "test".to_string(),
             sandbox: crate::sandbox::SandboxPolicy::default(),
+        ..ToolContext::default()
         };
         let args = serde_json::json!({});
         let result = tool.execute(args, &ctx).await.unwrap();
@@ -159,6 +160,7 @@ mod tests {
             agent_name: "test".to_string(),
             session_key: "test".to_string(),
             sandbox: crate::sandbox::SandboxPolicy::default(),
+        ..ToolContext::default()
         };
         let args = serde_json::json!({"path": "/nonexistent_dir_xyz"});
         let result = tool.execute(args, &ctx).await.unwrap();

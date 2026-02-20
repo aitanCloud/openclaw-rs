@@ -198,6 +198,7 @@ mod tests {
             agent_name: "test".to_string(),
             session_key: "test".to_string(),
             sandbox: crate::sandbox::SandboxPolicy::default(),
+        ..ToolContext::default()
         };
 
         // Create test files
@@ -219,6 +220,7 @@ mod tests {
             agent_name: "test".to_string(),
             session_key: "test".to_string(),
             sandbox: crate::sandbox::SandboxPolicy::default(),
+        ..ToolContext::default()
         };
 
         let args = serde_json::json!({"pattern": "zzz_nonexistent_file_*"});

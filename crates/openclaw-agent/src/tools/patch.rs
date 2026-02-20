@@ -138,6 +138,7 @@ mod tests {
             agent_name: "test".to_string(),
             session_key: "test".to_string(),
             sandbox: crate::sandbox::SandboxPolicy::default(),
+        ..ToolContext::default()
         };
 
         tokio::fs::write("/tmp/openclaw-test-patch.txt", "hello world\nfoo bar\n")
@@ -170,6 +171,7 @@ mod tests {
             agent_name: "test".to_string(),
             session_key: "test".to_string(),
             sandbox: crate::sandbox::SandboxPolicy::default(),
+        ..ToolContext::default()
         };
 
         tokio::fs::write("/tmp/openclaw-test-patch2.txt", "hello world\n")
@@ -196,6 +198,7 @@ mod tests {
             agent_name: "test".to_string(),
             session_key: "test".to_string(),
             sandbox: crate::sandbox::SandboxPolicy::default(),
+        ..ToolContext::default()
         };
 
         tokio::fs::write("/tmp/openclaw-test-patch3.txt", "aaa\naaa\naaa\n")

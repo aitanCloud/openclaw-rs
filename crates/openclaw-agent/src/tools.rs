@@ -24,13 +24,43 @@ use serde_json::Value;
 use crate::llm::{FunctionDefinition, ToolDefinition};
 use crate::sandbox::SandboxPolicy;
 
-/// Context passed to every tool execution
+/// A delegate request sent from the agent to the gateway for background execution.
+#[derive(Debug, Clone)]
+pub struct DelegateRequest {
+    pub task: String,
+    pub context: String,
+    pub agent_name: String,
+    pub workspace_dir: String,
+    pub chat_id: i64,
+}
+
+/// Sender half for dispatching delegate requests to the gateway.
+pub type DelegateTx = tokio::sync::mpsc::UnboundedSender<DelegateRequest>;
+
+/// Context passed to every tool execution.
 #[derive(Debug, Clone)]
 pub struct ToolContext {
     pub workspace_dir: String,
     pub agent_name: String,
     pub session_key: String,
     pub sandbox: SandboxPolicy,
+    /// Chat ID for sending background task updates (0 = unknown).
+    pub chat_id: i64,
+    /// If set, delegate tool dispatches async instead of blocking.
+    pub delegate_tx: Option<DelegateTx>,
+}
+
+impl Default for ToolContext {
+    fn default() -> Self {
+        Self {
+            workspace_dir: String::new(),
+            agent_name: String::new(),
+            session_key: String::new(),
+            sandbox: SandboxPolicy::default(),
+            chat_id: 0,
+            delegate_tx: None,
+        }
+    }
 }
 
 /// Result of a tool execution
