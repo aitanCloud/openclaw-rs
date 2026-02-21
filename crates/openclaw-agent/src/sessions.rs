@@ -704,6 +704,39 @@ mod tests {
     }
 
     #[test]
+    fn test_new_command_resets_session() {
+        // Simulates the /new command flow: delete session, then re-create with same key.
+        // The next message should start with zero history.
+        let store = SessionStore::open_memory().unwrap();
+        let key = "tg:main:123:456";
+
+        // Build up a session with messages
+        store.create_session(key, "main", "model").unwrap();
+        store.append_message(key, &Message::user("hello")).unwrap();
+        store.append_message(key, &Message::assistant("hi there")).unwrap();
+        store.append_message(key, &Message::user("do something")).unwrap();
+
+        let msgs = store.load_llm_messages(key).unwrap();
+        assert_eq!(msgs.len(), 3);
+
+        // /new command: delete the session
+        let deleted = store.delete_session(key).unwrap();
+        assert_eq!(deleted, 3);
+
+        // After delete, history should be empty
+        let msgs = store.load_llm_messages(key).unwrap();
+        assert!(msgs.is_empty(), "Expected empty history after /new, got {} messages", msgs.len());
+
+        // Next message handler re-creates the session with the same key
+        store.create_session(key, "main", "model").unwrap();
+        store.append_message(key, &Message::user("fresh start")).unwrap();
+
+        let msgs = store.load_llm_messages(key).unwrap();
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(msgs[0].content.as_deref(), Some("fresh start"));
+    }
+
+    #[test]
     fn test_find_latest_session() {
         let store = SessionStore::open_memory().unwrap();
 

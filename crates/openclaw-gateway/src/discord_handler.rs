@@ -873,18 +873,14 @@ async fn handle_command(
         }
         "new" | "reset" => {
             let store = SessionStore::open(&config.agent.name)?;
-            let old_key = format!("dc:{}:{}:{}", config.agent.name, user_id, channel_id);
-            let old_msgs = store.load_messages(&old_key)?;
-            let msg_count = old_msgs.len();
+            let session_key = format!("dc:{}:{}:{}", config.agent.name, user_id, channel_id);
+            let msg_count = store.load_messages(&session_key)?
+                .iter()
+                .filter(|m| m.role == "user" || m.role == "assistant")
+                .count();
 
-            let new_key = format!(
-                "dc:{}:{}:{}:{}",
-                config.agent.name,
-                user_id,
-                channel_id,
-                uuid::Uuid::new_v4()
-            );
-            store.create_session(&new_key, &config.agent.name, "pending")?;
+            // Delete the session so the next message starts completely fresh
+            store.delete_session(&session_key)?;
 
             bot.send_embed(
                 channel_id, Some(reply_to),

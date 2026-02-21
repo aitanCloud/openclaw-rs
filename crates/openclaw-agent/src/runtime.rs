@@ -179,6 +179,32 @@ fn load_session_history(agent_name: &str, session_key: &str) -> Vec<Message> {
 
             kept.reverse();
 
+            // ── Sanitize: strip orphaned tool messages at the start ──
+            // Pruning may cut in the middle of a tool-call sequence, leaving
+            // Tool-role messages without a preceding Assistant message that
+            // contains tool_calls.  LLM APIs reject these with errors like
+            // "tool_call_id is not found" or "Messages with role 'tool' must
+            // be a response to a preceding message with 'tool_calls'".
+            while let Some(first) = kept.first() {
+                if matches!(first.role, crate::llm::Role::Tool) {
+                    kept.remove(0);
+                } else {
+                    break;
+                }
+            }
+
+            // Also strip a leading Assistant message that has tool_calls but
+            // whose corresponding Tool results were just removed above.
+            if let Some(first) = kept.first() {
+                if matches!(first.role, crate::llm::Role::Assistant) && first.tool_calls.is_some() {
+                    // Check if the next message is a Tool result for this call
+                    let has_tool_response = kept.get(1).map_or(false, |m| matches!(m.role, crate::llm::Role::Tool));
+                    if !has_tool_response {
+                        kept.remove(0);
+                    }
+                }
+            }
+
             if !kept.is_empty() {
                 let total_tokens: usize = kept.iter().map(|m| estimate_message_tokens(m)).sum();
                 debug!(
