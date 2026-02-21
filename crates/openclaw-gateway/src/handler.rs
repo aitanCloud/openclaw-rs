@@ -68,10 +68,13 @@ pub async fn build_tool_registry(workspace_dir: &std::path::Path) -> ToolRegistr
     tools
 }
 
-/// Minimum chars between Telegram message edits (avoid rate limits)
-const EDIT_MIN_CHARS: usize = 1;
-/// Minimum ms between Telegram message edits
-const EDIT_MIN_MS: u64 = 100;
+/// Streaming edit thresholds — adaptive based on context:
+/// Conversational (no tools): gradual text appearance like ChatGPT
+const EDIT_CHARS_CONVERSATIONAL: usize = 20;
+const EDIT_MS_CONVERSATIONAL: u64 = 150;
+/// Technical (tools active/used): fast flush for tool output and results
+const EDIT_CHARS_TECHNICAL: usize = 1;
+const EDIT_MS_TECHNICAL: u64 = 100;
 
 /// Handle an incoming Telegram message
 pub async fn handle_message(
@@ -539,6 +542,7 @@ pub async fn handle_message(
     let mut last_edit_len: usize = 0;
     let mut last_edit_time = std::time::Instant::now();
     let mut tool_status = String::new();
+    let mut used_tools = false; // Switches to technical streaming mode once tools are invoked
     let mut is_done = false;
 
     while let Some(event) = event_rx.recv().await {
@@ -553,7 +557,15 @@ pub async fn handle_message(
                 let ms_since_edit = last_edit_time.elapsed().as_millis() as u64;
                 let during_tool = !tool_status.is_empty();
 
-                if chars_since_edit >= EDIT_MIN_CHARS && ms_since_edit >= EDIT_MIN_MS {
+                // Adaptive streaming: conversational feel when chatting,
+                // fast flush when tools are involved
+                let (min_chars, min_ms) = if during_tool || used_tools {
+                    (EDIT_CHARS_TECHNICAL, EDIT_MS_TECHNICAL)
+                } else {
+                    (EDIT_CHARS_CONVERSATIONAL, EDIT_MS_CONVERSATIONAL)
+                };
+
+                if chars_since_edit >= min_chars && ms_since_edit >= min_ms {
                     let display = if tool_status.is_empty() {
                         accumulated.clone()
                     } else {
@@ -582,6 +594,7 @@ pub async fn handle_message(
             }
 
             StreamEvent::ToolCallStart { name } => {
+                used_tools = true;
                 if name.starts_with("cc:") {
                     // Nested tool call from claude_code — accumulate as content
                     accumulated.push_str(&format!("🔧 {}...\n", name));
