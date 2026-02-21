@@ -125,6 +125,13 @@ pub async fn handle_message(
         return Ok(());
     }
 
+    // If photo but no text, add a default prompt so the LLM knows to analyze the image
+    let text = if text.is_empty() && has_photo {
+        "Describe and analyze this image.".to_string()
+    } else {
+        text
+    };
+
     // ── Access control ──
     if !config.telegram.allowed_user_ids.is_empty()
         && !config.telegram.allowed_user_ids.contains(&user_id)
@@ -605,11 +612,18 @@ pub async fn handle_message(
 
             StreamEvent::RoundStart { round } => {
                 tool_status = String::new();
-                // Clear accumulated content for new round — the LLM will generate fresh
-                accumulated.clear();
-                last_edit_len = 0;
+                // Keep tool-emitted content (e.g. claude_code progress) visible,
+                // but separate it from the new round's LLM output
+                if !accumulated.is_empty() {
+                    accumulated.push_str("\n\n---\n");
+                }
+                last_edit_len = accumulated.len();
 
-                let display = format!("🔄 Round {}...", round);
+                let display = if accumulated.is_empty() {
+                    format!("🔄 Round {}...", round)
+                } else {
+                    format!("{}\n🔄 Round {}...", accumulated, round)
+                };
                 stream_bot
                     .edit_message(chat_id, placeholder_id, &display)
                     .await

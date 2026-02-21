@@ -44,7 +44,30 @@ fn convert_messages(messages: &[Message]) -> (Option<String>, Vec<AnthropicMessa
                 }
             }
             Role::User => {
-                if let Some(ref content) = msg.content {
+                if !msg.image_urls.is_empty() {
+                    // Multimodal: convert image_urls to Anthropic image blocks
+                    let mut blocks: Vec<ContentBlock> = Vec::new();
+                    for url in &msg.image_urls {
+                        if let Some((media_type, data)) = parse_data_url(url) {
+                            blocks.push(ContentBlock::Image {
+                                source: ImageSource {
+                                    source_type: "base64".to_string(),
+                                    media_type,
+                                    data,
+                                },
+                            });
+                        }
+                    }
+                    if let Some(ref content) = msg.content {
+                        if !content.is_empty() {
+                            blocks.push(ContentBlock::Text { text: content.clone() });
+                        }
+                    }
+                    anthropic_msgs.push(AnthropicMessage {
+                        role: "user".to_string(),
+                        content: AnthropicContent::Blocks(blocks),
+                    });
+                } else if let Some(ref content) = msg.content {
                     anthropic_msgs.push(AnthropicMessage {
                         role: "user".to_string(),
                         content: AnthropicContent::Text(content.clone()),
@@ -143,6 +166,8 @@ enum AnthropicContent {
 enum ContentBlock {
     #[serde(rename = "text")]
     Text { text: String },
+    #[serde(rename = "image")]
+    Image { source: ImageSource },
     #[serde(rename = "tool_use")]
     ToolUse {
         id: String,
@@ -154,6 +179,22 @@ enum ContentBlock {
         tool_use_id: String,
         content: String,
     },
+}
+
+#[derive(Serialize)]
+struct ImageSource {
+    #[serde(rename = "type")]
+    source_type: String,
+    media_type: String,
+    data: String,
+}
+
+/// Parse a data URL like "data:image/jpeg;base64,/9j/4AAQ..." into (media_type, base64_data)
+fn parse_data_url(url: &str) -> Option<(String, String)> {
+    let url = url.strip_prefix("data:")?;
+    let (header, data) = url.split_once(",")?;
+    let media_type = header.strip_suffix(";base64")?.to_string();
+    Some((media_type, data.to_string()))
 }
 
 #[derive(Serialize)]
