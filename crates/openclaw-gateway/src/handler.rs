@@ -535,10 +535,13 @@ pub async fn handle_message(
                 accumulated.push_str(&delta);
 
                 // Edit message if enough new chars or enough time passed
+                // Use lower threshold when a tool is running (tool-emitted content)
                 let chars_since_edit = accumulated.len() - last_edit_len;
                 let ms_since_edit = last_edit_time.elapsed().as_millis() as u64;
+                let during_tool = !tool_status.is_empty();
 
-                if chars_since_edit >= EDIT_MIN_CHARS || ms_since_edit >= EDIT_MIN_MS {
+                if chars_since_edit >= EDIT_MIN_CHARS || ms_since_edit >= EDIT_MIN_MS
+                    || (during_tool && ms_since_edit >= 200) {
                     let display = if tool_status.is_empty() {
                         accumulated.clone()
                     } else {
@@ -567,9 +570,16 @@ pub async fn handle_message(
             }
 
             StreamEvent::ToolCallStart { name } => {
-                tool_status = format!("🔧 Calling {}...", name);
+                if name.starts_with("cc:") {
+                    // Nested tool call from claude_code — accumulate as content
+                    accumulated.push_str(&format!("🔧 {}...\n", name));
+                } else {
+                    tool_status = format!("🔧 Calling {}...", name);
+                }
                 let display = if accumulated.is_empty() {
                     tool_status.clone()
+                } else if tool_status.is_empty() {
+                    accumulated.clone()
                 } else {
                     format!("{}\n\n{}", accumulated, tool_status)
                 };
@@ -580,13 +590,25 @@ pub async fn handle_message(
             }
 
             StreamEvent::ToolExec { name, args_summary, .. } => {
-                tool_status = if args_summary.is_empty() {
-                    format!("⚙️ Running {}...", name)
+                if name.starts_with("cc:") {
+                    // Nested tool exec from claude_code — accumulate as content
+                    let line = if args_summary.is_empty() {
+                        format!("⚙️ {}\n", name)
+                    } else {
+                        format!("⚙️ {} — {}\n", name, args_summary)
+                    };
+                    accumulated.push_str(&line);
                 } else {
-                    format!("⚙️ Running {} — {}...", name, args_summary)
-                };
+                    tool_status = if args_summary.is_empty() {
+                        format!("⚙️ Running {}...", name)
+                    } else {
+                        format!("⚙️ Running {} — {}...", name, args_summary)
+                    };
+                }
                 let display = if accumulated.is_empty() {
                     tool_status.clone()
+                } else if tool_status.is_empty() {
+                    accumulated.clone()
                 } else {
                     format!("{}\n\n{}", accumulated, tool_status)
                 };
@@ -596,13 +618,36 @@ pub async fn handle_message(
                     .ok();
             }
 
-            StreamEvent::ToolResult { name, success, .. } => {
+            StreamEvent::ToolResult { name, success, output_preview } => {
                 let icon = if success { "✅" } else { "❌" };
-                tool_status = format!("{} {}", icon, name);
+                if name.starts_with("cc:") {
+                    // Nested tool result from claude_code — accumulate as content
+                    let line = if !output_preview.is_empty() && output_preview.len() > 2 {
+                        let preview = if output_preview.len() > 120 {
+                            format!("{}...", &output_preview[..117])
+                        } else {
+                            output_preview
+                        };
+                        format!("{} {} → _{}_ \n", icon, name, preview)
+                    } else {
+                        format!("{} {}\n", icon, name)
+                    };
+                    accumulated.push_str(&line);
+                } else {
+                    tool_status = format!("{} {}", icon, name);
+                }
                 let display = if accumulated.is_empty() {
                     tool_status.clone()
+                } else if tool_status.is_empty() {
+                    accumulated.clone()
                 } else {
                     format!("{}\n\n{}", accumulated, tool_status)
+                };
+                // Truncate to 4000 chars for Telegram
+                let display = if display.len() > 4000 {
+                    format!("{}...", &display[..3997])
+                } else {
+                    display
                 };
                 stream_bot
                     .edit_message(chat_id, placeholder_id, &display)
