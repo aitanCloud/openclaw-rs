@@ -244,15 +244,30 @@ impl Tool for ClaudeCodeTool {
     }
 
     async fn execute(&self, args: Value, ctx: &ToolContext) -> Result<ToolResult> {
-        let task = args
-            .get("task")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow::anyhow!("claude_code: missing 'task' parameter"))?;
+        // Be forgiving of small models that mangle parameter names
+        let task = args.get("task").and_then(|v| v.as_str())
+            .or_else(|| args.get("prompt").and_then(|v| v.as_str()))
+            .or_else(|| args.get("message").and_then(|v| v.as_str()))
+            .or_else(|| args.get("query").and_then(|v| v.as_str()))
+            .or_else(|| args.get("instruction").and_then(|v| v.as_str()))
+            .or_else(|| args.get("command").and_then(|v| v.as_str()))
+            .or_else(|| {
+                // Last resort: if there's only one string value, use it
+                args.as_object().and_then(|obj| {
+                    let strings: Vec<&str> = obj.values()
+                        .filter_map(|v| v.as_str())
+                        .collect();
+                    if strings.len() == 1 { Some(strings[0]) } else { None }
+                })
+            })
+            .ok_or_else(|| anyhow::anyhow!("claude_code: missing 'task' parameter. Send {{\"task\": \"...\", \"project_dir\": \"...\"}}"))?;
 
-        let project_dir = args
-            .get("project_dir")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow::anyhow!("claude_code: missing 'project_dir' parameter"))?;
+        let project_dir = args.get("project_dir").and_then(|v| v.as_str())
+            .or_else(|| args.get("project").and_then(|v| v.as_str()))
+            .or_else(|| args.get("dir").and_then(|v| v.as_str()))
+            .or_else(|| args.get("directory").and_then(|v| v.as_str()))
+            .or_else(|| args.get("path").and_then(|v| v.as_str()))
+            .unwrap_or(&ctx.workspace_dir);
 
         let project_path = std::path::Path::new(project_dir);
         if !project_path.exists() {
