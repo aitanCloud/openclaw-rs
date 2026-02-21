@@ -21,16 +21,7 @@ pub struct ClaudeCodeTool;
 /// Emit a StreamEvent if the tool has a stream channel.
 fn emit(ctx: &ToolContext, event: StreamEvent) {
     if let Some(ref tx) = ctx.stream_tx {
-        let desc = match &event {
-            StreamEvent::ContentDelta(d) => format!("ContentDelta({}B)", d.len()),
-            StreamEvent::ToolExec { name, .. } => format!("ToolExec({})", name),
-            StreamEvent::ToolResult { name, success, .. } => format!("ToolResult({}, ok={})", name, success),
-            other => format!("{:?}", other),
-        };
-        info!("claude_code EMIT → {}", desc);
         let _ = tx.send(event);
-    } else {
-        warn!("claude_code EMIT: stream_tx is NONE — event DROPPED");
     }
 }
 
@@ -38,12 +29,10 @@ fn emit(ctx: &ToolContext, event: StreamEvent) {
 /// Returns any final result text extracted from the stream.
 fn process_stream_line(line: &str, ctx: &ToolContext, final_text: &mut String) {
     let Ok(obj) = serde_json::from_str::<Value>(line) else {
-        debug!("claude_code: non-JSON line: {}", &line[..line.len().min(120)]);
         return;
     };
 
     let event_type = obj.get("type").and_then(|v| v.as_str()).unwrap_or("");
-    debug!("claude_code: stream event type={}", event_type);
 
     match event_type {
         "system" => {
@@ -66,8 +55,8 @@ fn process_stream_line(line: &str, ctx: &ToolContext, final_text: &mut String) {
                                 if let Some(text) = block.get("text").and_then(|v| v.as_str()) {
                                     final_text.push_str(text);
                                     // Stream text in chunks to avoid flooding
-                                    if text.len() > 200 {
-                                        let preview = &text[..200];
+                                    if text.len() > 500 {
+                                        let preview = &text[..500];
                                         emit(ctx, StreamEvent::ContentDelta(
                                             format!("💬 {}...\n", preview.trim()),
                                         ));
@@ -96,8 +85,8 @@ fn process_stream_line(line: &str, ctx: &ToolContext, final_text: &mut String) {
                                     .or_else(|| block.get("output").and_then(|v| v.as_str()))
                                     .unwrap_or("")
                                     .to_string();
-                                let preview = if output.len() > 200 {
-                                    format!("{}...", &output[..200])
+                                let preview = if output.len() > 500 {
+                                    format!("{}...", &output[..500])
                                 } else {
                                     output
                                 };
@@ -149,7 +138,7 @@ fn summarize_tool_input(tool_name: &str, input: &Value) -> String {
     match tool_name {
         "Bash" | "bash" => {
             let cmd = input.get("command").and_then(|v| v.as_str()).unwrap_or("...");
-            let truncated = if cmd.len() > 120 { &cmd[..120] } else { cmd };
+            let truncated = if cmd.len() > 200 { &cmd[..200] } else { cmd };
             format!("$ {}", truncated)
         }
         "Edit" | "edit" | "MultiEdit" => {
@@ -190,7 +179,7 @@ fn summarize_tool_input(tool_name: &str, input: &Value) -> String {
                 if let Some((k, v)) = obj.iter().next() {
                     let val_str = match v {
                         Value::String(s) => {
-                            if s.len() > 80 { format!("{}...", &s[..80]) } else { s.clone() }
+                            if s.len() > 150 { format!("{}...", &s[..150]) } else { s.clone() }
                         }
                         _ => v.to_string(),
                     };

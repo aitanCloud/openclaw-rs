@@ -530,28 +530,6 @@ pub async fn handle_message(
 
     while let Some(event) = event_rx.recv().await {
         watchdog.touch(); // Signal activity to prevent idle timeout
-        // Diagnostic: log all events received in the stream loop
-        match &event {
-            StreamEvent::ContentDelta(d) => {
-                tracing::info!("STREAM_RX: ContentDelta({}B) acc={}B tool_status={}", d.len(), accumulated.len(), tool_status.len());
-            }
-            StreamEvent::ToolExec { name, .. } => {
-                tracing::info!("STREAM_RX: ToolExec({})", name);
-            }
-            StreamEvent::ToolResult { name, success, .. } => {
-                tracing::info!("STREAM_RX: ToolResult({}, ok={})", name, success);
-            }
-            StreamEvent::ToolCallStart { name } => {
-                tracing::info!("STREAM_RX: ToolCallStart({})", name);
-            }
-            StreamEvent::RoundStart { round } => {
-                tracing::info!("STREAM_RX: RoundStart({})", round);
-            }
-            StreamEvent::Done => {
-                tracing::info!("STREAM_RX: Done");
-            }
-            _ => {}
-        }
         match event {
             StreamEvent::ContentDelta(delta) => {
                 accumulated.push_str(&delta);
@@ -645,8 +623,8 @@ pub async fn handle_message(
                 if name.starts_with("cc:") {
                     // Nested tool result from claude_code — accumulate as content
                     let line = if !output_preview.is_empty() && output_preview.len() > 2 {
-                        let preview = if output_preview.len() > 120 {
-                            format!("{}...", &output_preview[..117])
+                        let preview = if output_preview.len() > 300 {
+                            format!("{}...", &output_preview[..297])
                         } else {
                             output_preview
                         };
