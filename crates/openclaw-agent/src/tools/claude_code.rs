@@ -124,8 +124,10 @@ fn process_stream_line(line: &str, ctx: &ToolContext, final_text: &mut String) {
                 ),
             ));
         }
+        "user" => {
+            // Claude Code echoing back the user prompt — skip silently
+        }
         _ => {
-            // Unknown event type — log but don't crash
             debug!("claude_code: unknown event type: {}", event_type);
         }
     }
