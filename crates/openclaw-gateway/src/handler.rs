@@ -517,6 +517,7 @@ pub async fn handle_message(
     );
     let watchdog_handle = watchdog.spawn("tg-agent");
 
+    let user_text_for_persist = text.clone(); // Save before move into spawned task
     let agent_handle = tokio::spawn(async move {
         let result = runtime::run_agent_turn_streaming(
             provider.as_ref(),
@@ -710,11 +711,11 @@ pub async fn handle_message(
     let elapsed = t_start.elapsed().as_millis();
 
     // ── Persist messages (SQLite + Postgres) ──
-    // Save the user message first
-    let user_text = msg.text.as_deref().unwrap_or("");
+    // Save the user message (use the processed text which includes the image hint
+    // for photos, not raw msg.text which may be empty for captionless photos)
     store.append_message(
         &session_key,
-        &openclaw_agent::llm::Message::user(user_text),
+        &openclaw_agent::llm::Message::user(&user_text_for_persist),
     )?;
     // Save ALL turn messages (tool calls, tool results, final assistant) to SQLite
     for turn_msg in &result.turn_messages {
@@ -737,7 +738,7 @@ pub async fn handle_message(
         let model = result.model_name.clone();
         let channel = Some("telegram".to_string());
         let uid = user_id.to_string();
-        let user_msg = user_text.to_string();
+        let user_msg = user_text_for_persist.clone();
         let turn_msgs = result.turn_messages.clone();
         let bot_msg = result.response.clone();
         let tokens = result.total_usage.total_tokens as i64;

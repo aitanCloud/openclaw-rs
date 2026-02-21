@@ -179,6 +179,17 @@ fn load_session_history(agent_name: &str, session_key: &str) -> Vec<Message> {
 
             kept.reverse();
 
+            // ── Sanitize: drop empty user messages (e.g. from photo messages
+            // where image_urls weren't persisted to session history) ──
+            kept.retain(|msg| {
+                if matches!(msg.role, crate::llm::Role::User) {
+                    let content = msg.content.as_deref().unwrap_or("");
+                    !content.is_empty()
+                } else {
+                    true
+                }
+            });
+
             // ── Sanitize: strip orphaned tool messages at the start ──
             // Pruning may cut in the middle of a tool-call sequence, leaving
             // Tool-role messages without a preceding Assistant message that
