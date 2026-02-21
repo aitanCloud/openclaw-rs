@@ -69,9 +69,9 @@ pub async fn build_tool_registry(workspace_dir: &std::path::Path) -> ToolRegistr
 }
 
 /// Minimum chars between Telegram message edits (avoid rate limits)
-const EDIT_MIN_CHARS: usize = 80;
+const EDIT_MIN_CHARS: usize = 20;
 /// Minimum ms between Telegram message edits
-const EDIT_MIN_MS: u64 = 400;
+const EDIT_MIN_MS: u64 = 150;
 
 /// Handle an incoming Telegram message
 pub async fn handle_message(
