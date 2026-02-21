@@ -492,7 +492,15 @@ pub async fn run_agent_turn_streaming(
     if image_urls.is_empty() {
         messages.push(Message::user(user_message));
     } else {
-        messages.push(Message::user_with_images(user_message, image_urls));
+        // Inject a hint so the LLM knows the image is already in its context
+        let image_hint = format!(
+            "[SYSTEM: {} image(s) attached inline below. You can see them directly — \
+             analyze them from your visual input. Do NOT use the `image` tool or try to \
+             open a file path. The image data is already in this message.]\n\n{}",
+            image_urls.len(),
+            user_message,
+        );
+        messages.push(Message::user_with_images(&image_hint, image_urls));
     }
 
     let tool_defs = tools.definitions();
