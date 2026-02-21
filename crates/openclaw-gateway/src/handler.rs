@@ -69,9 +69,9 @@ pub async fn build_tool_registry(workspace_dir: &std::path::Path) -> ToolRegistr
 }
 
 /// Minimum chars between Telegram message edits (avoid rate limits)
-const EDIT_MIN_CHARS: usize = 20;
+const EDIT_MIN_CHARS: usize = 1;
 /// Minimum ms between Telegram message edits
-const EDIT_MIN_MS: u64 = 150;
+const EDIT_MIN_MS: u64 = 100;
 
 /// Handle an incoming Telegram message
 pub async fn handle_message(
@@ -553,8 +553,7 @@ pub async fn handle_message(
                 let ms_since_edit = last_edit_time.elapsed().as_millis() as u64;
                 let during_tool = !tool_status.is_empty();
 
-                if chars_since_edit >= EDIT_MIN_CHARS || ms_since_edit >= EDIT_MIN_MS
-                    || (during_tool && ms_since_edit >= 200) {
+                if chars_since_edit >= EDIT_MIN_CHARS && ms_since_edit >= EDIT_MIN_MS {
                     let display = if tool_status.is_empty() {
                         accumulated.clone()
                     } else {
