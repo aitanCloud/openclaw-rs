@@ -1,4 +1,5 @@
 pub mod browser;
+pub mod claude_code;
 pub mod cron;
 pub mod delegate;
 pub mod exec;
@@ -152,6 +153,7 @@ impl ToolRegistry {
         registry.register(Box::new(delegate::DelegateTool));
         registry.register(Box::new(tasks::TasksTool));
         registry.register(Box::new(memory::MemoryTool));
+        registry.register(Box::new(claude_code::ClaudeCodeTool));
         registry
     }
 
