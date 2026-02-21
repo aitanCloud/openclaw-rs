@@ -7,7 +7,7 @@ pub mod sessions;
 
 use anyhow::Result;
 use sqlx::postgres::PgPoolOptions;
-use sqlx::PgPool;
+pub use sqlx::PgPool;
 use std::sync::OnceLock;
 use tracing::{info, warn};
 

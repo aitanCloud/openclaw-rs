@@ -73,15 +73,15 @@ pub async fn run_checks(agent_name: &str) -> Vec<(String, bool, String)> {
         },
     ));
 
-    // 3. Session database accessible
-    let session_ok = openclaw_agent::sessions::SessionStore::open(agent_name).is_ok();
+    // 3. Session database accessible (Postgres)
+    let session_ok = openclaw_db::pool().is_some();
     checks.push((
         "Sessions DB".to_string(),
         session_ok,
         if session_ok {
-            "SQLite accessible".to_string()
+            "Postgres connected".to_string()
         } else {
-            "Failed to open session database".to_string()
+            "Postgres not available".to_string()
         },
     ));
 

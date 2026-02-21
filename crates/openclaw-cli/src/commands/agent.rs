@@ -3,7 +3,6 @@ use colored::Colorize;
 use openclaw_agent::llm::fallback::FallbackProvider;
 use openclaw_agent::llm::{LlmProvider, OpenAiCompatibleProvider};
 use openclaw_agent::runtime::{self, AgentTurnConfig};
-use openclaw_agent::sessions::SessionStore;
 use openclaw_agent::tools::ToolRegistry;
 use openclaw_agent::workspace;
 use std::time::Instant;
@@ -70,10 +69,14 @@ pub async fn run(opts: AgentOptions) -> Result<()> {
         Box::new(OpenAiCompatibleProvider::new(&base_url, &api_key, &model))
     };
 
-    // ── Session handling ──
-    let store = SessionStore::open(&opts.agent)?;
+    // ── Session handling (Postgres) ──
+    // Initialize Postgres if available
+    let _ = openclaw_db::try_init().await;
+    let pool = openclaw_db::pool()
+        .ok_or_else(|| anyhow::anyhow!("Postgres not available — set DATABASE_URL"))?;
+
     let session_key = if opts.continue_session {
-        match store.latest_session_key(&opts.agent)? {
+        match openclaw_db::sessions::find_latest_session(pool, &format!("agent:{}:", opts.agent)).await? {
             Some(key) => {
                 eprintln!("  {} {}", "Continuing session:".dimmed(), key.dimmed());
                 key
@@ -90,11 +93,13 @@ pub async fn run(opts: AgentOptions) -> Result<()> {
         new_session_key(&opts.agent)
     };
 
-    store.create_session(&session_key, &opts.agent, provider.name())?;
+    openclaw_db::sessions::upsert_session(
+        pool, &session_key, &opts.agent, provider.name(), Some("cli"), None,
+    ).await?;
 
     // ── Load prior messages if continuing ──
-    let prior_messages = if opts.continue_session || opts.session.is_some() {
-        let msgs = store.load_llm_messages(&session_key)?;
+    let _prior_messages = if opts.continue_session || opts.session.is_some() {
+        let msgs = openclaw_db::sessions::load_messages(pool, &session_key).await?;
         if !msgs.is_empty() {
             eprintln!(
                 "  {} {} prior messages loaded",
@@ -133,20 +138,19 @@ pub async fn run(opts: AgentOptions) -> Result<()> {
         println!("{}", reasoning);
     }
 
-    // ── Persist messages ──
-    // Save user message
-    store.append_message(
-        &session_key,
-        &openclaw_agent::llm::Message::user(&opts.message),
-    )?;
-    // Save assistant response
-    if !result.response.is_empty() {
-        store.append_message(
-            &session_key,
-            &openclaw_agent::llm::Message::assistant(&result.response),
-        )?;
+    // ── Persist messages to Postgres ──
+    if let Ok(Some(sid)) = openclaw_db::sessions::get_session_id(pool, &session_key).await {
+        let _ = openclaw_db::messages::record_message(
+            pool, sid, "user", Some(&opts.message), None, None, None,
+        ).await;
+        if !result.response.is_empty() {
+            let _ = openclaw_db::messages::record_message(
+                pool, sid, "assistant", Some(&result.response), None, None, None,
+            ).await;
+        }
+        let _ = openclaw_db::sessions::add_tokens(pool, &session_key,
+            result.total_usage.total_tokens as i64).await;
     }
-    store.add_tokens(&session_key, result.total_usage.total_tokens as i64)?;
 
     // ── Print stats ──
     let total_ms = t_start.elapsed().as_millis();

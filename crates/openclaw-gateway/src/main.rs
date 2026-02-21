@@ -58,38 +58,27 @@ async fn main() -> anyhow::Result<()> {
         handler::init_mcp_configs(config.mcp_servers.clone());
     }
 
-    // ── Session maintenance on startup ──
-    match openclaw_agent::sessions::SessionStore::open(&config.agent.name) {
-        Ok(store) => {
-            // Migrate old session keys (v0.15 → v0.16 format)
-            match store.migrate_old_session_keys() {
-                Ok(0) => {}
-                Ok(n) => info!("Migrated {} old session key(s) to user-based format", n),
-                Err(e) => warn!("Session key migration failed: {}", e),
-            }
+    // ── Initialize Postgres (required for session storage) ──
+    let pg_connected = openclaw_db::try_init().await;
+    if pg_connected {
+        info!("Postgres connected — sessions, LLM logs, metrics, and context will be persisted");
+
+        // Session maintenance on startup
+        if let Some(pool) = openclaw_db::pool() {
             // Prune sessions older than 30 days
-            match store.prune_old_sessions(30) {
+            match openclaw_db::sessions::prune_old_sessions(pool, 30).await {
                 Ok(0) => {}
                 Ok(n) => info!("Pruned {} stale session(s) older than 30 days", n),
                 Err(e) => warn!("Session pruning failed: {}", e),
             }
             // Log DB stats
-            if let Ok(stats) = store.db_stats(&config.agent.name) {
-                let size = if stats.db_size_bytes > 1_048_576 {
-                    format!("{:.1} MB", stats.db_size_bytes as f64 / 1_048_576.0)
-                } else {
-                    format!("{:.1} KB", stats.db_size_bytes as f64 / 1024.0)
-                };
-                info!("Session DB: {} sessions, {} messages, {}", stats.session_count, stats.message_count, size);
+            if let Ok(stats) = openclaw_db::sessions::db_stats(pool, &config.agent.name).await {
+                info!("Session DB: {} sessions, {} messages, {} tokens",
+                    stats.session_count, stats.message_count, stats.total_tokens);
             }
         }
-        Err(e) => warn!("Could not open session store for maintenance: {}", e),
-    }
-
-    // ── Initialize Postgres (non-fatal if unavailable) ──
-    let pg_connected = openclaw_db::try_init().await;
-    if pg_connected {
-        info!("Postgres connected — LLM logs, metrics, and context will be persisted");
+    } else {
+        warn!("Postgres not connected — sessions will not be available!");
     }
 
     // ── Initialize LLM activity log ──
@@ -529,11 +518,7 @@ async fn health_handler() -> axum::response::Response {
             .unwrap_or(0)
     };
     let agent = handler::agent_name();
-    let session_count = openclaw_agent::sessions::SessionStore::open(agent)
-        .ok()
-        .and_then(|s| s.db_stats(agent).ok())
-        .map(|stats| stats.session_count)
-        .unwrap_or(0);
+    let session_count: i64 = 0; // Postgres-only; sync context
     let rss = process_rss_bytes();
     let ws_dir = openclaw_core::paths::workspace_dir();
     let disk_bytes = crate::doctor::dir_size_bytes_pub(&ws_dir);
@@ -900,23 +885,26 @@ async fn status_handler(
     let uptime_secs = start_time.elapsed().as_secs();
     let uptime = human_uptime(uptime_secs);
 
-    // Session stats
-    let session_info = match openclaw_agent::sessions::SessionStore::open(&config.agent.name) {
-        Ok(store) => {
-            let sessions = store.list_sessions(&config.agent.name, 1000).unwrap_or_default();
-            let total_messages: i64 = sessions.iter().map(|s| s.message_count).sum();
-            let total_tokens: i64 = sessions.iter().map(|s| s.total_tokens).sum();
-            let tg_sessions = sessions.iter().filter(|s| s.session_key.starts_with("tg:")).count();
-            let dc_sessions = sessions.iter().filter(|s| s.session_key.starts_with("dc:")).count();
-            serde_json::json!({
-                "total": sessions.len(),
-                "telegram": tg_sessions,
-                "discord": dc_sessions,
-                "total_messages": total_messages,
-                "total_tokens": total_tokens,
-            })
+    // Session stats (Postgres)
+    let session_info = if let Some(pool) = openclaw_db::pool() {
+        match openclaw_db::sessions::list_sessions(pool, &config.agent.name, 1000).await {
+            Ok(sessions) => {
+                let total_messages: i64 = sessions.iter().map(|s| s.message_count).sum();
+                let total_tokens: i64 = sessions.iter().map(|s| s.total_tokens).sum();
+                let tg_sessions = sessions.iter().filter(|s| s.session_key.starts_with("tg:")).count();
+                let dc_sessions = sessions.iter().filter(|s| s.session_key.starts_with("dc:")).count();
+                serde_json::json!({
+                    "total": sessions.len(),
+                    "telegram": tg_sessions,
+                    "discord": dc_sessions,
+                    "total_messages": total_messages,
+                    "total_tokens": total_tokens,
+                })
+            }
+            Err(_) => serde_json::json!({"error": "failed to query sessions"}),
         }
-        Err(_) => serde_json::json!({"error": "failed to open session store"}),
+    } else {
+        serde_json::json!({"error": "database not available"})
     };
 
     // Channels info

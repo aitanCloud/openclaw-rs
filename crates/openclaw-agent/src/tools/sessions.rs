@@ -3,7 +3,6 @@ use async_trait::async_trait;
 use serde_json::Value;
 
 use super::{Tool, ToolContext, ToolResult};
-use crate::sessions::SessionStore;
 
 pub struct SessionsTool;
 
@@ -55,9 +54,9 @@ impl Tool for SessionsTool {
             .ok_or_else(|| anyhow::anyhow!("sessions: missing 'action' argument"))?;
 
         match action {
-            "list" => list_sessions(&args, ctx),
-            "history" => session_history(&args, ctx),
-            "send" => send_message(&args, ctx),
+            "list" => list_sessions(&args, ctx).await,
+            "history" => session_history(&args, ctx).await,
+            "send" => send_message(&args, ctx).await,
             _ => Ok(ToolResult::error(format!(
                 "Unknown action '{}'. Use: list, history, send",
                 action
@@ -66,14 +65,18 @@ impl Tool for SessionsTool {
     }
 }
 
-fn list_sessions(args: &Value, ctx: &ToolContext) -> Result<ToolResult> {
+fn get_pool() -> Result<&'static openclaw_db::PgPool> {
+    openclaw_db::pool().ok_or_else(|| anyhow::anyhow!("Database not available"))
+}
+
+async fn list_sessions(args: &Value, ctx: &ToolContext) -> Result<ToolResult> {
     let limit = args
         .get("limit")
         .and_then(|v| v.as_u64())
-        .unwrap_or(10) as usize;
+        .unwrap_or(10) as i64;
 
-    let store = SessionStore::open(&ctx.agent_name)?;
-    let sessions = store.list_sessions(&ctx.agent_name, limit)?;
+    let pool = get_pool()?;
+    let sessions = openclaw_db::sessions::list_sessions(pool, &ctx.agent_name, limit).await?;
 
     if sessions.is_empty() {
         return Ok(ToolResult::success("No sessions found."));
@@ -102,22 +105,22 @@ fn list_sessions(args: &Value, ctx: &ToolContext) -> Result<ToolResult> {
     Ok(ToolResult::success(lines.join("\n")))
 }
 
-fn session_history(args: &Value, ctx: &ToolContext) -> Result<ToolResult> {
+async fn session_history(args: &Value, ctx: &ToolContext) -> Result<ToolResult> {
     let session_key_arg = args.get("session_key").and_then(|v| v.as_str());
     let limit = args
         .get("limit")
         .and_then(|v| v.as_u64())
         .unwrap_or(50) as usize;
 
-    let store = SessionStore::open(&ctx.agent_name)?;
+    let pool = get_pool()?;
 
     // Resolve session key: use provided key (with partial match) or current session
     let session_key = match session_key_arg {
-        Some(partial) => resolve_session_key(&store, &ctx.agent_name, partial)?,
+        Some(partial) => resolve_session_key(pool, &ctx.agent_name, partial).await?,
         None => ctx.session_key.clone(),
     };
 
-    let messages = store.load_messages(&session_key)?;
+    let messages = openclaw_db::sessions::load_messages(pool, &session_key).await?;
 
     if messages.is_empty() {
         return Ok(ToolResult::success(format!(
@@ -170,7 +173,7 @@ fn session_history(args: &Value, ctx: &ToolContext) -> Result<ToolResult> {
     Ok(ToolResult::success(lines.join("\n")))
 }
 
-fn send_message(args: &Value, ctx: &ToolContext) -> Result<ToolResult> {
+async fn send_message(args: &Value, ctx: &ToolContext) -> Result<ToolResult> {
     let session_key_arg = args.get("session_key").and_then(|v| v.as_str());
     let message = match args.get("message").and_then(|v| v.as_str()) {
         Some(m) => m,
@@ -181,24 +184,25 @@ fn send_message(args: &Value, ctx: &ToolContext) -> Result<ToolResult> {
         .and_then(|v| v.as_str())
         .unwrap_or("user");
 
-    let store = SessionStore::open(&ctx.agent_name)?;
+    let pool = get_pool()?;
 
     let session_key = match session_key_arg {
-        Some(partial) => resolve_session_key(&store, &ctx.agent_name, partial)?,
+        Some(partial) => resolve_session_key(pool, &ctx.agent_name, partial).await?,
         None => ctx.session_key.clone(),
     };
 
-    let msg = match role_str {
-        "user" => crate::llm::Message::user(message),
-        "assistant" => crate::llm::Message::assistant(message),
-        "system" => crate::llm::Message::system(message),
+    let role = match role_str {
+        "user" | "assistant" | "system" => role_str,
         _ => return Ok(ToolResult::error(format!(
             "Invalid role '{}'. Use: user, assistant, system",
             role_str
         ))),
     };
 
-    store.append_message(&session_key, &msg)?;
+    openclaw_db::messages::append_message(
+        pool, &session_key, &ctx.agent_name, "", role,
+        Some(message), None, None, None,
+    ).await?;
 
     Ok(ToolResult::success(format!(
         "Injected {} message into session '{}': \"{}\"",
@@ -213,12 +217,12 @@ fn send_message(args: &Value, ctx: &ToolContext) -> Result<ToolResult> {
 }
 
 /// Resolve a partial session key to a full key by searching existing sessions
-fn resolve_session_key(
-    store: &SessionStore,
+async fn resolve_session_key(
+    pool: &openclaw_db::PgPool,
     agent_name: &str,
     partial: &str,
 ) -> Result<String> {
-    let sessions = store.list_sessions(agent_name, 100)?;
+    let sessions = openclaw_db::sessions::list_sessions(pool, agent_name, 100).await?;
 
     // Exact match first
     if let Some(s) = sessions.iter().find(|s| s.session_key == partial) {

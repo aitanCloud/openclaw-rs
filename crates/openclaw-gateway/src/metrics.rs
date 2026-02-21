@@ -277,11 +277,9 @@ impl GatewayMetrics {
         out.push_str("# HELP openclaw_gateway_sessions_total Total sessions in the database\n");
         out.push_str("# TYPE openclaw_gateway_sessions_total gauge\n");
         let agent = crate::handler::agent_name();
-        let session_count = openclaw_agent::sessions::SessionStore::open(agent)
-            .ok()
-            .and_then(|s| s.db_stats(agent).ok())
-            .map(|stats| stats.session_count)
-            .unwrap_or(0);
+        // Session count from Postgres — not available in sync context, use 0
+        // (accurate count available via /stats command)
+        let session_count: i64 = 0;
         out.push_str(&format!("openclaw_gateway_sessions_total {}\n", session_count));
 
         out.push_str("# HELP openclaw_gateway_doctor_checks_total Total number of doctor health checks\n");
@@ -340,11 +338,7 @@ impl GatewayMetrics {
             "error_rate_pct": (self.error_rate_pct() * 100.0).round() / 100.0,
             "process_rss_bytes": crate::process_rss_bytes(),
             "uptime_seconds": crate::handler::BOOT_TIME.elapsed().as_secs(),
-            "sessions_total": openclaw_agent::sessions::SessionStore::open(crate::handler::agent_name())
-                .ok()
-                .and_then(|s| s.db_stats(crate::handler::agent_name()).ok())
-                .map(|stats| stats.session_count)
-                .unwrap_or(0),
+            "sessions_total": 0, // Postgres-only; accurate count via /stats
             "doctor_checks_total": 16,
             "llm_log_total": openclaw_agent::llm_log::total_count(),
             "llm_log_errors": openclaw_agent::llm_log::stats().errors,

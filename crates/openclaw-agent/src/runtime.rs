@@ -6,7 +6,6 @@ use tracing::{debug, info, warn};
 use crate::llm::streaming::StreamEvent;
 use crate::llm::{Completion, LlmProvider, Message, UsageStats};
 use crate::loop_detection::{LoopDetector, LoopVerdict};
-use crate::sessions::SessionStore;
 use crate::tools::{ToolContext, ToolRegistry};
 use crate::workspace;
 
@@ -147,89 +146,104 @@ impl Default for AgentTurnConfig {
     }
 }
 
-/// Load recent conversation history from the session store.
+/// Load recent conversation history from Postgres.
 /// Returns up to MAX_HISTORY_MESSAGES recent messages (user + assistant only).
-fn load_session_history(agent_name: &str, session_key: &str) -> Vec<Message> {
-    let store = match SessionStore::open(agent_name) {
-        Ok(s) => s,
-        Err(e) => {
-            debug!("Could not open session store for history: {}", e);
+async fn load_session_history(_agent_name: &str, session_key: &str) -> Vec<Message> {
+    let pool = match openclaw_db::pool() {
+        Some(p) => p,
+        None => {
+            debug!("Postgres not available for session history");
             return Vec::new();
         }
     };
 
-    match store.load_llm_messages(session_key) {
-        Ok(msgs) => {
-            // Hard cap first
-            let start = msgs.len().saturating_sub(MAX_HISTORY_MESSAGES);
-            let candidates: Vec<Message> = msgs[start..].to_vec();
-
-            // Token-aware pruning: walk backwards, keep messages until budget exhausted
-            let mut token_budget = MAX_HISTORY_TOKENS;
-            let mut kept: Vec<Message> = Vec::new();
-
-            for msg in candidates.iter().rev() {
-                let msg_tokens = estimate_message_tokens(msg);
-                if msg_tokens > token_budget {
-                    break;
-                }
-                token_budget -= msg_tokens;
-                kept.push(msg.clone());
-            }
-
-            kept.reverse();
-
-            // ── Sanitize: drop empty user messages (e.g. from photo messages
-            // where image_urls weren't persisted to session history) ──
-            kept.retain(|msg| {
-                if matches!(msg.role, crate::llm::Role::User) {
-                    let content = msg.content.as_deref().unwrap_or("");
-                    !content.is_empty()
-                } else {
-                    true
-                }
-            });
-
-            // ── Sanitize: strip orphaned tool messages at the start ──
-            // Pruning may cut in the middle of a tool-call sequence, leaving
-            // Tool-role messages without a preceding Assistant message that
-            // contains tool_calls.  LLM APIs reject these with errors like
-            // "tool_call_id is not found" or "Messages with role 'tool' must
-            // be a response to a preceding message with 'tool_calls'".
-            while let Some(first) = kept.first() {
-                if matches!(first.role, crate::llm::Role::Tool) {
-                    kept.remove(0);
-                } else {
-                    break;
-                }
-            }
-
-            // Also strip a leading Assistant message that has tool_calls but
-            // whose corresponding Tool results were just removed above.
-            if let Some(first) = kept.first() {
-                if matches!(first.role, crate::llm::Role::Assistant) && first.tool_calls.is_some() {
-                    // Check if the next message is a Tool result for this call
-                    let has_tool_response = kept.get(1).map_or(false, |m| matches!(m.role, crate::llm::Role::Tool));
-                    if !has_tool_response {
-                        kept.remove(0);
-                    }
-                }
-            }
-
-            if !kept.is_empty() {
-                let total_tokens: usize = kept.iter().map(|m| estimate_message_tokens(m)).sum();
-                debug!(
-                    "Loaded {} history messages (~{} tokens) for session {} (pruned from {})",
-                    kept.len(), total_tokens, session_key, msgs.len()
-                );
-            }
-            kept
-        }
+    let stored = match openclaw_db::sessions::load_messages(pool, session_key).await {
+        Ok(m) => m,
         Err(e) => {
             debug!("Could not load session history: {}", e);
-            Vec::new()
+            return Vec::new();
+        }
+    };
+
+    // Convert SessionMessage → LLM Message
+    let msgs: Vec<Message> = stored.into_iter().filter_map(|sm| {
+        let role = match sm.role.as_str() {
+            "system" => crate::llm::Role::System,
+            "user" => crate::llm::Role::User,
+            "assistant" => crate::llm::Role::Assistant,
+            "tool" => crate::llm::Role::Tool,
+            _ => return None,
+        };
+        let tool_calls = sm.tool_calls_json.as_deref()
+            .and_then(|json| serde_json::from_str(json).ok());
+        Some(Message {
+            role,
+            content: sm.content,
+            reasoning_content: sm.reasoning_content,
+            tool_call_id: sm.tool_call_id,
+            tool_calls,
+            image_urls: Vec::new(),
+        })
+    }).collect();
+
+    // Hard cap first
+    let start = msgs.len().saturating_sub(MAX_HISTORY_MESSAGES);
+    let candidates: Vec<Message> = msgs[start..].to_vec();
+
+    // Token-aware pruning: walk backwards, keep messages until budget exhausted
+    let mut token_budget = MAX_HISTORY_TOKENS;
+    let mut kept: Vec<Message> = Vec::new();
+
+    for msg in candidates.iter().rev() {
+        let msg_tokens = estimate_message_tokens(msg);
+        if msg_tokens > token_budget {
+            break;
+        }
+        token_budget -= msg_tokens;
+        kept.push(msg.clone());
+    }
+
+    kept.reverse();
+
+    // ── Sanitize: drop empty user messages (e.g. from photo messages
+    // where image_urls weren't persisted to session history) ──
+    kept.retain(|msg| {
+        if matches!(msg.role, crate::llm::Role::User) {
+            let content = msg.content.as_deref().unwrap_or("");
+            !content.is_empty()
+        } else {
+            true
+        }
+    });
+
+    // ── Sanitize: strip orphaned tool messages at the start ──
+    while let Some(first) = kept.first() {
+        if matches!(first.role, crate::llm::Role::Tool) {
+            kept.remove(0);
+        } else {
+            break;
         }
     }
+
+    // Also strip a leading Assistant message that has tool_calls but
+    // whose corresponding Tool results were just removed above.
+    if let Some(first) = kept.first() {
+        if matches!(first.role, crate::llm::Role::Assistant) && first.tool_calls.is_some() {
+            let has_tool_response = kept.get(1).map_or(false, |m| matches!(m.role, crate::llm::Role::Tool));
+            if !has_tool_response {
+                kept.remove(0);
+            }
+        }
+    }
+
+    if !kept.is_empty() {
+        let total_tokens: usize = kept.iter().map(|m| estimate_message_tokens(m)).sum();
+        debug!(
+            "Loaded {} history messages (~{} tokens) for session {} (pruned from {})",
+            kept.len(), total_tokens, session_key, msgs.len()
+        );
+    }
+    kept
 }
 
 /// Result of a complete agent turn
@@ -272,7 +286,7 @@ pub async fn run_agent_turn(
     );
 
     // Build initial messages with session history
-    let history = load_session_history(&config.agent_name, &config.session_key);
+    let history = load_session_history(&config.agent_name, &config.session_key).await;
     let mut messages = vec![Message::system(&ws.system_prompt)];
     messages.extend(history);
     messages.push(Message::user(user_message));
@@ -495,7 +509,7 @@ pub async fn run_agent_turn_streaming(
         .context("Failed to load workspace")?;
 
     // Build initial messages with session history
-    let history = load_session_history(&config.agent_name, &config.session_key);
+    let history = load_session_history(&config.agent_name, &config.session_key).await;
     let mut messages = vec![Message::system(&ws.system_prompt)];
     messages.extend(history);
 

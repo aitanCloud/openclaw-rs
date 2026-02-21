@@ -6,7 +6,6 @@ use openclaw_agent::llm::fallback::FallbackProvider;
 use openclaw_agent::llm::streaming::StreamEvent;
 use openclaw_agent::llm::LlmProvider;
 use openclaw_agent::runtime::{self, AgentTurnConfig};
-use openclaw_agent::sessions::SessionStore;
 use openclaw_agent::tools::ToolRegistry;
 use openclaw_agent::workspace;
 
@@ -179,21 +178,19 @@ pub async fn handle_discord_message(
         }
     };
 
-    // ── Session ──
+    // ── Session (Postgres) ──
     let session_key = format!("dc:{}:{}:{}", config.agent.name, user_id, channel_id);
-    let store = match SessionStore::open(&config.agent.name) {
-        Ok(s) => s,
-        Err(e) => {
-            bot.edit_message(
-                channel_id,
-                &placeholder_id,
-                &format!("❌ Session error: {}", e),
-            )
-            .await?;
+    let pool = match openclaw_db::pool() {
+        Some(p) => p,
+        None => {
+            bot.edit_message(channel_id, &placeholder_id, "❌ Database not available").await?;
             return Ok(());
         }
     };
-    store.create_session(&session_key, &config.agent.name, provider.name())?;
+    openclaw_db::sessions::upsert_session(
+        pool, &session_key, &config.agent.name, provider.name(),
+        Some("discord"), Some(&user_id),
+    ).await?;
 
     // ── Tools + config (load plugins + MCP client tools) ──
     let tools = crate::handler::build_tool_registry(&workspace_dir).await;
@@ -380,66 +377,43 @@ pub async fn handle_discord_message(
     typing_token.cancel();
     let elapsed = t_start.elapsed().as_millis();
 
-    // ── Persist messages (SQLite + Postgres) ──
-    store.append_message(
-        &session_key,
-        &openclaw_agent::llm::Message::user(&user_text),
-    )?;
-    // Save ALL turn messages (tool calls, tool results, final assistant) to SQLite
-    for turn_msg in &result.turn_messages {
-        store.append_message(&session_key, turn_msg)?;
-    }
-    if result.turn_messages.is_empty() && !result.response.is_empty() {
-        store.append_message(
-            &session_key,
-            &openclaw_agent::llm::Message::assistant(&result.response),
-        )?;
-    }
-    store.add_tokens(&session_key, result.total_usage.total_tokens as i64)?;
+    // ── Persist messages to Postgres ──
+    {
+        let sid = openclaw_db::sessions::upsert_session(
+            pool, &session_key, &config.agent.name, &result.model_name,
+            Some("discord"), Some(&user_id),
+        ).await?;
 
-    // Postgres dual-write (fire-and-forget)
-    if let Some(pool) = openclaw_db::pool() {
-        let pool = pool.clone();
-        let sk = session_key.clone();
-        let agent = config.agent.name.clone();
-        let model = result.model_name.clone();
-        let uid = user_id.to_string();
-        let u_msg = user_text.clone();
-        let turn_msgs = result.turn_messages.clone();
-        let b_msg = result.response.clone();
-        let tokens = result.total_usage.total_tokens as i64;
-        tokio::spawn(async move {
-            if let Ok(sid) = openclaw_db::sessions::upsert_session(
-                &pool, &sk, &agent, &model, Some("discord"), Some(&uid),
-            ).await {
-                let _ = openclaw_db::messages::record_message(
-                    &pool, sid, "user", Some(&u_msg), None, None, None,
-                ).await;
-                for turn_msg in &turn_msgs {
-                    let role = match turn_msg.role {
-                        openclaw_agent::llm::Role::Assistant => "assistant",
-                        openclaw_agent::llm::Role::Tool => "tool",
-                        openclaw_agent::llm::Role::User => "user",
-                        openclaw_agent::llm::Role::System => "system",
-                    };
-                    let tc_json = turn_msg.tool_calls.as_ref()
-                        .map(|tc| serde_json::to_value(tc).unwrap_or_default());
-                    let _ = openclaw_db::messages::record_message(
-                        &pool, sid, role,
-                        turn_msg.content.as_deref(),
-                        turn_msg.reasoning_content.as_deref(),
-                        tc_json.as_ref(),
-                        turn_msg.tool_call_id.as_deref(),
-                    ).await;
-                }
-                if turn_msgs.is_empty() && !b_msg.is_empty() {
-                    let _ = openclaw_db::messages::record_message(
-                        &pool, sid, "assistant", Some(&b_msg), None, None, None,
-                    ).await;
-                }
-                let _ = openclaw_db::sessions::add_tokens(&pool, &sk, tokens).await;
-            }
-        });
+        let _ = openclaw_db::messages::record_message(
+            pool, sid, "user", Some(&user_text), None, None, None,
+        ).await;
+
+        for turn_msg in &result.turn_messages {
+            let role = match turn_msg.role {
+                openclaw_agent::llm::Role::Assistant => "assistant",
+                openclaw_agent::llm::Role::Tool => "tool",
+                openclaw_agent::llm::Role::User => "user",
+                openclaw_agent::llm::Role::System => "system",
+            };
+            let tc_json = turn_msg.tool_calls.as_ref()
+                .map(|tc| serde_json::to_value(tc).unwrap_or_default());
+            let _ = openclaw_db::messages::record_message(
+                pool, sid, role,
+                turn_msg.content.as_deref(),
+                turn_msg.reasoning_content.as_deref(),
+                tc_json.as_ref(),
+                turn_msg.tool_call_id.as_deref(),
+            ).await;
+        }
+
+        if result.turn_messages.is_empty() && !result.response.is_empty() {
+            let _ = openclaw_db::messages::record_message(
+                pool, sid, "assistant", Some(&result.response), None, None, None,
+            ).await;
+        }
+
+        let _ = openclaw_db::sessions::add_tokens(pool, &session_key,
+            result.total_usage.total_tokens as i64).await;
     }
 
     // ── Final edit with stats footer ──
@@ -572,11 +546,10 @@ async fn handle_command(
                 let tool_calls = m.tool_calls.load(std::sync::atomic::Ordering::Relaxed);
                 let err_rate = m.error_rate_pct();
                 let webhooks = m.webhook_requests.load(std::sync::atomic::Ordering::Relaxed);
-                let session_count = openclaw_agent::sessions::SessionStore::open(&config.agent.name)
-                    .ok()
-                    .and_then(|s| s.db_stats(&config.agent.name).ok())
-                    .map(|stats| stats.session_count)
-                    .unwrap_or(0);
+                let session_count: i64 = if let Some(p) = openclaw_db::pool() {
+                    openclaw_db::sessions::db_stats(p, &config.agent.name).await
+                        .map(|s| s.session_count).unwrap_or(0)
+                } else { 0 };
                 let session_str = session_count.to_string();
                 let webhook_str = webhooks.to_string();
                 let llm_stats = openclaw_agent::llm_log::stats();
@@ -763,11 +736,11 @@ async fn handle_command(
             ).await?;
         }
         "clear" => {
-            let store = SessionStore::open(&config.agent.name)?;
             let session_key = format!("dc:{}:{}:{}", config.agent.name, user_id, channel_id);
-            let active_key = store.find_latest_session(&session_key)?
+            let p = openclaw_db::pool().ok_or_else(|| anyhow::anyhow!("Database not available"))?;
+            let active_key = openclaw_db::sessions::find_latest_session(p, &session_key).await?
                 .unwrap_or(session_key.clone());
-            let deleted = store.delete_session(&active_key)?;
+            let deleted = openclaw_db::sessions::delete_session(p, &active_key).await?;
             bot.send_embed(
                 channel_id, Some(reply_to),
                 "🗑️ Session Cleared",
@@ -783,11 +756,11 @@ async fn handle_command(
                 .and_then(|n| n.parse().ok())
                 .unwrap_or(5)
                 .min(20);
-            let store = SessionStore::open(&config.agent.name)?;
             let session_key = format!("dc:{}:{}:{}", config.agent.name, user_id, channel_id);
-            let active_key = store.find_latest_session(&session_key)?
+            let p = openclaw_db::pool().ok_or_else(|| anyhow::anyhow!("Database not available"))?;
+            let active_key = openclaw_db::sessions::find_latest_session(p, &session_key).await?
                 .unwrap_or(session_key);
-            let msgs = store.load_messages(&active_key)?;
+            let msgs = openclaw_db::sessions::load_messages(p, &active_key).await?;
             let recent: Vec<_> = msgs.iter().rev().take(count).collect();
 
             if recent.is_empty() {
@@ -829,14 +802,9 @@ async fn handle_command(
             }
         }
         "db" => {
-            let store = SessionStore::open(&config.agent.name)?;
-            match store.db_stats(&config.agent.name) {
+            let p = openclaw_db::pool().ok_or_else(|| anyhow::anyhow!("Database not available"))?;
+            match openclaw_db::sessions::db_stats(p, &config.agent.name).await {
                 Ok(stats) => {
-                    let size = if stats.db_size_bytes > 1_048_576 {
-                        format!("{:.1} MB", stats.db_size_bytes as f64 / 1_048_576.0)
-                    } else {
-                        format!("{:.1} KB", stats.db_size_bytes as f64 / 1024.0)
-                    };
                     let now = std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64;
                     let oldest = stats.oldest_ms
@@ -852,7 +820,7 @@ async fn handle_command(
                     };
                     bot.send_embed(
                         channel_id, Some(reply_to),
-                        "🗄️ Session Database",
+                        "🗄️ Session Database (Postgres)",
                         &format!("Agent: {}", config.agent.name),
                         0xE67E22, // Orange
                         &[
@@ -860,7 +828,6 @@ async fn handle_command(
                             ("Messages", &stats.message_count.to_string(), true),
                             ("Avg/Session", &avg_msgs, true),
                             ("Tokens", &stats.total_tokens.to_string(), true),
-                            ("DB Size", &size, true),
                             ("Oldest", &oldest, true),
                             ("Newest", &newest, true),
                         ],
@@ -872,15 +839,15 @@ async fn handle_command(
             }
         }
         "new" | "reset" => {
-            let store = SessionStore::open(&config.agent.name)?;
             let session_key = format!("dc:{}:{}:{}", config.agent.name, user_id, channel_id);
-            let msg_count = store.load_messages(&session_key)?
-                .iter()
+            let p = openclaw_db::pool().ok_or_else(|| anyhow::anyhow!("Database not available"))?;
+            let msgs = openclaw_db::sessions::load_messages(p, &session_key).await?;
+            let msg_count = msgs.iter()
                 .filter(|m| m.role == "user" || m.role == "assistant")
                 .count();
 
             // Delete the session so the next message starts completely fresh
-            store.delete_session(&session_key)?;
+            openclaw_db::sessions::delete_session(p, &session_key).await?;
 
             bot.send_embed(
                 channel_id, Some(reply_to),
@@ -894,9 +861,9 @@ async fn handle_command(
             ).await?;
         }
         "status" => {
-            let store = SessionStore::open(&config.agent.name)?;
             let session_key = format!("dc:{}:{}:{}", config.agent.name, user_id, channel_id);
-            let sessions = store.list_sessions(&config.agent.name, 100)?;
+            let p = openclaw_db::pool().ok_or_else(|| anyhow::anyhow!("Database not available"))?;
+            let sessions = openclaw_db::sessions::list_sessions(p, &config.agent.name, 100).await?;
             let current = sessions.iter().find(|s| s.session_key == session_key);
 
             let msg_count = current.map(|s| s.message_count).unwrap_or(0);
@@ -963,8 +930,8 @@ async fn handle_command(
             }
         }
         "sessions" => {
-            let store = SessionStore::open(&config.agent.name)?;
-            let sessions = store.list_sessions(&config.agent.name, 10)?;
+            let p = openclaw_db::pool().ok_or_else(|| anyhow::anyhow!("Database not available"))?;
+            let sessions = openclaw_db::sessions::list_sessions(p, &config.agent.name, 10).await?;
 
             if sessions.is_empty() {
                 bot.send_reply(channel_id, reply_to, "No sessions found.")
@@ -998,9 +965,9 @@ async fn handle_command(
             }
         }
         "export" => {
-            let store = SessionStore::open(&config.agent.name)?;
             let session_key = format!("dc:{}:{}:{}", config.agent.name, user_id, channel_id);
-            let messages = store.load_messages(&session_key)?;
+            let p = openclaw_db::pool().ok_or_else(|| anyhow::anyhow!("Database not available"))?;
+            let messages = openclaw_db::sessions::load_messages(p, &session_key).await?;
 
             if messages.is_empty() {
                 bot.send_reply(channel_id, reply_to, "No messages in current session to export.")
@@ -1047,8 +1014,11 @@ async fn handle_command(
 
                 let workspace_dir = workspace::resolve_workspace_dir(&config.agent.name);
                 let session_key = format!("dc:{}:{}:{}", config.agent.name, user_id, channel_id);
-                let store = SessionStore::open(&config.agent.name)?;
-                store.create_session(&session_key, &config.agent.name, provider.name())?;
+                let p = openclaw_db::pool().ok_or_else(|| anyhow::anyhow!("Database not available"))?;
+                openclaw_db::sessions::upsert_session(
+                    p, &session_key, &config.agent.name, provider.name(),
+                    Some("discord"), Some(&user_id),
+                ).await?;
 
                 let tools = crate::handler::build_tool_registry(&workspace_dir).await;
                 let agent_config = AgentTurnConfig {
@@ -1077,8 +1047,14 @@ async fn handle_command(
                 };
 
                 // Persist messages
-                store.append_message(&session_key, &openclaw_agent::llm::Message::user(&voice_text))?;
-                store.append_message(&session_key, &openclaw_agent::llm::Message::assistant(&response_text))?;
+                if let Ok(Some(sid)) = openclaw_db::sessions::get_session_id(p, &session_key).await {
+                    let _ = openclaw_db::messages::record_message(
+                        p, sid, "user", Some(&voice_text), None, None, None,
+                    ).await;
+                    let _ = openclaw_db::messages::record_message(
+                        p, sid, "assistant", Some(&response_text), None, None, None,
+                    ).await;
+                }
 
                 // Generate TTS via Piper
                 let tts_dir = workspace_dir.join("tts-output");

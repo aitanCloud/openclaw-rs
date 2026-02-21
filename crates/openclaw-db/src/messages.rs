@@ -1,7 +1,7 @@
 use anyhow::Result;
 use sqlx::PgPool;
 
-/// Persist a message (user, assistant, system, or tool) to Postgres
+/// Persist a message (user, assistant, system, or tool) to Postgres by session ID
 pub async fn record_message(
     pool: &PgPool,
     session_id: i64,
@@ -26,4 +26,21 @@ pub async fn record_message(
     .await?;
 
     Ok(row.0)
+}
+
+/// Persist a message by session key (upserts session if needed).
+/// Convenience wrapper that resolves session_key → session_id automatically.
+pub async fn append_message(
+    pool: &PgPool,
+    session_key: &str,
+    agent_name: &str,
+    model: &str,
+    role: &str,
+    content: Option<&str>,
+    reasoning_content: Option<&str>,
+    tool_calls_json: Option<&serde_json::Value>,
+    tool_call_id: Option<&str>,
+) -> Result<i64> {
+    let sid = crate::sessions::upsert_session(pool, session_key, agent_name, model, None, None).await?;
+    record_message(pool, sid, role, content, reasoning_content, tool_calls_json, tool_call_id).await
 }

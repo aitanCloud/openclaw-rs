@@ -3,7 +3,6 @@ pub mod llm_log;
 pub mod loop_detection;
 pub mod runtime;
 pub mod sandbox;
-pub mod sessions;
 pub mod subagent;
 pub mod tools;
 pub mod watchdog;
