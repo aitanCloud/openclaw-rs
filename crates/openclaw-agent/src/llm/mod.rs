@@ -1,3 +1,4 @@
+pub mod anthropic;
 pub mod fallback;
 pub mod streaming;
 

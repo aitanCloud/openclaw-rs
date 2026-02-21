@@ -6,10 +6,11 @@ use std::time::Instant;
 use tracing::{info, warn};
 
 use super::{Completion, LlmProvider, Message, OpenAiCompatibleProvider, ToolDefinition, UsageStats};
+use super::anthropic::AnthropicProvider;
 
 /// A provider entry in the fallback chain
 pub struct FallbackEntry {
-    pub provider: OpenAiCompatibleProvider,
+    pub provider: Box<dyn LlmProvider>,
     pub label: String,
     consecutive_failures: AtomicUsize,
 }
@@ -22,7 +23,7 @@ pub struct FallbackProvider {
 }
 
 impl FallbackProvider {
-    pub fn new(entries: Vec<(String, OpenAiCompatibleProvider)>) -> Self {
+    pub fn new(entries: Vec<(String, Box<dyn LlmProvider>)>) -> Self {
         let first_label = entries.first().map(|(l, _)| l.clone()).unwrap_or_default();
         Self {
             entries: entries
@@ -83,34 +84,13 @@ impl FallbackProvider {
 
         if entries.is_empty() {
             // Fallback: iterate all providers, first model each
-            // Prefer order: ollama (local/free) → moonshot → openai-compatible
-            let preferred_order = ["ollama", "moonshot", "openai-compatible"];
+            // Prefer order: ollama (local/free) → moonshot → openai-compatible → anthropic
+            let preferred_order = ["ollama", "moonshot", "openai-compatible", "anthropic"];
 
             for &provider_name in &preferred_order {
                 if let Some(provider) = providers.get(provider_name) {
-                    if let Some(base_url) = provider.get("baseUrl").and_then(|v| v.as_str()) {
-                        let api_key = provider
-                            .get("apiKey")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("ollama-local");
-
-                        if let Some(models) =
-                            provider.get("models").and_then(|m| m.as_array())
-                        {
-                            for model in models {
-                                if let Some(model_id) =
-                                    model.get("id").and_then(|v| v.as_str())
-                                {
-                                    let label =
-                                        format!("{}/{}", provider_name, model_id);
-                                    let p = OpenAiCompatibleProvider::new(
-                                        base_url, api_key, model_id,
-                                    );
-                                    entries.push((label, p));
-                                    break; // first model per provider
-                                }
-                            }
-                        }
+                    if let Some(entry) = build_first_model_entry(provider_name, provider) {
+                        entries.push(entry);
                     }
                 }
             }
@@ -151,29 +131,30 @@ fn build_provider_entry(
     provider_name: &str,
     model_id: &str,
     provider: &serde_json::Value,
-) -> Option<(String, OpenAiCompatibleProvider)> {
+) -> Option<(String, Box<dyn LlmProvider>)> {
+    let label = format!("{}/{}", provider_name, model_id);
+
+    if provider_name == "anthropic" {
+        let api_key = provider.get("apiKey").and_then(|v| v.as_str())?;
+        return Some((label, Box::new(AnthropicProvider::new(api_key, model_id))));
+    }
+
     let base_url = provider.get("baseUrl").and_then(|v| v.as_str())?;
     let api_key = provider
         .get("apiKey")
         .and_then(|v| v.as_str())
         .unwrap_or("ollama-local");
 
-    let label = format!("{}/{}", provider_name, model_id);
     Some((
         label,
-        OpenAiCompatibleProvider::new(base_url, api_key, model_id),
+        Box::new(OpenAiCompatibleProvider::new(base_url, api_key, model_id)),
     ))
 }
 
 fn build_first_model_entry(
     provider_name: &str,
     provider: &serde_json::Value,
-) -> Option<(String, OpenAiCompatibleProvider)> {
-    let base_url = provider.get("baseUrl").and_then(|v| v.as_str())?;
-    let api_key = provider
-        .get("apiKey")
-        .and_then(|v| v.as_str())
-        .unwrap_or("ollama-local");
+) -> Option<(String, Box<dyn LlmProvider>)> {
     let model_id = provider
         .get("models")
         .and_then(|m| m.as_array())
@@ -181,11 +162,7 @@ fn build_first_model_entry(
         .and_then(|m| m.get("id"))
         .and_then(|v| v.as_str())?;
 
-    let label = format!("{}/{}", provider_name, model_id);
-    Some((
-        label,
-        OpenAiCompatibleProvider::new(base_url, api_key, model_id),
-    ))
+    build_provider_entry(provider_name, model_id, provider)
 }
 
 #[async_trait]
@@ -314,14 +291,14 @@ mod tests {
 
     #[test]
     fn test_fallback_provider_labels() {
-        let entries = vec![
+        let entries: Vec<(String, Box<dyn LlmProvider>)> = vec![
             (
                 "ollama/llama3.2:1b".to_string(),
-                OpenAiCompatibleProvider::new("http://localhost:11434", "key", "llama3.2:1b"),
+                Box::new(OpenAiCompatibleProvider::new("http://localhost:11434", "key", "llama3.2:1b")),
             ),
             (
                 "moonshot/kimi-k2.5".to_string(),
-                OpenAiCompatibleProvider::new("https://api.moonshot.ai/v1", "key", "kimi-k2.5"),
+                Box::new(OpenAiCompatibleProvider::new("https://api.moonshot.ai/v1", "key", "kimi-k2.5")),
             ),
         ];
         let provider = FallbackProvider::new(entries);
@@ -332,14 +309,14 @@ mod tests {
     #[test]
     fn test_circuit_breaker_threshold() {
         // Circuit breaker opens after >3 consecutive failures
-        let entries = vec![
+        let entries: Vec<(String, Box<dyn LlmProvider>)> = vec![
             (
                 "primary/model-a".to_string(),
-                OpenAiCompatibleProvider::new("http://localhost:1", "key", "a"),
+                Box::new(OpenAiCompatibleProvider::new("http://localhost:1", "key", "a")),
             ),
             (
                 "backup/model-b".to_string(),
-                OpenAiCompatibleProvider::new("http://localhost:2", "key", "b"),
+                Box::new(OpenAiCompatibleProvider::new("http://localhost:2", "key", "b")),
             ),
         ];
         let provider = FallbackProvider::new(entries);
@@ -360,10 +337,10 @@ mod tests {
 
     #[test]
     fn test_last_successful_tracking() {
-        let entries = vec![
+        let entries: Vec<(String, Box<dyn LlmProvider>)> = vec![
             (
                 "primary/model-a".to_string(),
-                OpenAiCompatibleProvider::new("http://localhost:1", "key", "a"),
+                Box::new(OpenAiCompatibleProvider::new("http://localhost:1", "key", "a")),
             ),
         ];
         let provider = FallbackProvider::new(entries);
