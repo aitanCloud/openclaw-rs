@@ -21,7 +21,10 @@ pub struct ClaudeCodeTool;
 /// Emit a StreamEvent if the tool has a stream channel.
 fn emit(ctx: &ToolContext, event: StreamEvent) {
     if let Some(ref tx) = ctx.stream_tx {
+        debug!("claude_code emit: {:?}", event);
         let _ = tx.send(event);
+    } else {
+        warn!("claude_code emit: stream_tx is None, event dropped");
     }
 }
 
@@ -29,10 +32,12 @@ fn emit(ctx: &ToolContext, event: StreamEvent) {
 /// Returns any final result text extracted from the stream.
 fn process_stream_line(line: &str, ctx: &ToolContext, final_text: &mut String) {
     let Ok(obj) = serde_json::from_str::<Value>(line) else {
+        debug!("claude_code: non-JSON line: {}", &line[..line.len().min(120)]);
         return;
     };
 
     let event_type = obj.get("type").and_then(|v| v.as_str()).unwrap_or("");
+    debug!("claude_code: stream event type={}", event_type);
 
     match event_type {
         "system" => {
