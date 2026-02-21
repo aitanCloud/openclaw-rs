@@ -277,6 +277,7 @@ pub async fn run_agent_turn(
         delegate_tx: config.delegate_tx.clone(),
         task_query_fn: config.task_query_fn.clone(),
         task_cancel_fn: config.task_cancel_fn.clone(),
+        stream_tx: None,
     };
 
     let mut total_usage = UsageStats::default();
@@ -504,6 +505,7 @@ pub async fn run_agent_turn_streaming(
         delegate_tx: config.delegate_tx.clone(),
         task_query_fn: config.task_query_fn.clone(),
         task_cancel_fn: config.task_cancel_fn.clone(),
+        stream_tx: Some(event_tx.clone()),
     };
 
     let mut total_usage = UsageStats::default();

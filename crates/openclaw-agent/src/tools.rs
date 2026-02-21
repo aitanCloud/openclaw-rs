@@ -26,6 +26,7 @@ use serde_json::Value;
 use std::sync::Arc;
 
 use crate::llm::{FunctionDefinition, ToolDefinition};
+use crate::llm::streaming::StreamEvent;
 use crate::sandbox::SandboxPolicy;
 
 pub use tasks::{TaskInfo, TaskQueryFn};
@@ -60,6 +61,8 @@ pub struct ToolContext {
     pub task_query_fn: Option<TaskQueryFn>,
     /// If set, tasks tool can cancel subagents by ID.
     pub task_cancel_fn: Option<TaskCancelFn>,
+    /// If set, tools can emit streaming events mid-execution (e.g. claude_code progress).
+    pub stream_tx: Option<tokio::sync::mpsc::UnboundedSender<StreamEvent>>,
 }
 
 impl std::fmt::Debug for ToolContext {
@@ -86,6 +89,7 @@ impl Default for ToolContext {
             delegate_tx: None,
             task_query_fn: None,
             task_cancel_fn: None,
+            stream_tx: None,
         }
     }
 }
