@@ -538,7 +538,8 @@ impl LlmProvider for AnthropicProvider {
             usage.total_tokens = usage.prompt_tokens + usage.completion_tokens;
         }
 
-        let _ = event_tx.send(StreamEvent::Done);
+        // NOTE: Do NOT send StreamEvent::Done here. The runtime controls Done
+        // because there may be tool calls to execute after the LLM stream ends.
 
         let completion = if !tool_calls.is_empty() {
             let calls = tool_calls

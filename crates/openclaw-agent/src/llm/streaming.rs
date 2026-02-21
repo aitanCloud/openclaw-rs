@@ -155,9 +155,9 @@ pub async fn stream_completion(
         };
     }
 
-    if let Some(ref tx) = event_tx {
-        let _ = tx.send(StreamEvent::Done);
-    }
+    // NOTE: Do NOT send StreamEvent::Done here. The runtime controls Done
+    // because there may be tool calls to execute after the LLM stream ends.
+    // The runtime sends Done when the entire agent turn is complete.
 
     if !tool_calls.is_empty() {
         let calls = tool_calls
