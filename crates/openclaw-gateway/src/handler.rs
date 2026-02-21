@@ -249,6 +249,14 @@ pub async fn handle_message(
 
     // ── Tools + config (load plugins + MCP client tools from workspace) ──
     let tools = build_tool_registry(&workspace_dir).await;
+    // If images are attached inline, remove the `image` tool to prevent the LLM
+    // from trying to use it on hallucinated file paths instead of analyzing the
+    // inline image directly via its native vision capability.
+    let tools = if !image_urls.is_empty() {
+        openclaw_agent::tools::ToolRegistry::without_tool(tools, "image")
+    } else {
+        tools
+    };
     // ── Set up delegate channel for async subagent dispatch ──
     let (delegate_tx, mut delegate_rx) = mpsc::unbounded_channel::<openclaw_agent::tools::DelegateRequest>();
 
