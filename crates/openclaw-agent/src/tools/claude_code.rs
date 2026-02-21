@@ -21,10 +21,16 @@ pub struct ClaudeCodeTool;
 /// Emit a StreamEvent if the tool has a stream channel.
 fn emit(ctx: &ToolContext, event: StreamEvent) {
     if let Some(ref tx) = ctx.stream_tx {
-        debug!("claude_code emit: {:?}", event);
+        let desc = match &event {
+            StreamEvent::ContentDelta(d) => format!("ContentDelta({}B)", d.len()),
+            StreamEvent::ToolExec { name, .. } => format!("ToolExec({})", name),
+            StreamEvent::ToolResult { name, success, .. } => format!("ToolResult({}, ok={})", name, success),
+            other => format!("{:?}", other),
+        };
+        info!("claude_code EMIT → {}", desc);
         let _ = tx.send(event);
     } else {
-        warn!("claude_code emit: stream_tx is None, event dropped");
+        warn!("claude_code EMIT: stream_tx is NONE — event DROPPED");
     }
 }
 
