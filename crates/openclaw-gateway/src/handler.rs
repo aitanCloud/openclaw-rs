@@ -125,6 +125,9 @@ pub async fn handle_message(
         return Ok(());
     }
 
+    // Track whether the user provided their own text (vs our default prompt)
+    let user_provided_text = !text.is_empty();
+
     // If photo but no text, add a default prompt so the LLM knows to analyze the image
     let text = if text.is_empty() && has_photo {
         "Describe and analyze this image.".to_string()
@@ -165,7 +168,8 @@ pub async fn handle_message(
                     Err(e) => {
                         warn!("Failed to download photo: {}", e);
                         bot.send_message(chat_id, "⚠️ Failed to download photo.").await?;
-                        if text.is_empty() {
+                        if !user_provided_text {
+                            // Photo was the only input — bail out
                             return Ok(());
                         }
                     }
