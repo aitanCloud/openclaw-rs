@@ -65,17 +65,51 @@ impl MergeService {
         }
     }
 
+    /// Maintenance mode guard: reject if instance is not in 'active' state.
+    ///
+    /// This prevents merge operations while the instance is in maintenance mode,
+    /// suspended, or any non-active state (architecture E7).
+    async fn check_instance_active(&self, instance_id: Uuid) -> Result<(), AppError> {
+        let state = sqlx::query_scalar::<_, String>(
+            "SELECT state FROM orch_instances WHERE id = $1",
+        )
+        .bind(instance_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| {
+            AppError::Infra(InfraError::Database(format!(
+                "maintenance guard query: {e}"
+            )))
+        })?;
+
+        match state {
+            Some(s) if s == "active" => Ok(()),
+            Some(s) => Err(AppError::Domain(
+                crate::domain::errors::DomainError::Precondition(format!(
+                    "instance {instance_id} is in '{s}' state, operations blocked"
+                )),
+            )),
+            None => Err(AppError::Infra(InfraError::Database(format!(
+                "instance {instance_id} not found"
+            )))),
+        }
+    }
+
     /// Attempt a single merge of source_branch into target_branch.
     ///
     /// Emits MergeAttempted before the merge, then one of:
     /// - MergeSucceeded (with merge_sha + diff stats)
     /// - MergeConflicted (with conflicting_files + conflict_count)
     /// - MergeFailed (with failure category: Transient or Permanent)
+    ///
+    /// Guarded: rejects if instance is not in 'active' state (maintenance mode check).
     pub async fn attempt_merge(
         &self,
         params: &MergeParams,
         attempt: u32,
     ) -> Result<MergeOutcome, AppError> {
+        self.check_instance_active(params.instance_id).await?;
+
         self.check_in_flight_merge(params.cycle_id, params.task_id)
             .await?;
 
@@ -355,13 +389,17 @@ impl MergeService {
     ///
     /// Retries up to `max_retries` times with exponential backoff starting
     /// at `base_delay_ms` milliseconds. Only retries on transient failures.
-    /// The in-flight guard is checked once at the start.
+    /// The maintenance guard and in-flight guard are checked once at the start.
+    ///
+    /// Guarded: rejects if instance is not in 'active' state (maintenance mode check).
     pub async fn attempt_merge_with_retry(
         &self,
         params: &MergeParams,
         max_retries: u32,
         base_delay_ms: u64,
     ) -> Result<MergeOutcome, AppError> {
+        self.check_instance_active(params.instance_id).await?;
+
         self.check_in_flight_merge(params.cycle_id, params.task_id)
             .await?;
 

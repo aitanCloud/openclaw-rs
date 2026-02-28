@@ -3,6 +3,7 @@ pub mod cycle_projector;
 pub mod errors;
 pub mod instance_projector;
 pub mod janitor;
+pub mod maintenance_service;
 pub mod merge_service;
 pub mod planner;
 pub mod projector;

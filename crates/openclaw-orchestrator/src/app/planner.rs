@@ -38,11 +38,56 @@ impl PlannerService {
         }
     }
 
+    /// Maintenance mode guard: reject if instance is not in 'active' state.
+    ///
+    /// This prevents plan generation and requests while the instance is in
+    /// maintenance mode, suspended, or any non-active state (architecture E7).
+    async fn check_instance_active(&self, instance_id: Uuid) -> Result<(), AppError> {
+        let state = sqlx::query_scalar::<_, String>(
+            "SELECT state FROM orch_instances WHERE id = $1",
+        )
+        .bind(instance_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| {
+            AppError::Infra(InfraError::Database(format!(
+                "maintenance guard query: {e}"
+            )))
+        })?;
+
+        match state {
+            Some(s) if s == "active" => Ok(()),
+            Some(s) => Err(AppError::Domain(
+                crate::domain::errors::DomainError::Precondition(format!(
+                    "instance {instance_id} is in '{s}' state, operations blocked"
+                )),
+            )),
+            None => Err(AppError::Infra(InfraError::Database(format!(
+                "instance {instance_id} not found"
+            )))),
+        }
+    }
+
     /// Request plan generation for a cycle.
     ///
     /// Emits `PlanRequested` event. The caller should then invoke `generate_plan`
     /// (possibly in a background task) to actually produce the plan.
+    ///
+    /// Guarded: rejects if instance is not in 'active' state (maintenance mode check).
     pub async fn request_plan(
+        &self,
+        instance_id: Uuid,
+        cycle_id: Uuid,
+        context: &PlanningContext,
+    ) -> Result<(), AppError> {
+        self.check_instance_active(instance_id).await?;
+        self.request_plan_core(instance_id, cycle_id, context).await
+    }
+
+    /// Core plan-request logic, separated from the maintenance guard for testability.
+    ///
+    /// Emits `PlanRequested` event without checking instance state.
+    pub(crate) async fn request_plan_core(
         &self,
         instance_id: Uuid,
         cycle_id: Uuid,
@@ -83,8 +128,11 @@ impl PlannerService {
 
     /// Generate a plan for a cycle by calling the Planner domain port.
     ///
-    /// Checks the in-flight guard first, then delegates to the planner.
-    /// On success, emits `PlanGenerated`; on failure, emits `PlanGenerationFailed`.
+    /// Checks the maintenance guard and in-flight guard first, then delegates
+    /// to the planner. On success, emits `PlanGenerated`; on failure, emits
+    /// `PlanGenerationFailed`.
+    ///
+    /// Guarded: rejects if instance is not in 'active' state (maintenance mode check).
     pub async fn generate_plan(
         &self,
         instance_id: Uuid,
@@ -92,6 +140,8 @@ impl PlannerService {
         context: &PlanningContext,
         attempt: u32,
     ) -> Result<PlanProposal, AppError> {
+        self.check_instance_active(instance_id).await?;
+
         // In-flight guard: check no plan generation is already in progress
         self.check_in_flight_generation(cycle_id).await?;
 
@@ -494,7 +544,7 @@ mod tests {
         let cycle_id = Uuid::new_v4();
         let context = make_planning_context();
 
-        let result = svc.request_plan(instance_id, cycle_id, &context).await;
+        let result = svc.request_plan_core(instance_id, cycle_id, &context).await;
         assert!(result.is_ok(), "request_plan should succeed: {result:?}");
 
         let events = event_store.emitted_events().await;
@@ -512,7 +562,7 @@ mod tests {
         let cycle_id = Uuid::new_v4();
         let context = make_planning_context();
 
-        svc.request_plan(Uuid::new_v4(), cycle_id, &context)
+        svc.request_plan_core(Uuid::new_v4(), cycle_id, &context)
             .await
             .unwrap();
 
@@ -533,7 +583,7 @@ mod tests {
         let cycle_id = Uuid::new_v4();
         let context = make_planning_context();
 
-        svc.request_plan(Uuid::new_v4(), cycle_id, &context)
+        svc.request_plan_core(Uuid::new_v4(), cycle_id, &context)
             .await
             .unwrap();
 
@@ -751,7 +801,7 @@ mod tests {
         let planner: Arc<dyn Planner> = Arc::new(SuccessPlanner::new());
         let svc = PlannerService::new(planner, event_store.clone(), dummy_pool());
 
-        svc.request_plan(Uuid::new_v4(), Uuid::new_v4(), &make_planning_context())
+        svc.request_plan_core(Uuid::new_v4(), Uuid::new_v4(), &make_planning_context())
             .await
             .unwrap();
 
@@ -781,7 +831,7 @@ mod tests {
         let planner: Arc<dyn Planner> = Arc::new(SuccessPlanner::new());
         let svc = PlannerService::new(planner, event_store.clone(), dummy_pool());
 
-        svc.request_plan(Uuid::new_v4(), Uuid::new_v4(), &make_planning_context())
+        svc.request_plan_core(Uuid::new_v4(), Uuid::new_v4(), &make_planning_context())
             .await
             .unwrap();
 
@@ -816,7 +866,7 @@ mod tests {
         let context = make_planning_context();
 
         // Step 1: request plan
-        svc.request_plan(instance_id, cycle_id, &context)
+        svc.request_plan_core(instance_id, cycle_id, &context)
             .await
             .unwrap();
 
@@ -914,7 +964,7 @@ mod tests {
         let planner: Arc<dyn Planner> = Arc::new(SuccessPlanner::new());
         let svc = PlannerService::new(planner, event_store.clone(), dummy_pool());
 
-        svc.request_plan(Uuid::new_v4(), Uuid::new_v4(), &make_planning_context())
+        svc.request_plan_core(Uuid::new_v4(), Uuid::new_v4(), &make_planning_context())
             .await
             .unwrap();
         svc.approve_plan(Uuid::new_v4(), Uuid::new_v4(), "alice")
@@ -940,7 +990,7 @@ mod tests {
         let cycle_id = Uuid::new_v4();
         let context = make_planning_context();
 
-        svc.request_plan(instance_id, cycle_id, &context)
+        svc.request_plan_core(instance_id, cycle_id, &context)
             .await
             .unwrap();
         svc.approve_plan(instance_id, cycle_id, "alice")
