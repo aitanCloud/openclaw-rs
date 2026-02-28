@@ -1,3 +1,4 @@
+pub mod budget_projector;
 pub mod cycle_projector;
 pub mod errors;
 pub mod instance_projector;
