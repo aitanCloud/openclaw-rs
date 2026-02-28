@@ -2,3 +2,4 @@
 // No HTTP types. No Axum. No framework dependencies.
 
 pub mod domain;
+pub mod infra;
