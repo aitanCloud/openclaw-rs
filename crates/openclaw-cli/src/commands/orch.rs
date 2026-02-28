@@ -426,11 +426,7 @@ async fn instance_status(pool: &sqlx::PgPool, instance_id: Uuid) -> Result<()> {
         println!("    {}", "No cycles.".dimmed());
     } else {
         for cycle in &cycles {
-            let prompt_preview = if cycle.prompt.len() > 60 {
-                format!("{}...", &cycle.prompt[..57])
-            } else {
-                cycle.prompt.clone()
-            };
+            let prompt_preview = truncate_display(&cycle.prompt, 57);
             println!(
                 "    {} [{}] {}",
                 cycle.id.to_string()[..8].dimmed(),
@@ -550,11 +546,7 @@ async fn cycle_list(pool: &sqlx::PgPool, instance_id: Uuid) -> Result<()> {
     println!();
 
     for cycle in &cycles {
-        let prompt_preview = if cycle.prompt.len() > 80 {
-            format!("{}...", &cycle.prompt[..77])
-        } else {
-            cycle.prompt.clone()
-        };
+        let prompt_preview = truncate_display(&cycle.prompt, 77);
 
         println!(
             "  {} [{}]",
@@ -795,9 +787,15 @@ async fn maintenance_enter(
     )
     .await?;
 
+    let block_reason = if details.is_empty() {
+        "Maintenance".to_string()
+    } else {
+        format!("Maintenance: {}", details)
+    };
     sqlx::query(
-        "UPDATE orch_instances SET state = 'blocked', block_reason = 'Maintenance', last_heartbeat = $1 WHERE id = $2",
+        "UPDATE orch_instances SET state = 'blocked', block_reason = $1, last_heartbeat = $2 WHERE id = $3",
     )
+    .bind(&block_reason)
     .bind(now)
     .bind(instance_id)
     .execute(&mut *tx)
@@ -832,12 +830,19 @@ async fn maintenance_exit(pool: &sqlx::PgPool, instance_id: Uuid) -> Result<()> 
         }
     };
 
-    if state.state != "blocked" {
+    let is_maintenance = state.block_reason.as_deref()
+        .map(|r| r == "Maintenance" || r.starts_with("Maintenance: "))
+        .unwrap_or(false);
+    if state.state != "blocked" || !is_maintenance {
         eprintln!(
-            "{} Instance is in '{}' state, must be 'blocked' to exit maintenance.",
+            "{} Instance is not in maintenance mode (state='{}', block_reason={:?}).",
             "Error:".red().bold(),
-            state.state
+            state.state,
+            state.block_reason,
         );
+        if state.state == "blocked" {
+            eprintln!("Use 'openclaw orch resume {}' to unblock a non-maintenance block.", instance_id);
+        }
         std::process::exit(1);
     }
 
@@ -1020,6 +1025,18 @@ async fn notify_event(pool: &sqlx::PgPool, instance_id: Uuid, seq: i64) {
 
 // ── Formatting helpers ──
 
+/// Truncate a string to at most `max_chars` characters, appending "..." if truncated.
+/// Safe for multi-byte UTF-8 (operates on char boundaries, not byte offsets).
+fn truncate_display(s: &str, max_chars: usize) -> String {
+    let mut chars = s.chars();
+    let truncated: String = chars.by_ref().take(max_chars).collect();
+    if chars.next().is_some() {
+        format!("{}...", truncated)
+    } else {
+        truncated
+    }
+}
+
 fn format_state(state: &str, block_reason: Option<&str>) -> colored::ColoredString {
     match state {
         "active" => "active".green().bold(),
@@ -1057,6 +1074,9 @@ fn format_ago(dt: DateTime<Utc>) -> String {
     let diff = Utc::now() - dt;
     let secs = diff.num_seconds();
 
+    if secs < 0 {
+        return "just now".to_string();
+    }
     if secs < 60 {
         format!("{}s", secs)
     } else if secs < 3600 {
