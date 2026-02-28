@@ -1,5 +1,8 @@
 import type { AppState, Component, Cycle, InstanceViewModel, CycleProgress, Task } from '../types';
 import { TERMINAL_CYCLE_STATES, CYCLE_STEPS, CYCLE_STEP_LABELS } from '../types';
+import { api } from '../api';
+import { store } from '../store';
+import { EventTimeline } from './event-timeline';
 import {
     el,
     clearChildren,
@@ -21,8 +24,9 @@ export class InstanceDetail implements Component {
     el: HTMLElement;
     private renderKey = '';
     private disposables: (() => void)[] = [];
+    private timeline: EventTimeline | null = null;
 
-    constructor(container: HTMLElement) {
+    constructor(container: HTMLElement, private instanceId: string) {
         this.el = el('div', 'instance-detail');
         container.appendChild(this.el);
 
@@ -75,9 +79,18 @@ export class InstanceDetail implements Component {
         this.renderActiveCyclePanel(vm);
         this.renderStatsRow(vm);
         this.renderCycleHistory(vm);
+
+        // Mount event timeline inside the detail view
+        if (!this.timeline) {
+            this.timeline = new EventTimeline(this.el, this.instanceId);
+        } else {
+            this.el.appendChild(this.timeline.el);
+        }
+        this.timeline.update(state);
     }
 
     destroy(): void {
+        if (this.timeline) this.timeline.destroy();
         this.disposables.forEach(d => d());
         this.el.remove();
     }
@@ -148,11 +161,9 @@ export class InstanceDetail implements Component {
 
         if (cp.cycle.state === 'plan_ready') {
             const approveBtn = el('button', 'btn btn--primary', 'Approve Plan');
-            approveBtn.dataset.cycleId = cp.cycle.id;
-            approveBtn.dataset.instanceId = vm.instance.id;
             approveBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
-                location.hash = `#/instances/${vm.instance.id}/cycles/${cp.cycle.id}`;
+                this.handleApprove(vm.instance.id, cp.cycle.id);
             });
             actions.appendChild(approveBtn);
         }
@@ -171,15 +182,18 @@ export class InstanceDetail implements Component {
     private renderStepper(cycle: Cycle): HTMLElement {
         const stepper = el('div', 'state-stepper');
         const currentIdx = CYCLE_STEPS.indexOf(cycle.state);
+        const isFailed = cycle.state === 'failed' || cycle.state === 'cancelled';
+        const isCompleted = cycle.state === 'completed';
 
         for (let i = 0; i < CYCLE_STEPS.length; i++) {
             const step = CYCLE_STEPS[i];
             const stepEl = el('div', 'stepper-step');
 
             let status: string;
-            if (cycle.state === 'failed' || cycle.state === 'cancelled') {
-                // If failed/cancelled, mark up to where it got as completed
-                status = i < currentIdx ? 'completed' : i === currentIdx ? 'current' : 'future';
+            if (isCompleted) {
+                status = 'completed';
+            } else if (isFailed) {
+                status = 'failed';
             } else if (i < currentIdx) {
                 status = 'completed';
             } else if (i === currentIdx) {
@@ -192,6 +206,8 @@ export class InstanceDetail implements Component {
             const indicator = el('div', 'stepper-step__indicator');
             if (status === 'completed') {
                 indicator.textContent = '\u2713';
+            } else if (status === 'failed') {
+                indicator.textContent = '\u2717';
             } else {
                 indicator.textContent = String(i + 1);
             }
@@ -369,5 +385,21 @@ export class InstanceDetail implements Component {
         const states = new Map<string, number>();
         for (const t of tasks) states.set(t.state, (states.get(t.state) ?? 0) + 1);
         return [...states.entries()].map(([s, n]) => `${n} ${s}`).join(', ') || 'none';
+    }
+
+    // ── Actions ────────────────────────────────────────────────────
+
+    private async handleApprove(instanceId: string, cycleId: string): Promise<void> {
+        const approvedBy = prompt('Approved by (your name):');
+        if (!approvedBy) return;
+
+        try {
+            await api.approvePlan(instanceId, cycleId, { approved_by: approvedBy });
+            await store.invalidate(instanceId);
+        } catch (e) {
+            console.error('[instance-detail] approve error:', e);
+            const msg = e instanceof Error ? e.message : String(e);
+            window.dispatchEvent(new CustomEvent('openclaw:error', { detail: msg }));
+        }
     }
 }

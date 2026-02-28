@@ -1,5 +1,6 @@
 import type { AppState, Component, Instance, InstanceViewModel, CycleProgress } from '../types';
 import { TERMINAL_CYCLE_STATES, CYCLE_STEP_LABELS } from '../types';
+import { store } from '../store';
 import { el, clearChildren, stateBadge, timeAgo, formatCents, truncate, delegateClick } from '../utils';
 
 /**
@@ -36,10 +37,16 @@ export class InstanceList implements Component {
 
         // Header
         const header = el('div', 'section-header');
-        const title = el('h2', 'section-title', 'Instances');
-        const count = el('span', 'section-count', `${state.instanceList.length}`);
-        header.appendChild(title);
-        header.appendChild(count);
+        const titleGroup = el('div', 'section-header__left');
+        titleGroup.appendChild(el('h2', 'section-title', 'Instances'));
+        titleGroup.appendChild(el('span', 'section-count', `${state.instanceList.length}`));
+        header.appendChild(titleGroup);
+
+        const newInstanceBtn = el('button', 'btn btn--primary', '+ New Instance');
+        newInstanceBtn.addEventListener('click', () => {
+            window.dispatchEvent(new CustomEvent('openclaw:new-instance'));
+        });
+        header.appendChild(newInstanceBtn);
         this.el.appendChild(header);
 
         if (state.loading && state.instanceList.length === 0) {
@@ -59,6 +66,11 @@ export class InstanceList implements Component {
         for (const instance of state.instanceList) {
             const vm = state.instances.get(instance.id);
             grid.appendChild(this.renderCard(instance, vm ?? null));
+
+            // Eagerly fetch detail if not cached
+            if (!vm) {
+                store.fetchInstanceDetail(instance.id);
+            }
         }
         this.el.appendChild(grid);
     }

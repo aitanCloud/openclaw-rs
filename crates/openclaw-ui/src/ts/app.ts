@@ -65,6 +65,12 @@ class App {
         window.addEventListener('openclaw:new-cycle', () => {
             this.showCreateCycleModal();
         });
+        window.addEventListener('openclaw:new-instance', () => {
+            this.showCreateInstanceModal();
+        });
+        window.addEventListener('openclaw:error', ((e: CustomEvent) => {
+            this.showToast(e.detail || 'An error occurred', 'error');
+        }) as EventListener);
 
         // Initial load
         await store.fetchInstances();
@@ -123,12 +129,8 @@ class App {
     }
 
     private async mountInstanceDetail(instanceId: string): Promise<void> {
-        const component = new InstanceDetail(this.container);
+        const component = new InstanceDetail(this.container, instanceId);
         this.currentComponents.push(component);
-
-        // Mount collapsible event timeline below
-        const timeline = new EventTimeline(this.container, instanceId);
-        this.currentComponents.push(timeline);
 
         store.setSelectedInstance(instanceId);
         store.setSelectedCycle(null);
@@ -178,10 +180,17 @@ class App {
 
         clearChildren(statusBar);
 
-        // WS indicator
-        const wsIndicator = el('span', `status-indicator ${state.wsConnected ? 'status-indicator--connected' : 'status-indicator--disconnected'}`);
-        wsIndicator.textContent = state.wsConnected ? 'Live' : 'Disconnected';
-        statusBar.appendChild(wsIndicator);
+        // WS indicator — only show when viewing an instance (WS is instance-scoped)
+        const viewingInstance = state.selectedInstanceId !== null;
+        if (viewingInstance) {
+            const wsIndicator = el('span', `status-indicator ${state.wsConnected ? 'status-indicator--connected' : 'status-indicator--disconnected'}`);
+            wsIndicator.textContent = state.wsConnected ? 'Live' : 'Connecting...';
+            statusBar.appendChild(wsIndicator);
+        } else {
+            const readyIndicator = el('span', 'status-indicator status-indicator--connected');
+            readyIndicator.textContent = 'Ready';
+            statusBar.appendChild(readyIndicator);
+        }
 
         // Maintenance banner
         if (state.maintenanceMode) {
@@ -243,7 +252,13 @@ class App {
         setTimeout(() => textarea.focus(), 100);
 
         // Handlers
+        const onKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') close();
+        };
+        document.addEventListener('keydown', onKeyDown);
+
         const close = () => {
+            document.removeEventListener('keydown', onKeyDown);
             overlay.remove();
         };
 
@@ -252,12 +267,6 @@ class App {
         overlay.addEventListener('click', (e) => {
             if (e.target === overlay) close();
         });
-
-        // Escape key
-        const onKeyDown = (e: KeyboardEvent) => {
-            if (e.key === 'Escape') close();
-        };
-        document.addEventListener('keydown', onKeyDown);
 
         startBtn.addEventListener('click', async () => {
             const prompt = textarea.value.trim();
@@ -272,7 +281,6 @@ class App {
             try {
                 const cycle = await api.createCycle(instanceId, { prompt });
                 close();
-                document.removeEventListener('keydown', onKeyDown);
                 // Navigate to the new cycle
                 location.hash = `#/instances/${instanceId}/cycles/${cycle.id}`;
                 // Refresh data
@@ -287,14 +295,123 @@ class App {
         });
     }
 
+    // ── Create Instance Modal ─────────────────────────────────────
+
+    private showCreateInstanceModal(): void {
+        const overlay = el('div', 'modal-overlay');
+        const modal = el('div', 'modal');
+
+        const header = el('div', 'modal__header');
+        header.appendChild(el('h3', 'modal__title', 'New Instance'));
+        const closeBtn = el('button', 'modal__close', '\u00D7');
+        header.appendChild(closeBtn);
+        modal.appendChild(header);
+
+        const body = el('div', 'modal__body');
+
+        body.appendChild(el('label', 'field-label', 'Instance Name'));
+        const nameInput = document.createElement('input');
+        nameInput.type = 'text';
+        nameInput.className = 'input';
+        nameInput.placeholder = 'e.g., my-project';
+        body.appendChild(nameInput);
+
+        const spacer = el('div', '');
+        spacer.style.marginTop = '0.75rem';
+        body.appendChild(spacer);
+
+        body.appendChild(el('label', 'field-label', 'Project ID'));
+        const projectInput = document.createElement('input');
+        projectInput.type = 'text';
+        projectInput.className = 'input';
+        projectInput.placeholder = 'UUID of the project';
+        body.appendChild(projectInput);
+
+        modal.appendChild(body);
+
+        const errorContainer = el('div', '');
+        modal.appendChild(errorContainer);
+
+        const footer = el('div', 'modal__footer');
+        const cancelBtn = el('button', 'btn btn--ghost', 'Cancel');
+        const createBtn = el('button', 'btn btn--primary', 'Create Instance');
+        footer.appendChild(cancelBtn);
+        footer.appendChild(createBtn);
+        modal.appendChild(footer);
+
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
+        setTimeout(() => nameInput.focus(), 100);
+
+        const onKeyDown = (e: KeyboardEvent) => { if (e.key === 'Escape') close(); };
+        document.addEventListener('keydown', onKeyDown);
+
+        const close = () => {
+            document.removeEventListener('keydown', onKeyDown);
+            overlay.remove();
+        };
+
+        closeBtn.addEventListener('click', close);
+        cancelBtn.addEventListener('click', close);
+        overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+
+        createBtn.addEventListener('click', async () => {
+            const name = nameInput.value.trim();
+            const projectId = projectInput.value.trim();
+            if (!name) { nameInput.style.borderColor = 'var(--accent-red)'; return; }
+            if (!projectId) { projectInput.style.borderColor = 'var(--accent-red)'; return; }
+
+            createBtn.textContent = 'Creating...';
+            (createBtn as HTMLButtonElement).disabled = true;
+
+            try {
+                const result = await api.createInstance({ name, project_id: projectId });
+                close();
+                this.showToast(`Instance "${result.name}" created`, 'success');
+                await store.fetchInstances();
+                location.hash = `#/instances/${result.instance_id}`;
+            } catch (e) {
+                const msg = e instanceof Error ? e.message : String(e);
+                clearChildren(errorContainer);
+                errorContainer.appendChild(el('div', 'modal__error', msg));
+                createBtn.textContent = 'Create Instance';
+                (createBtn as HTMLButtonElement).disabled = false;
+            }
+        });
+    }
+
+    // ── Toast Notifications ───────────────────────────────────────
+
+    private showToast(message: string, type: 'success' | 'error' | 'info' = 'info'): void {
+        let container = document.getElementById('toast-container');
+        if (!container) {
+            container = el('div', 'toast-container');
+            container.id = 'toast-container';
+            document.body.appendChild(container);
+        }
+
+        const toast = el('div', `toast toast--${type}`);
+        toast.textContent = message;
+        container.appendChild(toast);
+
+        // Auto-dismiss after 4 seconds
+        setTimeout(() => {
+            toast.classList.add('toast--exiting');
+            setTimeout(() => toast.remove(), 300);
+        }, 4000);
+    }
+
     // ── Login prompt ─────────────────────────────────────────────
 
     private showLoginPrompt(): void {
         clearChildren(this.container);
 
         const form = el('div', 'login-form');
+        const logo = el('div', 'login-form__logo');
+        logo.appendChild(el('span', 'top-bar__logo', 'OC'));
+        form.appendChild(logo);
         form.appendChild(el('h2', 'login-form__title', 'OpenClaw Orchestrator'));
-        form.appendChild(el('p', 'login-form__subtitle', 'Enter your API token to continue.'));
+        form.appendChild(el('p', 'login-form__subtitle', 'Claude-powered software development orchestrator. Enter your API token to continue.'));
 
         const input = document.createElement('input');
         input.type = 'password';

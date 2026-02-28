@@ -32,6 +32,7 @@ export class CycleDetail implements Component {
         const dispose = delegateClick(this.el, '[data-action]', (target) => {
             const action = target.dataset.action;
             if (action === 'approve') this.handleApprove();
+            if (action === 'retry') this.handleRetry();
         });
         this.disposables.push(dispose);
 
@@ -102,9 +103,9 @@ export class CycleDetail implements Component {
         this.renderHeader();
         this.renderStepper();
         this.renderAlerts();
+        this.renderCompletionSummary();
         this.renderTaskProgress();
         this.renderPlan();
-        this.renderTaskList();
     }
 
     // ── Header ────────────────────────────────────────────────────
@@ -141,14 +142,21 @@ export class CycleDetail implements Component {
         const cycle = this.cycle!;
         const stepper = el('div', 'state-stepper');
         const currentIdx = CYCLE_STEPS.indexOf(cycle.state);
+        const isFailed = cycle.state === 'failed' || cycle.state === 'cancelled';
+        const isCompleted = cycle.state === 'completed';
 
         for (let i = 0; i < CYCLE_STEPS.length; i++) {
             const step = CYCLE_STEPS[i];
             const stepEl = el('div', 'stepper-step');
 
             let status: string;
-            if (cycle.state === 'failed' || cycle.state === 'cancelled') {
-                status = i < currentIdx ? 'completed' : i === currentIdx ? 'current' : 'future';
+            if (isCompleted) {
+                // All steps completed including the last one
+                status = 'completed';
+            } else if (isFailed) {
+                // Failed/cancelled: show all as dimmed, none completed
+                // (we don't know which step it failed at)
+                status = 'failed';
             } else if (i < currentIdx) {
                 status = 'completed';
             } else if (i === currentIdx) {
@@ -159,7 +167,13 @@ export class CycleDetail implements Component {
             stepEl.className = `stepper-step stepper-step--${status}`;
 
             const indicator = el('div', 'stepper-step__indicator');
-            indicator.textContent = status === 'completed' ? '\u2713' : String(i + 1);
+            if (status === 'completed') {
+                indicator.textContent = '\u2713';
+            } else if (status === 'failed') {
+                indicator.textContent = '\u2717';
+            } else {
+                indicator.textContent = String(i + 1);
+            }
             stepEl.appendChild(indicator);
 
             const label = el('div', 'stepper-step__label', CYCLE_STEP_LABELS[step]);
@@ -195,13 +209,81 @@ export class CycleDetail implements Component {
         }
 
         // Action buttons
+        const actions = el('div', 'action-buttons');
+        let hasActions = false;
+
         if (cycle.state === 'plan_ready') {
-            const actions = el('div', 'action-buttons');
             const approveBtn = el('button', 'btn btn--primary', 'Approve Plan');
             approveBtn.dataset.action = 'approve';
             actions.appendChild(approveBtn);
+            hasActions = true;
+        }
+
+        if (cycle.state === 'failed') {
+            const retryBtn = el('button', 'btn btn--primary', 'Retry with Same Prompt');
+            retryBtn.dataset.action = 'retry';
+            actions.appendChild(retryBtn);
+            hasActions = true;
+        }
+
+        if (!TERMINAL_CYCLE_STATES.includes(cycle.state)) {
+            const cancelBtn = el('button', 'btn btn--ghost', 'Cancel Cycle');
+            (cancelBtn as HTMLButtonElement).disabled = true;
+            cancelBtn.title = 'Cancel via CLI: openclaw cycle cancel';
+            cancelBtn.style.opacity = '0.5';
+            actions.appendChild(cancelBtn);
+            hasActions = true;
+        }
+
+        if (hasActions) {
             this.el.appendChild(actions);
         }
+    }
+
+    // ── Completion Summary ──────────────────────────────────────────
+
+    private renderCompletionSummary(): void {
+        const cycle = this.cycle!;
+        if (cycle.state !== 'completed' && cycle.state !== 'failed') return;
+
+        const cards = el('div', 'summary-cards');
+
+        // Duration
+        const created = new Date(cycle.created_at).getTime();
+        const updated = new Date(cycle.updated_at).getTime();
+        const durationMs = updated - created;
+        let durationStr: string;
+        if (durationMs < 3_600_000) {
+            durationStr = `${Math.round(durationMs / 60_000)}m`;
+        } else if (durationMs < 86_400_000) {
+            durationStr = `${(durationMs / 3_600_000).toFixed(1)}h`;
+        } else {
+            durationStr = `${(durationMs / 86_400_000).toFixed(1)}d`;
+        }
+        const durationCard = el('div', 'summary-card');
+        durationCard.appendChild(el('div', 'summary-card__title', 'Duration'));
+        durationCard.appendChild(el('div', 'summary-card__value', durationStr));
+        cards.appendChild(durationCard);
+
+        // Task pass rate
+        const cp = this.getCycleProgress();
+        const passRate = cp.tasksTotal > 0 ? Math.round((cp.tasksPassed / cp.tasksTotal) * 100) : 0;
+        const passCard = el('div', 'summary-card');
+        passCard.appendChild(el('div', 'summary-card__title', 'Tasks Passed'));
+        passCard.appendChild(el('div', 'summary-card__value', `${cp.tasksPassed}/${cp.tasksTotal}`));
+        passCard.appendChild(el('div', 'summary-card__subtitle', `${passRate}% pass rate`));
+        cards.appendChild(passCard);
+
+        // Outcome
+        const outcomeCard = el('div', 'summary-card');
+        outcomeCard.appendChild(el('div', 'summary-card__title', 'Outcome'));
+        outcomeCard.appendChild(el('div', 'summary-card__value', cycle.state === 'completed' ? 'Success' : 'Failed'));
+        if (cycle.failure_reason) {
+            outcomeCard.appendChild(el('div', 'summary-card__subtitle', truncate(cycle.failure_reason, 40)));
+        }
+        cards.appendChild(outcomeCard);
+
+        this.el.appendChild(cards);
     }
 
     // ── Task Progress ─────────────────────────────────────────────
@@ -254,7 +336,12 @@ export class CycleDetail implements Component {
         }
 
         const section = el('div', 'section');
-        section.appendChild(el('h3', 'section-title', 'Plan'));
+        const planHeader = el('div', 'section-header');
+        planHeader.appendChild(el('h3', 'section-title', 'Plan'));
+        if (this.cycleTasks.length > 0) {
+            planHeader.appendChild(el('span', 'section-count', `${this.cycleTasks.length} tasks`));
+        }
+        section.appendChild(planHeader);
 
         // Try to render structured plan from JSON
         const planObj = typeof cycle.plan === 'string' ? this.tryParsePlan(cycle.plan) : cycle.plan;
@@ -376,8 +463,16 @@ export class CycleDetail implements Component {
         meta.appendChild(stateBadge(task.state));
 
         if (task.max_retries > 1) {
+            const attempt = Math.max(1, task.current_attempt);
             meta.appendChild(el('span', 'text-secondary',
-                `Attempt ${task.current_attempt}/${task.max_retries}`));
+                `Attempt ${attempt}/${task.max_retries}`));
+        }
+
+        if ((task.state === 'active' || task.state === 'verifying') && task.updated_at) {
+            const elapsed = Date.now() - new Date(task.updated_at).getTime();
+            const mins = Math.floor(elapsed / 60_000);
+            const label = mins < 1 ? 'Just started' : `Running ${mins}m`;
+            meta.appendChild(el('span', 'text-secondary', label));
         }
 
         if (task.task_key) {
@@ -428,6 +523,22 @@ export class CycleDetail implements Component {
             await store.invalidate(this.instanceId);
         } catch (e) {
             console.error('[cycle-detail] approve error:', e);
+            const msg = e instanceof Error ? e.message : String(e);
+            window.dispatchEvent(new CustomEvent('openclaw:error', { detail: msg }));
+        }
+    }
+
+    private async handleRetry(): Promise<void> {
+        if (!this.cycle) return;
+        const prompt = this.cycle.prompt;
+        if (!confirm(`Create a new cycle with the same prompt?\n\n"${prompt}"`)) return;
+
+        try {
+            const result = await api.createCycle(this.instanceId, { prompt });
+            await store.invalidate(this.instanceId);
+            location.hash = `#/instances/${this.instanceId}/cycles/${result.cycle_id}`;
+        } catch (e) {
+            console.error('[cycle-detail] retry error:', e);
             const msg = e instanceof Error ? e.message : String(e);
             window.dispatchEvent(new CustomEvent('openclaw:error', { detail: msg }));
         }

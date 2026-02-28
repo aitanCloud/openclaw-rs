@@ -208,8 +208,8 @@ export const CYCLE_STEP_LABELS: Record<CycleState, string> = {
     approved: 'Approved',
     running: 'Running',
     blocked: 'Blocked',
-    completing: 'Merging',
-    completed: 'Done',
+    completing: 'Completing',
+    completed: 'Completed',
     failed: 'Failed',
     cancelled: 'Cancelled',
 };

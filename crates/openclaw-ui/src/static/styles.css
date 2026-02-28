@@ -772,6 +772,12 @@ a:hover {
     border: 2px solid var(--border);
 }
 
+.stepper-step--failed .stepper-step__indicator {
+    background: rgba(239, 68, 68, 0.15);
+    color: var(--accent-red);
+    border: 2px solid var(--accent-red);
+}
+
 .stepper-step__label {
     margin-top: 0.4rem;
     font-size: 0.7rem;
@@ -1380,4 +1386,103 @@ a:hover {
 
 ::-webkit-scrollbar-thumb:hover {
     background: var(--text-secondary);
+}
+
+/* ── Section Header Left ─────────────────────────────────────── */
+
+.section-header__left {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+/* ── Toast Notifications ─────────────────────────────────────── */
+
+.toast-container {
+    position: fixed;
+    top: 1rem;
+    right: 1rem;
+    z-index: 10000;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    pointer-events: none;
+}
+
+.toast {
+    pointer-events: auto;
+    padding: 0.75rem 1.25rem;
+    border-radius: var(--radius);
+    font-size: 0.85rem;
+    font-weight: 500;
+    box-shadow: var(--shadow-lg);
+    animation: toast-in 300ms ease forwards;
+    max-width: 400px;
+}
+
+.toast--success {
+    background: var(--accent-green);
+    color: #fff;
+}
+
+.toast--error {
+    background: var(--accent-red);
+    color: #fff;
+}
+
+.toast--info {
+    background: var(--accent-blue);
+    color: #fff;
+}
+
+.toast--exiting {
+    animation: toast-out 300ms ease forwards;
+}
+
+@keyframes toast-in {
+    from { opacity: 0; transform: translateX(100%); }
+    to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes toast-out {
+    from { opacity: 1; transform: translateX(0); }
+    to { opacity: 0; transform: translateX(100%); }
+}
+
+/* ── Login Branding ──────────────────────────────────────────── */
+
+.login-form__logo {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 1rem;
+}
+
+.login-form__logo .top-bar__logo {
+    width: 56px;
+    height: 56px;
+    font-size: 1.25rem;
+}
+
+/* ── Input field ─────────────────────────────────────────────── */
+
+.input {
+    width: 100%;
+    padding: 0.6rem 0.75rem;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    font-size: 0.85rem;
+    font-family: var(--font-sans);
+    transition: border-color var(--transition);
+    box-sizing: border-box;
+}
+
+.input:focus {
+    outline: none;
+    border-color: var(--accent-blue);
+}
+
+.input::placeholder {
+    color: var(--text-secondary);
 }
