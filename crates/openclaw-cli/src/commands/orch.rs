@@ -625,31 +625,35 @@ async fn cycle_approve(pool: &sqlx::PgPool, cycle_id: Uuid) -> Result<()> {
         std::process::exit(1);
     }
 
-    // Emit PlanApproved event via direct SQL
+    // Emit PlanApproved event + update projection atomically
     let now = Utc::now();
     let event_id = Uuid::new_v4();
     let idempotency_key = format!("cli-approve-{}-{}", cycle_id, now.timestamp_millis());
 
-    emit_event(
-        pool,
+    let mut tx = pool.begin().await?;
+
+    let seq = emit_event(
+        &mut tx,
         event_id,
         cycle.instance_id,
         "PlanApproved",
         &serde_json::json!({
             "cycle_id": cycle_id.to_string(),
-            "actor": { "kind": "Admin", "id": "cli" },
+            "actor": { "kind": "Human", "actor_id": "cli-admin" },
         }),
         Some(&idempotency_key),
         now,
     )
     .await?;
 
-    // Update projection table
     sqlx::query("UPDATE orch_cycles SET state = 'approved', updated_at = $1 WHERE id = $2")
         .bind(now)
         .bind(cycle_id)
-        .execute(pool)
+        .execute(&mut *tx)
         .await?;
+
+    tx.commit().await?;
+    notify_event(pool, cycle.instance_id, seq).await;
 
     println!(
         "{} Cycle {} approved.",
@@ -688,35 +692,39 @@ async fn cycle_cancel(pool: &sqlx::PgPool, cycle_id: Uuid, reason: &str) -> Resu
         std::process::exit(1);
     }
 
-    // Emit CycleCancelled event
+    // Emit CycleCancelled event + update projection atomically
     let now = Utc::now();
     let event_id = Uuid::new_v4();
     let idempotency_key = format!("cli-cancel-{}-{}", cycle_id, now.timestamp_millis());
 
-    emit_event(
-        pool,
+    let mut tx = pool.begin().await?;
+
+    let seq = emit_event(
+        &mut tx,
         event_id,
         cycle.instance_id,
         "CycleCancelled",
         &serde_json::json!({
             "cycle_id": cycle_id.to_string(),
             "reason": reason,
-            "actor": { "kind": "Admin", "id": "cli" },
+            "actor": { "kind": "Human", "actor_id": "cli-admin" },
         }),
         Some(&idempotency_key),
         now,
     )
     .await?;
 
-    // Update projection table
     sqlx::query(
         "UPDATE orch_cycles SET state = 'cancelled', cancel_reason = $1, updated_at = $2 WHERE id = $3",
     )
     .bind(reason)
     .bind(now)
     .bind(cycle_id)
-    .execute(pool)
+    .execute(&mut *tx)
     .await?;
+
+    tx.commit().await?;
+    notify_event(pool, cycle.instance_id, seq).await;
 
     println!(
         "{} Cycle {} cancelled (reason: {}).",
@@ -769,30 +777,34 @@ async fn maintenance_enter(
         now.timestamp_millis()
     );
 
-    // Emit InstanceBlocked event
-    emit_event(
-        pool,
+    // Emit InstanceBlocked event + update projection atomically
+    let mut tx = pool.begin().await?;
+
+    let seq = emit_event(
+        &mut tx,
         event_id,
         instance_id,
         "InstanceBlocked",
         &serde_json::json!({
             "reason": "Maintenance",
             "details": details,
-            "actor": { "kind": "Admin", "id": "cli" },
+            "actor": { "kind": "Human", "actor_id": "cli-admin" },
         }),
         Some(&idempotency_key),
         now,
     )
     .await?;
 
-    // Update projection table
     sqlx::query(
         "UPDATE orch_instances SET state = 'blocked', block_reason = 'Maintenance', last_heartbeat = $1 WHERE id = $2",
     )
     .bind(now)
     .bind(instance_id)
-    .execute(pool)
+    .execute(&mut *tx)
     .await?;
+
+    tx.commit().await?;
+    notify_event(pool, instance_id, seq).await;
 
     println!(
         "{} Instance {} entered maintenance mode.",
@@ -837,28 +849,32 @@ async fn maintenance_exit(pool: &sqlx::PgPool, instance_id: Uuid) -> Result<()> 
         now.timestamp_millis()
     );
 
-    // Emit InstanceUnblocked event
-    emit_event(
-        pool,
+    // Emit InstanceUnblocked event + update projection atomically
+    let mut tx = pool.begin().await?;
+
+    let seq = emit_event(
+        &mut tx,
         event_id,
         instance_id,
         "InstanceUnblocked",
         &serde_json::json!({
-            "actor": { "kind": "Admin", "id": "cli" },
+            "actor": { "kind": "Human", "actor_id": "cli-admin" },
         }),
         Some(&idempotency_key),
         now,
     )
     .await?;
 
-    // Update projection table
     sqlx::query(
         "UPDATE orch_instances SET state = 'active', block_reason = NULL, last_heartbeat = $1 WHERE id = $2",
     )
     .bind(now)
     .bind(instance_id)
-    .execute(pool)
+    .execute(&mut *tx)
     .await?;
+
+    tx.commit().await?;
+    notify_event(pool, instance_id, seq).await;
 
     println!(
         "{} Instance {} exited maintenance mode.",
@@ -901,29 +917,33 @@ async fn resume_instance(pool: &sqlx::PgPool, instance_id: Uuid) -> Result<()> {
     let event_id = Uuid::new_v4();
     let idempotency_key = format!("cli-resume-{}-{}", instance_id, now.timestamp_millis());
 
-    // Emit InstanceUnblocked event
-    emit_event(
-        pool,
+    // Emit InstanceUnblocked event + update projection atomically
+    let mut tx = pool.begin().await?;
+
+    let seq = emit_event(
+        &mut tx,
         event_id,
         instance_id,
         "InstanceUnblocked",
         &serde_json::json!({
             "previous_block_reason": state.block_reason,
-            "actor": { "kind": "Admin", "id": "cli" },
+            "actor": { "kind": "Human", "actor_id": "cli-admin" },
         }),
         Some(&idempotency_key),
         now,
     )
     .await?;
 
-    // Update projection table
     sqlx::query(
         "UPDATE orch_instances SET state = 'active', block_reason = NULL, last_heartbeat = $1 WHERE id = $2",
     )
     .bind(now)
     .bind(instance_id)
-    .execute(pool)
+    .execute(&mut *tx)
     .await?;
+
+    tx.commit().await?;
+    notify_event(pool, instance_id, seq).await;
 
     println!(
         "{} Instance {} resumed (was blocked: {}).",
@@ -940,12 +960,13 @@ async fn resume_instance(pool: &sqlx::PgPool, instance_id: Uuid) -> Result<()> {
 
 // ── Event emission helper ──
 
-/// Emit an event via direct SQL INSERT into orch_events.
+/// Emit an event via direct SQL INSERT into orch_events within a transaction.
 ///
 /// This mirrors the PgEventStore::emit() logic but without requiring the full
 /// event store infrastructure. Sequence numbers are computed atomically.
+/// The caller must pass a mutable reference to an active transaction.
 async fn emit_event(
-    pool: &sqlx::PgPool,
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     event_id: Uuid,
     instance_id: Uuid,
     event_type: &str,
@@ -957,7 +978,7 @@ async fn emit_event(
     let max_seq: Option<i64> =
         sqlx::query_scalar("SELECT MAX(seq) FROM orch_events WHERE instance_id = $1")
             .bind(instance_id)
-            .fetch_one(pool)
+            .fetch_one(&mut **tx)
             .await?;
     let seq = max_seq.unwrap_or(0) + 1;
 
@@ -965,9 +986,10 @@ async fn emit_event(
         r#"
         INSERT INTO orch_events (
             event_id, instance_id, seq, event_type, event_version,
-            payload, idempotency_key, occurred_at, recorded_at
+            payload, idempotency_key, correlation_id, causation_id,
+            occurred_at, recorded_at
         )
-        VALUES ($1, $2, $3, $4, 1, $5, $6, $7, now())
+        VALUES ($1, $2, $3, $4, 1, $5, $6, NULL, NULL, $7, now())
         ON CONFLICT (instance_id, idempotency_key)
             WHERE idempotency_key IS NOT NULL
             DO UPDATE SET recorded_at = orch_events.recorded_at
@@ -981,17 +1003,19 @@ async fn emit_event(
     .bind(payload)
     .bind(idempotency_key)
     .bind(occurred_at)
-    .fetch_one(pool)
+    .fetch_one(&mut **tx)
     .await?;
 
-    // Best-effort NOTIFY for cross-process subscribers
-    let notify_payload = format!("{}:{}", instance_id, result);
+    Ok(result)
+}
+
+/// Best-effort NOTIFY for cross-process subscribers. Called after tx.commit().
+async fn notify_event(pool: &sqlx::PgPool, instance_id: Uuid, seq: i64) {
+    let payload = format!("{}:{}", instance_id, seq);
     let _ = sqlx::query("SELECT pg_notify('orch_events_channel', $1)")
-        .bind(&notify_payload)
+        .bind(&payload)
         .execute(pool)
         .await;
-
-    Ok(result)
 }
 
 // ── Formatting helpers ──
