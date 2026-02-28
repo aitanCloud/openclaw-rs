@@ -171,6 +171,45 @@ export interface InstanceViewModel {
     totalSpentCents: number;
 }
 
+/** Cycle progress summary for dashboard display. */
+export interface CycleProgress {
+    cycle: Cycle;
+    tasks: Task[];
+    tasksPassed: number;
+    tasksFailed: number;
+    tasksRunning: number;
+    tasksTotal: number;
+}
+
+/** Ordered cycle states for stepper display. */
+export const CYCLE_STEPS: CycleState[] = [
+    'planning',
+    'plan_review',
+    'approved',
+    'executing',
+    'merging',
+    'completed',
+];
+
+/** Terminal cycle states. */
+export const TERMINAL_CYCLE_STATES: CycleState[] = [
+    'completed',
+    'failed',
+    'cancelled',
+];
+
+/** Stepper labels for cycle states. */
+export const CYCLE_STEP_LABELS: Record<CycleState, string> = {
+    planning: 'Planning',
+    plan_review: 'Review',
+    approved: 'Approved',
+    executing: 'Executing',
+    merging: 'Merging',
+    completed: 'Done',
+    failed: 'Failed',
+    cancelled: 'Cancelled',
+};
+
 /** Central application state. */
 export interface AppState {
     instances: Map<string, InstanceViewModel>;

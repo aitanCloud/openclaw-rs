@@ -1,8 +1,9 @@
-import type { AppState, Component, Instance } from '../types';
-import { el, clearChildren, stateBadge, timeAgo, delegateClick, truncate } from '../utils';
+import type { AppState, Component, Instance, InstanceViewModel, CycleProgress } from '../types';
+import { TERMINAL_CYCLE_STATES, CYCLE_STEP_LABELS } from '../types';
+import { el, clearChildren, stateBadge, timeAgo, formatCents, truncate, delegateClick } from '../utils';
 
 /**
- * Instance list view — shows all orchestrator instances with state badges.
+ * Instance dashboard — project-oriented cards instead of a flat table.
  * Route: #/
  */
 export class InstanceList implements Component {
@@ -14,7 +15,6 @@ export class InstanceList implements Component {
         this.el = el('div', 'instance-list');
         container.appendChild(this.el);
 
-        // Delegate clicks on instance rows
         const dispose = delegateClick(this.el, '[data-instance-id]', (target) => {
             const id = target.dataset.instanceId;
             if (id) {
@@ -25,7 +25,10 @@ export class InstanceList implements Component {
     }
 
     update(state: AppState): void {
-        const key = JSON.stringify(state.instanceList.map(i => `${i.id}:${i.state}:${i.last_heartbeat}`));
+        const key = JSON.stringify(
+            state.instanceList.map(i => `${i.id}:${i.state}:${i.last_heartbeat}`) +
+            [...state.instances.keys()].join(','),
+        );
         if (key === this.renderKey) return;
         this.renderKey = key;
 
@@ -45,26 +48,19 @@ export class InstanceList implements Component {
         }
 
         if (state.instanceList.length === 0) {
-            this.el.appendChild(el('div', 'empty-state', 'No instances found. Create one to get started.'));
+            this.el.appendChild(
+                el('div', 'empty-state', 'No instances deployed. Use the CLI to create one.'),
+            );
             return;
         }
 
-        // Table
-        const table = el('table', 'data-table');
-        const thead = el('thead');
-        const headerRow = el('tr');
-        for (const col of ['Name', 'State', 'Project', 'Last Heartbeat']) {
-            headerRow.appendChild(el('th', '', col));
-        }
-        thead.appendChild(headerRow);
-        table.appendChild(thead);
-
-        const tbody = el('tbody');
+        // Cards grid
+        const grid = el('div', 'instance-cards');
         for (const instance of state.instanceList) {
-            tbody.appendChild(this.renderRow(instance));
+            const vm = state.instances.get(instance.id);
+            grid.appendChild(this.renderCard(instance, vm ?? null));
         }
-        table.appendChild(tbody);
-        this.el.appendChild(table);
+        this.el.appendChild(grid);
     }
 
     destroy(): void {
@@ -72,36 +68,107 @@ export class InstanceList implements Component {
         this.el.remove();
     }
 
-    private renderRow(instance: Instance): HTMLElement {
-        const row = el('tr', 'data-table__row clickable');
-        row.dataset.instanceId = instance.id;
+    // ── Card rendering ────────────────────────────────────────────
 
-        // Name cell
-        const nameCell = el('td', 'data-table__cell');
-        const nameText = el('span', 'instance-name', truncate(instance.name, 40));
-        const idText = el('span', 'instance-id', instance.id.slice(0, 8));
-        nameCell.appendChild(nameText);
-        nameCell.appendChild(idText);
-        row.appendChild(nameCell);
+    private renderCard(instance: Instance, vm: InstanceViewModel | null): HTMLElement {
+        const card = el('div', 'instance-card');
+        card.dataset.instanceId = instance.id;
 
-        // State cell
-        const stateCell = el('td', 'data-table__cell');
-        stateCell.appendChild(stateBadge(instance.state));
+        // Header: name + state
+        const header = el('div', 'instance-card__header');
+        const name = el('span', 'instance-card__name', instance.name);
+        header.appendChild(name);
+
+        const stateContainer = el('span', 'instance-card__state');
+        stateContainer.appendChild(stateBadge(instance.state));
+        header.appendChild(stateContainer);
+        card.appendChild(header);
+
+        // Block reason banner
         if (instance.block_reason) {
-            const reason = el('span', 'block-reason', instance.block_reason);
-            stateCell.appendChild(reason);
+            const banner = el('div', 'alert alert--warning mt-0');
+            banner.style.marginTop = '0';
+            banner.textContent = instance.block_reason;
+            card.appendChild(banner);
         }
-        row.appendChild(stateCell);
 
-        // Project ID cell
-        const projectCell = el('td', 'data-table__cell mono', instance.project_id.slice(0, 8));
-        row.appendChild(projectCell);
+        // Active cycle preview (if ViewModel is cached)
+        if (vm) {
+            const activeCycleProgress = this.getActiveCycle(vm);
+            if (activeCycleProgress) {
+                card.appendChild(this.renderCyclePreview(activeCycleProgress));
+            }
+        }
 
-        // Last heartbeat cell
-        const hbCell = el('td', 'data-table__cell text-secondary', timeAgo(instance.last_heartbeat));
-        hbCell.title = instance.last_heartbeat;
-        row.appendChild(hbCell);
+        // Footer: health + budget + last activity
+        const footer = el('div', 'instance-card__footer');
 
-        return row;
+        // Health indicator
+        const healthMeta = el('span', 'instance-card__meta');
+        healthMeta.appendChild(this.healthDot(instance.last_heartbeat));
+        healthMeta.appendChild(document.createTextNode(timeAgo(instance.last_heartbeat)));
+        footer.appendChild(healthMeta);
+
+        // Budget (if available)
+        if (vm && vm.totalSpentCents > 0) {
+            footer.appendChild(el('span', 'instance-card__meta', formatCents(vm.totalSpentCents)));
+        }
+
+        card.appendChild(footer);
+        return card;
+    }
+
+    private renderCyclePreview(cp: CycleProgress): HTMLElement {
+        const wrapper = el('div', 'instance-card__cycle');
+
+        const label = el('div', 'instance-card__cycle-label', 'Active Cycle');
+        wrapper.appendChild(label);
+
+        const prompt = el('div', 'instance-card__cycle-prompt', truncate(cp.cycle.prompt, 80));
+        wrapper.appendChild(prompt);
+
+        const stateRow = el('div', 'instance-card__cycle-state');
+        stateRow.appendChild(stateBadge(cp.cycle.state));
+
+        if (cp.tasksTotal > 0) {
+            const progress = el(
+                'span',
+                'text-secondary',
+                `${cp.tasksPassed}/${cp.tasksTotal} tasks`,
+            );
+            stateRow.appendChild(progress);
+        }
+
+        wrapper.appendChild(stateRow);
+        return wrapper;
+    }
+
+    // ── Helpers ────────────────────────────────────────────────────
+
+    private getActiveCycle(vm: InstanceViewModel): CycleProgress | null {
+        const active = vm.cycles.find(
+            c => !TERMINAL_CYCLE_STATES.includes(c.state),
+        );
+        if (!active) return null;
+
+        const tasks = vm.tasks.filter(t => t.cycle_id === active.id);
+        return {
+            cycle: active,
+            tasks,
+            tasksPassed: tasks.filter(t => t.state === 'completed').length,
+            tasksFailed: tasks.filter(t => t.state === 'failed').length,
+            tasksRunning: tasks.filter(t => t.state === 'running').length,
+            tasksTotal: tasks.length,
+        };
+    }
+
+    private healthDot(heartbeat: string): HTMLElement {
+        const diff = Date.now() - new Date(heartbeat).getTime();
+        let cls = 'health-dot health-dot--stale';
+        if (diff < 60_000) cls = 'health-dot health-dot--good';
+        else if (diff < 300_000) cls = 'health-dot health-dot--warn';
+        else if (diff < 600_000) cls = 'health-dot health-dot--bad';
+
+        return el('span', cls);
     }
 }
