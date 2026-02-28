@@ -73,10 +73,10 @@ impl Scheduler {
             .map_err(|e| AppError::Infra(InfraError::Database(e.to_string())))?;
 
         // 1. Acquire advisory lock scoped to the instance (released on tx commit/rollback)
-        let (hi, lo) = advisory_lock_key(instance_id);
-        sqlx::query("SELECT pg_advisory_xact_lock($1, $2)")
+        // Single-arg form takes bigint (i64). We use the first 64 bits of the UUID.
+        let (hi, _lo) = advisory_lock_key(instance_id);
+        sqlx::query("SELECT pg_advisory_xact_lock($1)")
             .bind(hi)
-            .bind(lo)
             .execute(&mut *tx)
             .await
             .map_err(|e| AppError::Infra(InfraError::Database(e.to_string())))?;

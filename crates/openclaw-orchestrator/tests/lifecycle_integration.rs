@@ -58,17 +58,28 @@ impl ProjectorDispatcher {
 }
 
 /// Emit an event via the event store, then dispatch it to all matching projectors.
+///
+/// For `InstanceCreated`, we project first (to satisfy FK constraints on orch_events),
+/// then emit the event. For all other events, we emit first, then project.
 async fn emit_and_project(
     event_store: &PgEventStore,
     dispatcher: &ProjectorDispatcher,
     pool: &PgPool,
     event: EventEnvelope,
 ) -> Result<i64, Box<dyn std::error::Error>> {
-    let seq = event_store.emit(event.clone()).await?;
-    let mut projected = event;
-    projected.seq = seq;
-    dispatcher.dispatch(&projected, pool).await?;
-    Ok(seq)
+    if event.event_type == "InstanceCreated" {
+        // orch_events.instance_id FK requires the instance row to exist first.
+        // Project the InstanceCreated event (creates the row), then emit.
+        dispatcher.dispatch(&event, pool).await?;
+        let seq = event_store.emit(event).await?;
+        Ok(seq)
+    } else {
+        let seq = event_store.emit(event.clone()).await?;
+        let mut projected = event;
+        projected.seq = seq;
+        dispatcher.dispatch(&projected, pool).await?;
+        Ok(seq)
+    }
 }
 
 /// Build an EventEnvelope with sensible defaults. The `seq` field is set to 0;
