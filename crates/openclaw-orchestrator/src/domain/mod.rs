@@ -5,4 +5,5 @@ pub mod git;
 pub mod ports;
 pub mod states;
 pub mod types;
+pub mod verification;
 pub mod worker;

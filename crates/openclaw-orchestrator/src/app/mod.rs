@@ -7,4 +7,5 @@ pub mod reconciler;
 pub mod run_projector;
 pub mod scheduler;
 pub mod task_projector;
+pub mod verifier;
 pub mod worker_service;
