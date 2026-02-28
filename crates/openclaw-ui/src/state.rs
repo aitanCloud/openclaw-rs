@@ -28,6 +28,8 @@ pub struct ApiConfig {
     pub default_page_limit: u32,
     /// Maximum pagination limit.
     pub max_page_limit: u32,
+    /// Maximum WebSocket events per second per connection (0 = unlimited).
+    pub max_ws_events_per_sec: u32,
 }
 
 impl ApiConfig {
@@ -45,12 +47,17 @@ impl ApiConfig {
             .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(100);
+        let max_ws_events_per_sec = std::env::var("OPENCLAW_WS_RATE_LIMIT")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(100);
 
         Ok(Self {
             auth_token_hash,
             listen_addr,
             default_page_limit,
             max_page_limit,
+            max_ws_events_per_sec,
         })
     }
 }
@@ -66,10 +73,12 @@ mod tests {
             listen_addr: "127.0.0.1:3130".to_string(),
             default_page_limit: 50,
             max_page_limit: 100,
+            max_ws_events_per_sec: 100,
         };
         assert_eq!(config.default_page_limit, 50);
         assert_eq!(config.max_page_limit, 100);
         assert_eq!(config.listen_addr, "127.0.0.1:3130");
+        assert_eq!(config.max_ws_events_per_sec, 100);
     }
 
     #[test]

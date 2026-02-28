@@ -140,6 +140,7 @@ mod tests {
                 listen_addr: "127.0.0.1:0".to_string(),
                 default_page_limit: 50,
                 max_page_limit: 100,
+                max_ws_events_per_sec: 100,
             },
         }
     }

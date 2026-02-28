@@ -3,7 +3,7 @@
 //! Protocol:
 //! 1. Client connects to `/api/v1/instances/{id}/events/ws`
 //! 2. Client sends `{ "type": "auth", "token": "..." }` within 5 seconds
-//! 3. Client sends `{ "type": "subscribe", "since_seq": N }`
+//! 3. Client sends `{ "type": "subscribe", "since_seq": N, "event_types": [...] }`
 //! 4. Server replays events with seq > N, then sends `backfill_complete`
 //! 5. Server enters live mode: wakes on broadcast, fetches from DB
 //! 6. Heartbeat every 30 seconds if idle
@@ -20,6 +20,7 @@ use axum::{
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
+use tokio::time::Instant;
 use tracing::{debug, instrument, warn};
 use uuid::Uuid;
 
@@ -36,8 +37,16 @@ use crate::state::AppState;
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ClientMessage {
-    Auth { token: String },
-    Subscribe { since_seq: i64 },
+    Auth {
+        token: String,
+    },
+    Subscribe {
+        since_seq: i64,
+        /// Optional list of event types to receive. If `None` or empty,
+        /// all events are sent (except `WorkerOutput` which is always filtered).
+        #[serde(default)]
+        event_types: Option<Vec<String>>,
+    },
 }
 
 /// Messages the server sends to the client.
@@ -58,6 +67,9 @@ pub enum ServerMessage {
     Error {
         message: String,
     },
+    /// Sent when the broadcast channel overflows (lagged).
+    /// Client should reconnect and re-subscribe from their last known seq.
+    Reconnect,
 }
 
 impl ServerMessage {
@@ -76,6 +88,72 @@ const AUTH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// Interval between heartbeat messages when idle.
 const HEARTBEAT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// Event type that is always filtered out from WebSocket streams.
+const FILTERED_EVENT_TYPE: &str = "WorkerOutput";
+
+// ── Rate limiter ───────────────────────────────────────────────────
+
+/// Simple per-connection token-bucket rate limiter (events per second).
+struct RateLimiter {
+    max_per_sec: u32,
+    count: u32,
+    window_start: Instant,
+}
+
+impl RateLimiter {
+    fn new(max_per_sec: u32) -> Self {
+        Self {
+            max_per_sec,
+            count: 0,
+            window_start: Instant::now(),
+        }
+    }
+
+    /// Check if we can send another event. If the limit is exceeded,
+    /// sleep until the next second window boundary then reset.
+    async fn acquire(&mut self) {
+        if self.max_per_sec == 0 {
+            return; // unlimited
+        }
+
+        let elapsed = self.window_start.elapsed();
+        if elapsed >= std::time::Duration::from_secs(1) {
+            // New window
+            self.window_start = Instant::now();
+            self.count = 0;
+        }
+
+        if self.count >= self.max_per_sec {
+            // Sleep until next second boundary
+            let remaining = std::time::Duration::from_secs(1) - elapsed;
+            tokio::time::sleep(remaining).await;
+            self.window_start = Instant::now();
+            self.count = 0;
+        }
+
+        self.count += 1;
+    }
+}
+
+// ── Event filter helper ────────────────────────────────────────────
+
+/// Returns true if the event should be sent to the client.
+fn should_send_event(event: &EventEnvelope, event_types: &Option<Vec<String>>) -> bool {
+    // Always filter out WorkerOutput
+    if event.event_type == FILTERED_EVENT_TYPE {
+        return false;
+    }
+
+    // If client specified event_types filter, apply it
+    if let Some(types) = event_types {
+        if !types.is_empty() {
+            return types.iter().any(|t| t == &event.event_type);
+        }
+    }
+
+    true
+}
 
 // ── Handler ────────────────────────────────────────────────────────
 
@@ -106,8 +184,8 @@ async fn handle_socket(mut socket: WebSocket, instance_id: Uuid, state: Arc<AppS
     debug!(instance_id = %instance_id, "ws authenticated");
 
     // ── Phase 2: Subscribe + backfill ──────────────────────────
-    let since_seq = match wait_for_subscribe(&mut socket).await {
-        Ok(seq) => seq,
+    let (since_seq, event_types) = match wait_for_subscribe(&mut socket).await {
+        Ok(result) => result,
         Err(msg) => {
             let _ = socket
                 .send(ServerMessage::Error { message: msg }.into_ws_message())
@@ -117,7 +195,15 @@ async fn handle_socket(mut socket: WebSocket, instance_id: Uuid, state: Arc<AppS
         }
     };
 
-    let last_sent_seq = match do_backfill(&mut socket, instance_id, since_seq, &state).await {
+    let last_sent_seq = match do_backfill(
+        &mut socket,
+        instance_id,
+        since_seq,
+        &event_types,
+        &state,
+    )
+    .await
+    {
         Ok(seq) => seq,
         Err(msg) => {
             let _ = socket
@@ -130,7 +216,17 @@ async fn handle_socket(mut socket: WebSocket, instance_id: Uuid, state: Arc<AppS
 
     // ── Phase 3: Live streaming ────────────────────────────────
     let rx = state.event_tx.subscribe();
-    live_loop(&mut socket, instance_id, last_sent_seq, rx, &state).await;
+    let rate_limiter = RateLimiter::new(state.config.max_ws_events_per_sec);
+    live_loop(
+        &mut socket,
+        instance_id,
+        last_sent_seq,
+        rx,
+        &event_types,
+        rate_limiter,
+        &state,
+    )
+    .await;
 }
 
 /// Wait for the client's auth message within the timeout.
@@ -159,7 +255,11 @@ async fn wait_for_auth(
 }
 
 /// Wait for the client's subscribe message (reuses auth timeout).
-async fn wait_for_subscribe(socket: &mut WebSocket) -> Result<i64, String> {
+///
+/// Returns `(since_seq, event_types)`.
+async fn wait_for_subscribe(
+    socket: &mut WebSocket,
+) -> Result<(i64, Option<Vec<String>>), String> {
     let msg = tokio::time::timeout(AUTH_TIMEOUT, recv_text(socket))
         .await
         .map_err(|_| "subscribe timeout: no subscribe message within 5 seconds".to_string())?
@@ -169,7 +269,10 @@ async fn wait_for_subscribe(socket: &mut WebSocket) -> Result<i64, String> {
         serde_json::from_str(&msg).map_err(|e| format!("invalid subscribe message: {e}"))?;
 
     match client_msg {
-        ClientMessage::Subscribe { since_seq } => Ok(since_seq),
+        ClientMessage::Subscribe {
+            since_seq,
+            event_types,
+        } => Ok((since_seq, event_types)),
         _ => Err("expected subscribe message".to_string()),
     }
 }
@@ -181,6 +284,7 @@ async fn do_backfill(
     socket: &mut WebSocket,
     instance_id: Uuid,
     since_seq: i64,
+    event_types: &Option<Vec<String>>,
     state: &AppState,
 ) -> Result<i64, String> {
     let events = state
@@ -191,6 +295,9 @@ async fn do_backfill(
 
     let mut last_sent = since_seq;
     for event in &events {
+        if !should_send_event(event, event_types) {
+            continue;
+        }
         let msg = ServerMessage::Event {
             seq: event.seq,
             event: event.clone(),
@@ -202,8 +309,16 @@ async fn do_backfill(
         last_sent = event.seq;
     }
 
-    // head_seq is the max seq we just sent (which is the DB head for this instance)
-    let head_seq = last_sent;
+    // Fix 2: head_seq is the actual DB head, not the last event we sent.
+    // These can differ when since_seq is already at head (no events replayed)
+    // or when event filtering skips some events.
+    let head_seq: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(MAX(seq), 0) FROM orch_events WHERE instance_id = $1",
+    )
+    .bind(instance_id)
+    .fetch_one(&state.pool)
+    .await
+    .map_err(|e| format!("head_seq query failed: {e}"))?;
 
     socket
         .send(
@@ -220,6 +335,7 @@ async fn do_backfill(
         instance_id = %instance_id,
         since_seq,
         last_sent,
+        head_seq,
         "backfill complete"
     );
 
@@ -232,6 +348,8 @@ async fn live_loop(
     instance_id: Uuid,
     mut last_sent_seq: i64,
     mut rx: broadcast::Receiver<EventEnvelope>,
+    event_types: &Option<Vec<String>>,
+    mut rate_limiter: RateLimiter,
     state: &AppState,
 ) {
     let mut heartbeat = tokio::time::interval(HEARTBEAT_INTERVAL);
@@ -253,7 +371,14 @@ async fn live_loop(
 
                         // Wake-up pattern: always fetch from DB, never send
                         // directly from the broadcast payload.
-                        match fetch_and_send(socket, instance_id, &mut last_sent_seq, state).await {
+                        match fetch_and_send(
+                            socket,
+                            instance_id,
+                            &mut last_sent_seq,
+                            event_types,
+                            &mut rate_limiter,
+                            state,
+                        ).await {
                             Ok(()) => {},
                             Err(e) => {
                                 warn!(instance_id = %instance_id, error = %e, "live send error");
@@ -262,11 +387,10 @@ async fn live_loop(
                         }
                     }
                     Err(broadcast::error::RecvError::Lagged(n)) => {
+                        // Fix 1: Send "reconnect" instead of "error"
                         warn!(instance_id = %instance_id, lagged = n, "broadcast lagged");
                         let _ = socket
-                            .send(ServerMessage::Error {
-                                message: "lagged".to_string(),
-                            }.into_ws_message())
+                            .send(ServerMessage::Reconnect.into_ws_message())
                             .await;
                         let _ = socket.close().await;
                         return;
@@ -318,6 +442,8 @@ async fn fetch_and_send(
     socket: &mut WebSocket,
     instance_id: Uuid,
     last_sent_seq: &mut i64,
+    event_types: &Option<Vec<String>>,
+    rate_limiter: &mut RateLimiter,
     state: &AppState,
 ) -> Result<(), String> {
     let events = state
@@ -327,6 +453,17 @@ async fn fetch_and_send(
         .map_err(|e| format!("live replay failed: {e}"))?;
 
     for event in &events {
+        // Fix 4 + Fix 5: filter WorkerOutput and apply client event_types filter
+        if !should_send_event(event, event_types) {
+            // Still advance last_sent_seq past filtered events so we don't
+            // re-fetch them on the next wake-up.
+            *last_sent_seq = event.seq;
+            continue;
+        }
+
+        // Fix 3: Rate limiting
+        rate_limiter.acquire().await;
+
         let msg = ServerMessage::Event {
             seq: event.seq,
             event: event.clone(),
@@ -387,7 +524,13 @@ mod tests {
         let json = r#"{"type": "subscribe", "since_seq": 42}"#;
         let msg: ClientMessage = serde_json::from_str(json).unwrap();
         match msg {
-            ClientMessage::Subscribe { since_seq } => assert_eq!(since_seq, 42),
+            ClientMessage::Subscribe {
+                since_seq,
+                event_types,
+            } => {
+                assert_eq!(since_seq, 42);
+                assert!(event_types.is_none());
+            }
             _ => panic!("expected Subscribe variant"),
         }
     }
@@ -397,7 +540,50 @@ mod tests {
         let json = r#"{"type": "subscribe", "since_seq": 0}"#;
         let msg: ClientMessage = serde_json::from_str(json).unwrap();
         match msg {
-            ClientMessage::Subscribe { since_seq } => assert_eq!(since_seq, 0),
+            ClientMessage::Subscribe {
+                since_seq,
+                event_types,
+            } => {
+                assert_eq!(since_seq, 0);
+                assert!(event_types.is_none());
+            }
+            _ => panic!("expected Subscribe variant"),
+        }
+    }
+
+    #[test]
+    fn deserialize_subscribe_with_event_types() {
+        let json =
+            r#"{"type": "subscribe", "since_seq": 0, "event_types": ["CycleCreated", "RunCompleted"]}"#;
+        let msg: ClientMessage = serde_json::from_str(json).unwrap();
+        match msg {
+            ClientMessage::Subscribe {
+                since_seq,
+                event_types,
+            } => {
+                assert_eq!(since_seq, 0);
+                let types = event_types.unwrap();
+                assert_eq!(types.len(), 2);
+                assert_eq!(types[0], "CycleCreated");
+                assert_eq!(types[1], "RunCompleted");
+            }
+            _ => panic!("expected Subscribe variant"),
+        }
+    }
+
+    #[test]
+    fn deserialize_subscribe_with_empty_event_types() {
+        let json = r#"{"type": "subscribe", "since_seq": 5, "event_types": []}"#;
+        let msg: ClientMessage = serde_json::from_str(json).unwrap();
+        match msg {
+            ClientMessage::Subscribe {
+                since_seq,
+                event_types,
+            } => {
+                assert_eq!(since_seq, 5);
+                let types = event_types.unwrap();
+                assert!(types.is_empty());
+            }
             _ => panic!("expected Subscribe variant"),
         }
     }
@@ -475,11 +661,18 @@ mod tests {
     #[test]
     fn serialize_error_message() {
         let msg = ServerMessage::Error {
-            message: "lagged".to_string(),
+            message: "something broke".to_string(),
         };
         let json = serde_json::to_string(&msg).unwrap();
         assert!(json.contains(r#""type":"error""#));
-        assert!(json.contains(r#""message":"lagged""#));
+        assert!(json.contains(r#""message":"something broke""#));
+    }
+
+    #[test]
+    fn serialize_reconnect_message() {
+        let msg = ServerMessage::Reconnect;
+        let json = serde_json::to_string(&msg).unwrap();
+        assert_eq!(json, r#"{"type":"reconnect"}"#);
     }
 
     #[test]
@@ -496,6 +689,96 @@ mod tests {
         }
     }
 
+    #[test]
+    fn reconnect_into_ws_message() {
+        let msg = ServerMessage::Reconnect;
+        let ws_msg = msg.into_ws_message();
+        match ws_msg {
+            Message::Text(text) => {
+                let v: serde_json::Value = serde_json::from_str(&text).unwrap();
+                assert_eq!(v["type"], "reconnect");
+                // Should have no other fields
+                assert_eq!(v.as_object().unwrap().len(), 1);
+            }
+            _ => panic!("expected Text message"),
+        }
+    }
+
+    // ── Event filter tests ──
+
+    fn make_envelope(event_type: &str) -> EventEnvelope {
+        EventEnvelope {
+            event_id: Uuid::nil(),
+            instance_id: Uuid::nil(),
+            seq: 1,
+            event_type: event_type.to_string(),
+            event_version: 1,
+            payload: serde_json::json!({}),
+            idempotency_key: None,
+            correlation_id: None,
+            causation_id: None,
+            occurred_at: Utc::now(),
+            recorded_at: Utc::now(),
+        }
+    }
+
+    #[test]
+    fn worker_output_always_filtered() {
+        let event = make_envelope("WorkerOutput");
+        assert!(!should_send_event(&event, &None));
+        assert!(!should_send_event(
+            &event,
+            &Some(vec!["WorkerOutput".to_string()])
+        ));
+    }
+
+    #[test]
+    fn no_filter_passes_non_worker_output() {
+        let event = make_envelope("CycleCreated");
+        assert!(should_send_event(&event, &None));
+    }
+
+    #[test]
+    fn empty_filter_passes_all_non_worker_output() {
+        let event = make_envelope("CycleCreated");
+        assert!(should_send_event(&event, &Some(vec![])));
+    }
+
+    #[test]
+    fn event_type_filter_includes_matching() {
+        let event = make_envelope("CycleCreated");
+        let filter = Some(vec!["CycleCreated".to_string(), "RunCompleted".to_string()]);
+        assert!(should_send_event(&event, &filter));
+    }
+
+    #[test]
+    fn event_type_filter_excludes_non_matching() {
+        let event = make_envelope("TaskScheduled");
+        let filter = Some(vec!["CycleCreated".to_string(), "RunCompleted".to_string()]);
+        assert!(!should_send_event(&event, &filter));
+    }
+
+    // ── Rate limiter tests ──
+
+    #[tokio::test]
+    async fn rate_limiter_unlimited() {
+        let mut limiter = RateLimiter::new(0);
+        // Should not block even with many calls
+        for _ in 0..1000 {
+            limiter.acquire().await;
+        }
+    }
+
+    #[tokio::test]
+    async fn rate_limiter_counts_within_window() {
+        let mut limiter = RateLimiter::new(10);
+        // First 10 should pass instantly
+        for _ in 0..10 {
+            limiter.acquire().await;
+        }
+        assert_eq!(limiter.count, 10);
+    }
+
     // ── Constants ──
 
     #[test]
@@ -506,5 +789,10 @@ mod tests {
     #[test]
     fn heartbeat_interval_is_30_seconds() {
         assert_eq!(HEARTBEAT_INTERVAL, std::time::Duration::from_secs(30));
+    }
+
+    #[test]
+    fn filtered_event_type_is_worker_output() {
+        assert_eq!(FILTERED_EVENT_TYPE, "WorkerOutput");
     }
 }
