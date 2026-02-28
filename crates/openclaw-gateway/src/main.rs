@@ -8,6 +8,7 @@ mod discord_handler;
 mod doctor;
 mod handler;
 mod handler_utils;
+mod orch_commands;
 mod metrics;
 mod ratelimit;
 mod subagent_registry;
@@ -40,7 +41,7 @@ async fn main() -> anyhow::Result<()> {
     if let Some(ref dc) = config.discord {
         info!("Discord enabled | allowed users: {:?}", dc.allowed_user_ids);
     }
-    info!("Commands: 23 (/help /new /status /model /sessions /export /voice /ping /history /clear /db /version /stats /whoami /cancel /stop /cron /tools /skills /config /runtime /doctor /logs)");
+    info!("Commands: 28 (/help /new /status /model /sessions /export /voice /ping /history /clear /db /version /stats /whoami /cancel /stop /cron /tools /skills /config /runtime /doctor /logs /projects /orch_status /cycle /approve /workers)");
 
     // ── Verify bot token ──
     let bot = telegram::TelegramBot::new(&config.telegram.bot_token);
@@ -587,7 +588,7 @@ async fn health_handler() -> axum::response::Response {
             "sessions_db_size": crate::doctor::human_bytes_pub(sessions_db_size),
             "skills": skills_count,
             "sessions": session_count,
-            "commands": 23,
+            "commands": 28,
             "http_endpoint_count": 14,
             "tool_count": handler::tool_count(),
             "total_requests": total_requests,
@@ -923,9 +924,11 @@ async fn status_handler(
 
     // Commands
     let tg_commands = ["help", "new", "status", "model", "sessions", "export", "voice", "ping",
-        "history", "clear", "db", "version", "stats", "whoami", "cancel", "stop", "cron", "tools", "skills", "config", "runtime", "doctor", "logs"];
+        "history", "clear", "db", "version", "stats", "whoami", "cancel", "stop", "cron", "tools", "skills", "config", "runtime", "doctor", "logs",
+        "projects", "orch_status", "cycle", "approve", "workers"];
     let dc_commands = ["help", "new", "status", "model", "sessions", "export", "voice", "ping",
-        "history", "clear", "db", "version", "stats", "whoami", "cancel", "stop", "cron", "tools", "skills", "config", "runtime", "doctor", "logs"];
+        "history", "clear", "db", "version", "stats", "whoami", "cancel", "stop", "cron", "tools", "skills", "config", "runtime", "doctor", "logs",
+        "projects", "orch_status", "cycle", "approve", "workers"];
 
     // Provider labels from fallback chain
     let providers: Vec<String> = openclaw_agent::llm::fallback::FallbackProvider::from_config()
@@ -1025,13 +1028,15 @@ mod tests {
     }
 
     #[test]
-    fn test_command_arrays_have_23_entries() {
+    fn test_command_arrays_have_28_entries() {
         let tg = ["help", "new", "status", "model", "sessions", "export", "voice", "ping",
-            "history", "clear", "db", "version", "stats", "whoami", "cancel", "stop", "cron", "tools", "skills", "config", "runtime", "doctor", "logs"];
+            "history", "clear", "db", "version", "stats", "whoami", "cancel", "stop", "cron", "tools", "skills", "config", "runtime", "doctor", "logs",
+        "projects", "orch_status", "cycle", "approve", "workers"];
         let dc = ["help", "new", "status", "model", "sessions", "export", "voice", "ping",
-            "history", "clear", "db", "version", "stats", "whoami", "cancel", "stop", "cron", "tools", "skills", "config", "runtime", "doctor", "logs"];
-        assert_eq!(tg.len(), 23, "Telegram should have 23 commands");
-        assert_eq!(dc.len(), 23, "Discord should have 23 commands");
+            "history", "clear", "db", "version", "stats", "whoami", "cancel", "stop", "cron", "tools", "skills", "config", "runtime", "doctor", "logs",
+        "projects", "orch_status", "cycle", "approve", "workers"];
+        assert_eq!(tg.len(), 28, "Telegram should have 28 commands");
+        assert_eq!(dc.len(), 28, "Discord should have 28 commands");
         // Verify both arrays are identical
         assert_eq!(tg, dc, "Telegram and Discord command lists should match");
     }

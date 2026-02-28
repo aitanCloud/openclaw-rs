@@ -497,7 +497,8 @@ async fn handle_command(
                     ("Info", "`/status` `/model` `/version` `/whoami` `/db`", false),
                     ("Monitoring", "`/stats` `/ping` `/history [N]` `/doctor` `/logs [N]`", false),
                     ("Control", "`/cancel` `/stop` `/voice` `/cron` `/tools` `/skills` `/config` `/runtime`", false),
-                    ("Commands", "23", true),
+                    ("Orchestrator", "`/projects` `/orch_status [project]` `/cycle <project> <prompt>` `/approve <id>` `/workers`", false),
+                    ("Commands", "28", true),
                 ],
             ).await?;
         }
@@ -594,7 +595,7 @@ async fn handle_command(
                 &[
                     ("Uptime", &uptime_str, true),
                     ("Agent", &config.agent.name, true),
-                    ("Commands", "23", true),
+                    ("Commands", "28", true),
                 ],
             ).await?;
         }
@@ -1290,6 +1291,66 @@ async fn handle_command(
                     0x2ECC71, // Green
                     &field_refs,
                 ).await?;
+            }
+        }
+        // ── Orchestrator commands ──
+        "projects" => {
+            if let Some(pool) = openclaw_db::pool() {
+                let reply = crate::orch_commands::cmd_projects(pool).await;
+                bot.send_reply(channel_id, reply_to, &reply).await?;
+            } else {
+                bot.send_reply(channel_id, reply_to, "Database not available.").await?;
+            }
+        }
+        cmd_str if cmd_str == "cycle" => {
+            if let Some(pool) = openclaw_db::pool() {
+                // Extract args: strip prefix then split
+                let stripped = text
+                    .trim_start_matches('/')
+                    .trim_start_matches('!')
+                    .trim();
+                let args: Vec<&str> = stripped.splitn(3, char::is_whitespace).collect();
+                let (project, prompt) = match args.len() {
+                    3 => (args[1], args[2]),
+                    _ => {
+                        bot.send_reply(channel_id, reply_to, "Usage: `/cycle <project> <prompt>`").await?;
+                        return Ok(());
+                    }
+                };
+                let reply = crate::orch_commands::cmd_cycle(pool, project, prompt).await;
+                bot.send_reply(channel_id, reply_to, &reply).await?;
+            } else {
+                bot.send_reply(channel_id, reply_to, "Database not available.").await?;
+            }
+        }
+        "orch_status" => {
+            if let Some(pool) = openclaw_db::pool() {
+                let project_name = text.split_whitespace().nth(1).filter(|s| !s.is_empty());
+                let reply = crate::orch_commands::cmd_status(pool, project_name).await;
+                bot.send_reply(channel_id, reply_to, &reply).await?;
+            } else {
+                bot.send_reply(channel_id, reply_to, "Database not available.").await?;
+            }
+        }
+        cmd_str if cmd_str == "approve" => {
+            if let Some(pool) = openclaw_db::pool() {
+                let cycle_id = text.split_whitespace().nth(1).unwrap_or("");
+                if cycle_id.is_empty() {
+                    bot.send_reply(channel_id, reply_to, "Usage: `/approve <cycle_id>`").await?;
+                    return Ok(());
+                }
+                let reply = crate::orch_commands::cmd_approve(pool, cycle_id).await;
+                bot.send_reply(channel_id, reply_to, &reply).await?;
+            } else {
+                bot.send_reply(channel_id, reply_to, "Database not available.").await?;
+            }
+        }
+        "workers" => {
+            if let Some(pool) = openclaw_db::pool() {
+                let reply = crate::orch_commands::cmd_workers(pool).await;
+                bot.send_reply(channel_id, reply_to, &reply).await?;
+            } else {
+                bot.send_reply(channel_id, reply_to, "Database not available.").await?;
             }
         }
         _ => {

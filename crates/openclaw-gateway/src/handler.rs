@@ -856,6 +856,12 @@ async fn handle_command(
                 /logs [N] — show recent LLM activity (default 5)\n\
                 /doctor — run health checks\n\
                 /help — show this help\n\n\
+                *Orchestrator:*\n\
+                /projects — list orchestrator projects\n\
+                /orch\\_status [project] — cycle/worker status\n\
+                /cycle <project> <prompt> — start upgrade cycle\n\
+                /approve <cycle\\_id> — approve plan\n\
+                /workers — list active workers\n\n\
                 You can also send voice messages — I'll transcribe and respond.",
             )
             .await?;
@@ -982,7 +988,7 @@ async fn handle_command(
                 "🦀 *openclaw-gateway* v{}\n\
                 Uptime: {}\n\
                 Agent: {}\n\
-                Commands: 23",
+                Commands: 28",
                 env!("CARGO_PKG_VERSION"), uptime_str, config.agent.name,
             )).await?;
         }
@@ -1553,6 +1559,64 @@ async fn handle_command(
                 for chunk in chunks {
                     bot.send_message(chat_id, &chunk).await?;
                 }
+            }
+        }
+        // ── Orchestrator commands ──
+        "/projects" => {
+            if let Some(pool) = openclaw_db::pool() {
+                let reply = crate::orch_commands::cmd_projects(pool).await;
+                bot.send_message(chat_id, &reply).await?;
+            } else {
+                bot.send_message(chat_id, "Database not available.").await?;
+            }
+        }
+        cmd if cmd.starts_with("/cycle") => {
+            if let Some(pool) = openclaw_db::pool() {
+                let args: Vec<&str> = text.splitn(3, char::is_whitespace).collect();
+                let (project, prompt) = match args.len() {
+                    3 => (args[1], args[2]),
+                    _ => {
+                        bot.send_message(chat_id, "Usage: /cycle <project> <prompt>").await?;
+                        return Ok(());
+                    }
+                };
+                let reply = crate::orch_commands::cmd_cycle(pool, project, prompt).await;
+                bot.send_message(chat_id, &reply).await?;
+            } else {
+                bot.send_message(chat_id, "Database not available.").await?;
+            }
+        }
+        cmd if cmd.starts_with("/orch_status") || (cmd == "/orch" && text.starts_with("/orch status")) => {
+            if let Some(pool) = openclaw_db::pool() {
+                let project_name = text.split_whitespace().nth(1).filter(|s| !s.is_empty());
+                let reply = crate::orch_commands::cmd_status(pool, project_name).await;
+                let chunks = crate::handler_utils::split_message(&reply, 4000);
+                for chunk in chunks {
+                    bot.send_message(chat_id, &chunk).await?;
+                }
+            } else {
+                bot.send_message(chat_id, "Database not available.").await?;
+            }
+        }
+        cmd if cmd.starts_with("/approve") => {
+            if let Some(pool) = openclaw_db::pool() {
+                let cycle_id = text.split_whitespace().nth(1).unwrap_or("");
+                if cycle_id.is_empty() {
+                    bot.send_message(chat_id, "Usage: /approve <cycle_id>").await?;
+                    return Ok(());
+                }
+                let reply = crate::orch_commands::cmd_approve(pool, cycle_id).await;
+                bot.send_message(chat_id, &reply).await?;
+            } else {
+                bot.send_message(chat_id, "Database not available.").await?;
+            }
+        }
+        "/workers" => {
+            if let Some(pool) = openclaw_db::pool() {
+                let reply = crate::orch_commands::cmd_workers(pool).await;
+                bot.send_message(chat_id, &reply).await?;
+            } else {
+                bot.send_message(chat_id, "Database not available.").await?;
             }
         }
         _ => {

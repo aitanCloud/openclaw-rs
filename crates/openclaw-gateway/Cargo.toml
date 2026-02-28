@@ -28,6 +28,7 @@ dirs = { workspace = true }
 tokio-util = "0.7"
 tokio-tungstenite = { version = "0.26", features = ["rustls-tls-webpki-roots"] }
 futures-util = { workspace = true }
+sqlx = { version = "0.8", features = ["runtime-tokio", "postgres", "chrono", "uuid"] }
 
 [build-dependencies]
 chrono = "0.4"
