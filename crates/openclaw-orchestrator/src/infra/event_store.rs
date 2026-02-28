@@ -82,6 +82,14 @@ impl EventStore for PgEventStore {
         // Update event with actual seq (may differ if idempotency conflict)
         event.seq = result;
 
+        // Notify via Postgres LISTEN/NOTIFY for cross-process subscribers
+        let notify_payload = format!("{}:{}", event.instance_id, result);
+        sqlx::query("SELECT pg_notify('orch_events_channel', $1)")
+            .bind(&notify_payload)
+            .execute(&self.pool)
+            .await
+            .ok(); // Best-effort -- don't fail emit if notify fails
+
         // Broadcast to in-process subscribers (best-effort, ok to drop)
         let _ = self.tx.send(event);
 
@@ -113,20 +121,20 @@ impl EventStore for PgEventStore {
     }
 }
 
-/// Internal row type for sqlx mapping from the `orch_events` table.
+/// Row type for sqlx mapping from the `orch_events` table.
 #[derive(sqlx::FromRow)]
-struct EventRow {
-    event_id: Uuid,
-    instance_id: Uuid,
-    seq: i64,
-    event_type: String,
-    event_version: i16,
-    payload: serde_json::Value,
-    idempotency_key: Option<String>,
-    correlation_id: Option<Uuid>,
-    causation_id: Option<Uuid>,
-    occurred_at: chrono::DateTime<chrono::Utc>,
-    recorded_at: chrono::DateTime<chrono::Utc>,
+pub(crate) struct EventRow {
+    pub(crate) event_id: Uuid,
+    pub(crate) instance_id: Uuid,
+    pub(crate) seq: i64,
+    pub(crate) event_type: String,
+    pub(crate) event_version: i16,
+    pub(crate) payload: serde_json::Value,
+    pub(crate) idempotency_key: Option<String>,
+    pub(crate) correlation_id: Option<Uuid>,
+    pub(crate) causation_id: Option<Uuid>,
+    pub(crate) occurred_at: chrono::DateTime<chrono::Utc>,
+    pub(crate) recorded_at: chrono::DateTime<chrono::Utc>,
 }
 
 impl From<EventRow> for EventEnvelope {
