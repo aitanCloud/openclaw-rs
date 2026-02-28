@@ -35,7 +35,7 @@ pub struct EventKindEntry {
 
 /// Authoritative registry of all event types in the system.
 ///
-/// 43 state-changing + 9 informational = 52 total.
+/// 43 state-changing + 12 informational = 55 total.
 pub const EVENT_KINDS: &[EventKindEntry] = &[
     // ── Instance (7 state-changing) ──
     EventKindEntry {
@@ -304,6 +304,22 @@ pub const EVENT_KINDS: &[EventKindEntry] = &[
         current_version: 1,
         criticality: EventCriticality::Informational,
     },
+    // ── Janitor (3 informational) ──
+    EventKindEntry {
+        event_type: "LogsPurged",
+        current_version: 1,
+        criticality: EventCriticality::Informational,
+    },
+    EventKindEntry {
+        event_type: "WorktreeEvicted",
+        current_version: 1,
+        criticality: EventCriticality::Informational,
+    },
+    EventKindEntry {
+        event_type: "OrphanDetected",
+        current_version: 1,
+        criticality: EventCriticality::Informational,
+    },
 ];
 
 #[cfg(test)]
@@ -313,7 +329,7 @@ mod tests {
 
     #[test]
     fn total_event_count() {
-        assert_eq!(EVENT_KINDS.len(), 52, "expected 52 total event kinds");
+        assert_eq!(EVENT_KINDS.len(), 55, "expected 55 total event kinds");
     }
 
     #[test]
@@ -331,7 +347,7 @@ mod tests {
             .iter()
             .filter(|e| e.criticality == EventCriticality::Informational)
             .count();
-        assert_eq!(count, 9, "expected 9 informational event kinds");
+        assert_eq!(count, 12, "expected 12 informational event kinds");
     }
 
     #[test]
