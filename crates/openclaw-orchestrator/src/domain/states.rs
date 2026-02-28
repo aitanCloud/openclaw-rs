@@ -109,6 +109,7 @@ impl CycleState {
         match (self, trigger) {
             (Created, T::PlanRequested) => Ok(Planning),
             (Planning, T::PlanGenerated) => Ok(PlanReady),
+            (Planning, T::Fail(reason)) => Ok(Failed(reason)),
             (PlanReady, T::PlanApproved) => Ok(Approved),
             (PlanReady, T::Cancel(reason)) => Ok(Cancelled(reason)),
             (Approved, T::Start) => Ok(Running),
@@ -468,6 +469,16 @@ mod tests {
         fn planning_to_plan_ready() {
             let result = CycleState::Planning.transition(CycleTrigger::PlanGenerated);
             assert_eq!(result.unwrap(), CycleState::PlanReady);
+        }
+
+        #[test]
+        fn planning_to_failed() {
+            let result =
+                CycleState::Planning.transition(CycleTrigger::Fail("plan generation error".into()));
+            assert_eq!(
+                result.unwrap(),
+                CycleState::Failed("plan generation error".into())
+            );
         }
 
         #[test]

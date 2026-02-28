@@ -118,6 +118,8 @@ pub async fn get_instance(
 pub struct CreateInstanceRequest {
     pub name: String,
     pub project_id: Uuid,
+    pub data_dir: String,
+    pub token: String,
 }
 
 /// Response body for instance creation.
@@ -139,6 +141,23 @@ pub async fn create_instance(
     if body.name.trim().is_empty() {
         return Err(DomainError::Precondition("name must not be empty".into()).into());
     }
+    if body.data_dir.trim().is_empty() {
+        return Err(DomainError::Precondition("data_dir must not be empty".into()).into());
+    }
+    if body.token.is_empty() {
+        return Err(DomainError::Precondition("token must not be empty".into()).into());
+    }
+
+    // Hash the provided token with argon2id
+    let token_hash = {
+        use argon2::password_hash::{PasswordHasher, SaltString};
+        use argon2::Argon2;
+        let salt = SaltString::generate(&mut argon2::password_hash::rand_core::OsRng);
+        Argon2::default()
+            .hash_password(body.token.as_bytes(), &salt)
+            .map_err(|e| DomainError::Precondition(format!("failed to hash token: {e}")))?
+            .to_string()
+    };
 
     let instance_id = Uuid::new_v4();
     let project_id = body.project_id;
@@ -154,6 +173,8 @@ pub async fn create_instance(
             "instance_id": instance_id,
             "project_id": project_id,
             "name": body.name,
+            "data_dir": body.data_dir,
+            "token_hash": token_hash,
         }),
         idempotency_key: None,
         correlation_id: None,
