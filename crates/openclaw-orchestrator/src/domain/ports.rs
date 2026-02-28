@@ -16,6 +16,9 @@ pub trait EventStore: Send + Sync {
         instance_id: Uuid,
         since_seq: i64,
     ) -> Result<Vec<EventEnvelope>, DomainError>;
+
+    /// Get the highest sequence number for an instance (0 if no events).
+    async fn head_seq(&self, instance_id: Uuid) -> Result<i64, DomainError>;
 }
 
 /// Domain interface for worker management. No process types, no PIDs.

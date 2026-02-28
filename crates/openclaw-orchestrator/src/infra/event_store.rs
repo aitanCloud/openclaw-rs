@@ -128,6 +128,17 @@ impl EventStore for PgEventStore {
 
         Ok(rows.into_iter().map(EventEnvelope::from).collect())
     }
+
+    async fn head_seq(&self, instance_id: Uuid) -> Result<i64, DomainError> {
+        let seq = sqlx::query_scalar::<_, Option<i64>>(
+            "SELECT MAX(seq) FROM orch_events WHERE instance_id = $1",
+        )
+        .bind(instance_id)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| DomainError::Precondition(format!("head_seq query: {e}")))?;
+        Ok(seq.unwrap_or(0))
+    }
 }
 
 /// Row type for sqlx mapping from the `orch_events` table.

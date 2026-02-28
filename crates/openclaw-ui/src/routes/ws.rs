@@ -195,6 +195,12 @@ async fn handle_socket(mut socket: WebSocket, instance_id: Uuid, state: Arc<AppS
         }
     };
 
+    // Subscribe to broadcast BEFORE backfill to avoid missing events
+    // between the end of backfill and the start of live mode.
+    // Broadcast messages during backfill are buffered in rx (up to 1024).
+    // The live loop deduplicates via replay(instance_id, last_sent_seq).
+    let rx = state.event_tx.subscribe();
+
     let last_sent_seq = match do_backfill(
         &mut socket,
         instance_id,
@@ -215,7 +221,6 @@ async fn handle_socket(mut socket: WebSocket, instance_id: Uuid, state: Arc<AppS
     };
 
     // ── Phase 3: Live streaming ────────────────────────────────
-    let rx = state.event_tx.subscribe();
     let rate_limiter = RateLimiter::new(state.config.max_ws_events_per_sec);
     live_loop(
         &mut socket,
@@ -272,7 +277,12 @@ async fn wait_for_subscribe(
         ClientMessage::Subscribe {
             since_seq,
             event_types,
-        } => Ok((since_seq, event_types)),
+        } => {
+            if since_seq < 0 {
+                return Err("since_seq must be >= 0".to_string());
+            }
+            Ok((since_seq, event_types))
+        }
         _ => Err("expected subscribe message".to_string()),
     }
 }
@@ -296,6 +306,8 @@ async fn do_backfill(
     let mut last_sent = since_seq;
     for event in &events {
         if !should_send_event(event, event_types) {
+            // Advance cursor past filtered events to avoid re-fetching them
+            last_sent = event.seq;
             continue;
         }
         let msg = ServerMessage::Event {
@@ -309,16 +321,14 @@ async fn do_backfill(
         last_sent = event.seq;
     }
 
-    // Fix 2: head_seq is the actual DB head, not the last event we sent.
+    // head_seq is the actual DB head, not the last event we sent.
     // These can differ when since_seq is already at head (no events replayed)
     // or when event filtering skips some events.
-    let head_seq: i64 = sqlx::query_scalar(
-        "SELECT COALESCE(MAX(seq), 0) FROM orch_events WHERE instance_id = $1",
-    )
-    .bind(instance_id)
-    .fetch_one(&state.pool)
-    .await
-    .map_err(|e| format!("head_seq query failed: {e}"))?;
+    let head_seq = state
+        .event_store
+        .head_seq(instance_id)
+        .await
+        .map_err(|e| format!("head_seq query failed: {e}"))?;
 
     socket
         .send(

@@ -112,6 +112,10 @@ mod tests {
         ) -> Result<Vec<EventEnvelope>, DomainError> {
             Ok(vec![])
         }
+
+        async fn head_seq(&self, _instance_id: Uuid) -> Result<i64, DomainError> {
+            Ok(0)
+        }
     }
 
     fn make_test_state() -> AppState {
