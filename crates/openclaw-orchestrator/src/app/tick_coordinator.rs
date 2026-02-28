@@ -32,10 +32,10 @@ struct InstanceStateRow {
     state: String,
 }
 
-/// Row type for reading the task prompt from `orch_tasks`.
+/// Row type for reading the task description from `orch_tasks`.
 #[derive(sqlx::FromRow)]
-struct TaskPromptRow {
-    prompt: String,
+struct TaskDescriptionRow {
+    description: String,
 }
 
 /// A run that has been stuck in 'claimed' state past the timeout.
@@ -88,7 +88,8 @@ pub(crate) fn build_stale_claim_event(stale: &StaleClaim) -> EventEnvelope {
                 stale.run_id, CLAIM_TIMEOUT_SECS
             ),
         }),
-        idempotency_key: Some(format!("stale-claim-failed-{}", stale.run_id)),
+        // Use same key as reconciler so whichever fires first wins; the second is deduped.
+        idempotency_key: Some(format!("reconcile-abandon-{}", stale.run_id)),
         correlation_id: None,
         causation_id: None,
         occurred_at: now,
@@ -209,10 +210,10 @@ impl TickCoordinator {
         Ok(())
     }
 
-    /// Look up the task prompt and spawn a worker for a single claim.
+    /// Look up the task description and spawn a worker for a single claim.
     async fn spawn_for_claim(&self, claim: &ClaimResult) -> Result<(), AppError> {
-        // Look up the task prompt
-        let prompt = self.query_task_prompt(claim.task_id, claim.instance_id).await?;
+        // Look up the task description
+        let prompt = self.query_task_description(claim.task_id, claim.instance_id).await?;
 
         // Build the worktree path: {data_dir}/{instance_id}/{run_id}
         let worktree_path = format!(
@@ -238,9 +239,12 @@ impl TickCoordinator {
         let instance_state = self.query_instance_state(instance_id).await?;
 
         if is_maintenance_mode(&instance_state) {
+            // Read-only diagnostics: report counts without emitting events.
+            let stale_count = self.detect_stale_claims(instance_id).await.unwrap_or_default().len();
             tracing::info!(
                 instance_id = %instance_id,
                 state = %instance_state,
+                stale_claims = stale_count,
                 "reconciler_tick: maintenance mode, skipping state-changing operations"
             );
             return Ok(());
@@ -311,14 +315,14 @@ impl TickCoordinator {
         }
     }
 
-    /// Query the prompt for a task from `orch_tasks`.
-    async fn query_task_prompt(
+    /// Query the description for a task from `orch_tasks`.
+    async fn query_task_description(
         &self,
         task_id: Uuid,
         instance_id: Uuid,
     ) -> Result<String, AppError> {
-        let row = sqlx::query_as::<_, TaskPromptRow>(
-            "SELECT prompt FROM orch_tasks WHERE id = $1 AND instance_id = $2",
+        let row = sqlx::query_as::<_, TaskDescriptionRow>(
+            "SELECT description FROM orch_tasks WHERE id = $1 AND instance_id = $2",
         )
         .bind(task_id)
         .bind(instance_id)
@@ -327,7 +331,7 @@ impl TickCoordinator {
         .map_err(|e| AppError::Infra(InfraError::Database(e.to_string())))?;
 
         match row {
-            Some(r) => Ok(r.prompt),
+            Some(r) => Ok(r.description),
             None => {
                 tracing::error!(
                     task_id = %task_id,
@@ -550,7 +554,7 @@ mod tests {
             .idempotency_key
             .as_ref()
             .expect("should have idempotency key");
-        assert_eq!(*key, format!("stale-claim-failed-{}", run_id));
+        assert_eq!(*key, format!("reconcile-abandon-{}", run_id));
     }
 
     #[test]
