@@ -76,10 +76,21 @@ impl MergeService {
         params: &MergeParams,
         attempt: u32,
     ) -> Result<MergeOutcome, AppError> {
-        // In-flight merge guard
         self.check_in_flight_merge(params.cycle_id, params.task_id)
             .await?;
 
+        self.attempt_merge_core(params, attempt).await
+    }
+
+    /// Core merge logic: event emission + git merge + result handling.
+    ///
+    /// Separated from `attempt_merge` so callers that already hold/checked
+    /// the in-flight guard (e.g. retry loops, tests) can invoke it directly.
+    pub(crate) async fn attempt_merge_core(
+        &self,
+        params: &MergeParams,
+        attempt: u32,
+    ) -> Result<MergeOutcome, AppError> {
         // Emit MergeAttempted
         let now = Utc::now();
         let attempted_envelope = EventEnvelope {
@@ -131,13 +142,13 @@ impl MergeService {
 
         match merge_result {
             MergeResult::Success { merge_sha } => {
-                // Get diff stats
+                // Get diff stats: compare what source adds relative to target
                 let diff = self
                     .git_provider
                     .diff_stat(
                         &params.repo_path,
                         &params.target_branch,
-                        &merge_sha,
+                        &params.source_branch,
                     )
                     .await
                     .unwrap_or(DiffStat {
@@ -164,7 +175,10 @@ impl MergeService {
                         "deletions": diff.deletions,
                         "actor": { "kind": "System" },
                     }),
-                    idempotency_key: Some(format!("merge-succeeded-{}", params.task_id)),
+                    idempotency_key: Some(format!(
+                        "merge-succeeded-{}-{}",
+                        params.task_id, attempt
+                    )),
                     correlation_id: None,
                     causation_id: None,
                     occurred_at: now,
@@ -210,8 +224,8 @@ impl MergeService {
                         "actor": { "kind": "System" },
                     }),
                     idempotency_key: Some(format!(
-                        "merge-conflicted-{}",
-                        params.task_id
+                        "merge-conflicted-{}-{}",
+                        params.task_id, attempt
                     )),
                     correlation_id: None,
                     causation_id: None,
@@ -261,7 +275,10 @@ impl MergeService {
                         "reason": reason,
                         "actor": { "kind": "System" },
                     }),
-                    idempotency_key: Some(format!("merge-failed-{}", params.task_id)),
+                    idempotency_key: Some(format!(
+                        "merge-failed-{}-{}",
+                        params.task_id, attempt
+                    )),
                     correlation_id: None,
                     causation_id: None,
                     occurred_at: now,
@@ -338,16 +355,20 @@ impl MergeService {
     ///
     /// Retries up to `max_retries` times with exponential backoff starting
     /// at `base_delay_ms` milliseconds. Only retries on transient failures.
+    /// The in-flight guard is checked once at the start.
     pub async fn attempt_merge_with_retry(
         &self,
         params: &MergeParams,
         max_retries: u32,
         base_delay_ms: u64,
     ) -> Result<MergeOutcome, AppError> {
+        self.check_in_flight_merge(params.cycle_id, params.task_id)
+            .await?;
+
         let mut attempt = 1u32;
 
         loop {
-            let outcome = self.attempt_merge(params, attempt).await?;
+            let outcome = self.attempt_merge_core(params, attempt).await?;
 
             match &outcome {
                 MergeOutcome::Failed {
@@ -370,7 +391,7 @@ impl MergeService {
     }
 
     /// Check if all tasks in a cycle are in terminal passed states and all
-    /// merges have succeeded. If so, emit CycleCompleting.
+    /// merges have succeeded. If so, emit CycleCompleted.
     pub async fn check_cycle_completion(
         &self,
         cycle_id: Uuid,
@@ -441,19 +462,19 @@ impl MergeService {
             return Ok(false);
         }
 
-        // All tasks passed and all merges succeeded -- emit CycleCompleting
+        // All tasks passed and all merges succeeded -- emit CycleCompleted
         let now = Utc::now();
         let envelope = EventEnvelope {
             event_id: Uuid::new_v4(),
             instance_id,
             seq: 0,
-            event_type: "CycleCompleting".to_string(),
+            event_type: "CycleCompleted".to_string(),
             event_version: 1,
             payload: serde_json::json!({
                 "cycle_id": cycle_id,
                 "actor": { "kind": "System" },
             }),
-            idempotency_key: Some(format!("cycle-completing-{}", cycle_id)),
+            idempotency_key: Some(format!("cycle-completed-{}", cycle_id)),
             correlation_id: None,
             causation_id: None,
             occurred_at: now,
@@ -462,11 +483,11 @@ impl MergeService {
 
         self.event_store.emit(envelope).await.map_err(|e| {
             AppError::Infra(InfraError::Database(format!(
-                "emit CycleCompleting: {e}"
+                "emit CycleCompleted: {e}"
             )))
         })?;
 
-        tracing::info!(cycle_id = %cycle_id, "cycle completing: all tasks passed and merged");
+        tracing::info!(cycle_id = %cycle_id, "cycle completed: all tasks passed and merged");
 
         Ok(true)
     }
@@ -883,250 +904,6 @@ mod tests {
         }
     }
 
-    /// A MergeService that bypasses the in-flight merge guard (for unit tests
-    /// that don't have a real database).
-    struct TestMergeService {
-        inner: MergeService,
-    }
-
-    impl TestMergeService {
-        fn new(
-            git_provider: Arc<dyn GitProvider>,
-            event_store: Arc<dyn EventStore>,
-        ) -> Self {
-            Self {
-                inner: MergeService::new(git_provider, event_store, dummy_pool()),
-            }
-        }
-
-        /// Attempt merge bypassing the in-flight SQL guard.
-        async fn attempt_merge_no_guard(
-            &self,
-            params: &MergeParams,
-            attempt: u32,
-        ) -> Result<MergeOutcome, AppError> {
-            // Emit MergeAttempted
-            let now = Utc::now();
-            let attempted_envelope = EventEnvelope {
-                event_id: Uuid::new_v4(),
-                instance_id: params.instance_id,
-                seq: 0,
-                event_type: "MergeAttempted".to_string(),
-                event_version: 1,
-                payload: serde_json::json!({
-                    "task_id": params.task_id,
-                    "run_id": params.run_id,
-                    "cycle_id": params.cycle_id,
-                    "source_branch": params.source_branch,
-                    "target_branch": params.target_branch,
-                    "attempt": attempt,
-                    "actor": { "kind": "System" },
-                }),
-                idempotency_key: Some(format!(
-                    "merge-attempted-{}-{}",
-                    params.task_id, attempt
-                )),
-                correlation_id: None,
-                causation_id: None,
-                occurred_at: now,
-                recorded_at: now,
-            };
-
-            self.inner
-                .event_store
-                .emit(attempted_envelope)
-                .await
-                .map_err(|e| {
-                    AppError::Infra(InfraError::Database(format!(
-                        "emit MergeAttempted: {e}"
-                    )))
-                })?;
-
-            // Call git merge
-            let merge_result = self
-                .inner
-                .git_provider
-                .merge(
-                    &params.repo_path,
-                    &params.source_branch,
-                    &params.target_branch,
-                )
-                .await
-                .map_err(|e| {
-                    AppError::Infra(InfraError::Io(format!("git merge error: {e}")))
-                })?;
-
-            match merge_result {
-                MergeResult::Success { merge_sha } => {
-                    let diff = self
-                        .inner
-                        .git_provider
-                        .diff_stat(
-                            &params.repo_path,
-                            &params.target_branch,
-                            &merge_sha,
-                        )
-                        .await
-                        .unwrap_or(DiffStat {
-                            files_changed: 0,
-                            insertions: 0,
-                            deletions: 0,
-                        });
-
-                    let now = Utc::now();
-                    let envelope = EventEnvelope {
-                        event_id: Uuid::new_v4(),
-                        instance_id: params.instance_id,
-                        seq: 0,
-                        event_type: "MergeSucceeded".to_string(),
-                        event_version: 1,
-                        payload: serde_json::json!({
-                            "task_id": params.task_id,
-                            "run_id": params.run_id,
-                            "cycle_id": params.cycle_id,
-                            "merge_sha": merge_sha,
-                            "files_changed": diff.files_changed,
-                            "insertions": diff.insertions,
-                            "deletions": diff.deletions,
-                            "actor": { "kind": "System" },
-                        }),
-                        idempotency_key: Some(format!(
-                            "merge-succeeded-{}",
-                            params.task_id
-                        )),
-                        correlation_id: None,
-                        causation_id: None,
-                        occurred_at: now,
-                        recorded_at: now,
-                    };
-
-                    self.inner.event_store.emit(envelope).await.map_err(|e| {
-                        AppError::Infra(InfraError::Database(format!(
-                            "emit MergeSucceeded: {e}"
-                        )))
-                    })?;
-
-                    Ok(MergeOutcome::Succeeded { merge_sha, diff })
-                }
-
-                MergeResult::Conflict { conflicting_files } => {
-                    let conflict_count = conflicting_files.len() as u32;
-
-                    let now = Utc::now();
-                    let envelope = EventEnvelope {
-                        event_id: Uuid::new_v4(),
-                        instance_id: params.instance_id,
-                        seq: 0,
-                        event_type: "MergeConflicted".to_string(),
-                        event_version: 1,
-                        payload: serde_json::json!({
-                            "task_id": params.task_id,
-                            "run_id": params.run_id,
-                            "cycle_id": params.cycle_id,
-                            "conflicting_files": conflicting_files,
-                            "conflict_count": conflict_count,
-                            "actor": { "kind": "System" },
-                        }),
-                        idempotency_key: Some(format!(
-                            "merge-conflicted-{}",
-                            params.task_id
-                        )),
-                        correlation_id: None,
-                        causation_id: None,
-                        occurred_at: now,
-                        recorded_at: now,
-                    };
-
-                    self.inner.event_store.emit(envelope).await.map_err(|e| {
-                        AppError::Infra(InfraError::Database(format!(
-                            "emit MergeConflicted: {e}"
-                        )))
-                    })?;
-
-                    Ok(MergeOutcome::Conflicted {
-                        conflicting_files,
-                        conflict_count,
-                    })
-                }
-
-                MergeResult::Failed(reason) => {
-                    let is_transient =
-                        MergeService::classify_failure_transient(&reason);
-                    let failure_category = if is_transient {
-                        "Transient"
-                    } else {
-                        "Permanent"
-                    };
-
-                    let now = Utc::now();
-                    let envelope = EventEnvelope {
-                        event_id: Uuid::new_v4(),
-                        instance_id: params.instance_id,
-                        seq: 0,
-                        event_type: "MergeFailed".to_string(),
-                        event_version: 1,
-                        payload: serde_json::json!({
-                            "task_id": params.task_id,
-                            "run_id": params.run_id,
-                            "cycle_id": params.cycle_id,
-                            "failure_category": failure_category,
-                            "reason": reason,
-                            "actor": { "kind": "System" },
-                        }),
-                        idempotency_key: Some(format!(
-                            "merge-failed-{}",
-                            params.task_id
-                        )),
-                        correlation_id: None,
-                        causation_id: None,
-                        occurred_at: now,
-                        recorded_at: now,
-                    };
-
-                    self.inner.event_store.emit(envelope).await.map_err(|e| {
-                        AppError::Infra(InfraError::Database(format!(
-                            "emit MergeFailed: {e}"
-                        )))
-                    })?;
-
-                    Ok(MergeOutcome::Failed {
-                        reason,
-                        is_transient,
-                    })
-                }
-            }
-        }
-
-        /// Attempt merge with retry, bypassing the in-flight SQL guard.
-        async fn attempt_merge_with_retry_no_guard(
-            &self,
-            params: &MergeParams,
-            max_retries: u32,
-            base_delay_ms: u64,
-        ) -> Result<MergeOutcome, AppError> {
-            let mut attempt = 1u32;
-
-            loop {
-                let outcome = self.attempt_merge_no_guard(params, attempt).await?;
-
-                match &outcome {
-                    MergeOutcome::Failed {
-                        is_transient: true, ..
-                    } if attempt <= max_retries => {
-                        let delay_ms =
-                            base_delay_ms * 2u64.saturating_pow(attempt - 1);
-                        tokio::time::sleep(tokio::time::Duration::from_millis(
-                            delay_ms,
-                        ))
-                        .await;
-                        attempt += 1;
-                    }
-                    _ => return Ok(outcome),
-                }
-            }
-        }
-    }
-
     // ═══════════════════════════════════════════════════════════════════
     // Tests
     // ═══════════════════════════════════════════════════════════════════
@@ -1247,16 +1024,40 @@ mod tests {
         ));
     }
 
+    // ── Helper: retry loop using attempt_merge_core (no SQL guard) ──
+
+    async fn attempt_merge_core_with_retry(
+        svc: &MergeService,
+        params: &MergeParams,
+        max_retries: u32,
+        base_delay_ms: u64,
+    ) -> Result<MergeOutcome, AppError> {
+        let mut attempt = 1u32;
+        loop {
+            let outcome = svc.attempt_merge_core(params, attempt).await?;
+            match &outcome {
+                MergeOutcome::Failed {
+                    is_transient: true, ..
+                } if attempt <= max_retries => {
+                    let delay_ms = base_delay_ms * 2u64.saturating_pow(attempt - 1);
+                    tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
+                    attempt += 1;
+                }
+                _ => return Ok(outcome),
+            }
+        }
+    }
+
     // ── Async tests ──
 
     #[tokio::test]
     async fn successful_merge_emits_attempted_and_succeeded() {
         let event_store = Arc::new(RecordingEventStore::new());
         let gp: Arc<dyn GitProvider> = Arc::new(SuccessGitProvider::new());
-        let svc = TestMergeService::new(gp, event_store.clone());
+        let svc = MergeService::new(gp, event_store.clone(), dummy_pool());
 
         let params = make_params();
-        let result = svc.attempt_merge_no_guard(&params, 1).await;
+        let result = svc.attempt_merge_core(&params, 1).await;
         assert!(result.is_ok(), "merge should succeed: {result:?}");
 
         let outcome = result.unwrap();
@@ -1288,10 +1089,10 @@ mod tests {
         let event_store = Arc::new(RecordingEventStore::new());
         let gp: Arc<dyn GitProvider> =
             Arc::new(ConflictGitProvider::new(vec!["src/main.rs", "README.md"]));
-        let svc = TestMergeService::new(gp, event_store.clone());
+        let svc = MergeService::new(gp, event_store.clone(), dummy_pool());
 
         let params = make_params();
-        let result = svc.attempt_merge_no_guard(&params, 1).await;
+        let result = svc.attempt_merge_core(&params, 1).await;
         assert!(result.is_ok());
 
         let outcome = result.unwrap();
@@ -1324,10 +1125,10 @@ mod tests {
         let event_store = Arc::new(RecordingEventStore::new());
         let gp: Arc<dyn GitProvider> =
             Arc::new(FailedGitProvider::new("fatal: not a git repository"));
-        let svc = TestMergeService::new(gp, event_store.clone());
+        let svc = MergeService::new(gp, event_store.clone(), dummy_pool());
 
         let params = make_params();
-        let result = svc.attempt_merge_no_guard(&params, 1).await;
+        let result = svc.attempt_merge_core(&params, 1).await;
         assert!(result.is_ok());
 
         let outcome = result.unwrap();
@@ -1358,10 +1159,10 @@ mod tests {
         let event_store = Arc::new(RecordingEventStore::new());
         let gp: Arc<dyn GitProvider> =
             Arc::new(FailedGitProvider::new("lock contention on ref"));
-        let svc = TestMergeService::new(gp, event_store.clone());
+        let svc = MergeService::new(gp, event_store.clone(), dummy_pool());
 
         let params = make_params();
-        let result = svc.attempt_merge_no_guard(&params, 1).await;
+        let result = svc.attempt_merge_core(&params, 1).await;
         assert!(result.is_ok());
 
         let outcome = result.unwrap();
@@ -1411,10 +1212,10 @@ mod tests {
     async fn idempotency_key_merge_attempted() {
         let event_store = Arc::new(RecordingEventStore::new());
         let gp: Arc<dyn GitProvider> = Arc::new(SuccessGitProvider::new());
-        let svc = TestMergeService::new(gp, event_store.clone());
+        let svc = MergeService::new(gp, event_store.clone(), dummy_pool());
 
         let params = make_params();
-        svc.attempt_merge_no_guard(&params, 1)
+        svc.attempt_merge_core(&params, 1)
             .await
             .expect("should succeed");
 
@@ -1433,10 +1234,10 @@ mod tests {
     async fn idempotency_key_merge_succeeded() {
         let event_store = Arc::new(RecordingEventStore::new());
         let gp: Arc<dyn GitProvider> = Arc::new(SuccessGitProvider::new());
-        let svc = TestMergeService::new(gp, event_store.clone());
+        let svc = MergeService::new(gp, event_store.clone(), dummy_pool());
 
         let params = make_params();
-        svc.attempt_merge_no_guard(&params, 1)
+        svc.attempt_merge_core(&params, 1)
             .await
             .expect("should succeed");
 
@@ -1447,7 +1248,7 @@ mod tests {
             .expect("should have key");
         assert_eq!(
             *key,
-            format!("merge-succeeded-{}", params.task_id)
+            format!("merge-succeeded-{}-1", params.task_id)
         );
     }
 
@@ -1456,10 +1257,10 @@ mod tests {
         let event_store = Arc::new(RecordingEventStore::new());
         let gp: Arc<dyn GitProvider> =
             Arc::new(ConflictGitProvider::new(vec!["file.rs"]));
-        let svc = TestMergeService::new(gp, event_store.clone());
+        let svc = MergeService::new(gp, event_store.clone(), dummy_pool());
 
         let params = make_params();
-        svc.attempt_merge_no_guard(&params, 1)
+        svc.attempt_merge_core(&params, 1)
             .await
             .expect("should succeed");
 
@@ -1470,7 +1271,7 @@ mod tests {
             .expect("should have key");
         assert_eq!(
             *key,
-            format!("merge-conflicted-{}", params.task_id)
+            format!("merge-conflicted-{}-1", params.task_id)
         );
     }
 
@@ -1479,10 +1280,10 @@ mod tests {
         let event_store = Arc::new(RecordingEventStore::new());
         let gp: Arc<dyn GitProvider> =
             Arc::new(FailedGitProvider::new("something broke"));
-        let svc = TestMergeService::new(gp, event_store.clone());
+        let svc = MergeService::new(gp, event_store.clone(), dummy_pool());
 
         let params = make_params();
-        svc.attempt_merge_no_guard(&params, 1)
+        svc.attempt_merge_core(&params, 1)
             .await
             .expect("should succeed");
 
@@ -1493,7 +1294,7 @@ mod tests {
             .expect("should have key");
         assert_eq!(
             *key,
-            format!("merge-failed-{}", params.task_id)
+            format!("merge-failed-{}-1", params.task_id)
         );
     }
 
@@ -1526,10 +1327,10 @@ mod tests {
     async fn event_version_is_always_one() {
         let event_store = Arc::new(RecordingEventStore::new());
         let gp: Arc<dyn GitProvider> = Arc::new(SuccessGitProvider::new());
-        let svc = TestMergeService::new(gp, event_store.clone());
+        let svc = MergeService::new(gp, event_store.clone(), dummy_pool());
 
         let params = make_params();
-        svc.attempt_merge_no_guard(&params, 1)
+        svc.attempt_merge_core(&params, 1)
             .await
             .expect("should succeed");
 
@@ -1547,10 +1348,10 @@ mod tests {
     async fn event_seq_is_zero() {
         let event_store = Arc::new(RecordingEventStore::new());
         let gp: Arc<dyn GitProvider> = Arc::new(SuccessGitProvider::new());
-        let svc = TestMergeService::new(gp, event_store.clone());
+        let svc = MergeService::new(gp, event_store.clone(), dummy_pool());
 
         let params = make_params();
-        svc.attempt_merge_no_guard(&params, 1)
+        svc.attempt_merge_core(&params, 1)
             .await
             .expect("should succeed");
 
@@ -1568,10 +1369,10 @@ mod tests {
     async fn succeeded_payload_contains_expected_fields() {
         let event_store = Arc::new(RecordingEventStore::new());
         let gp: Arc<dyn GitProvider> = Arc::new(SuccessGitProvider::new());
-        let svc = TestMergeService::new(gp, event_store.clone());
+        let svc = MergeService::new(gp, event_store.clone(), dummy_pool());
 
         let params = make_params();
-        svc.attempt_merge_no_guard(&params, 1)
+        svc.attempt_merge_core(&params, 1)
             .await
             .expect("should succeed");
 
@@ -1592,10 +1393,10 @@ mod tests {
     async fn attempted_payload_contains_expected_fields() {
         let event_store = Arc::new(RecordingEventStore::new());
         let gp: Arc<dyn GitProvider> = Arc::new(SuccessGitProvider::new());
-        let svc = TestMergeService::new(gp, event_store.clone());
+        let svc = MergeService::new(gp, event_store.clone(), dummy_pool());
 
         let params = make_params();
-        svc.attempt_merge_no_guard(&params, 3)
+        svc.attempt_merge_core(&params, 3)
             .await
             .expect("should succeed");
 
@@ -1619,10 +1420,10 @@ mod tests {
             "Cargo.toml",
             "README.md",
         ]));
-        let svc = TestMergeService::new(gp, event_store.clone());
+        let svc = MergeService::new(gp, event_store.clone(), dummy_pool());
 
         let params = make_params();
-        svc.attempt_merge_no_guard(&params, 1)
+        svc.attempt_merge_core(&params, 1)
             .await
             .expect("should succeed");
 
@@ -1645,10 +1446,10 @@ mod tests {
         let event_store = Arc::new(RecordingEventStore::new());
         let gp: Arc<dyn GitProvider> =
             Arc::new(FailedGitProvider::new("connection timed out"));
-        let svc = TestMergeService::new(gp, event_store.clone());
+        let svc = MergeService::new(gp, event_store.clone(), dummy_pool());
 
         let params = make_params();
-        svc.attempt_merge_no_guard(&params, 1)
+        svc.attempt_merge_core(&params, 1)
             .await
             .expect("should succeed");
 
@@ -1696,19 +1497,15 @@ mod tests {
 
     #[tokio::test]
     async fn retry_succeeds_after_transient_failures() {
-        // Use tokio's test time support for fast tests
         tokio::time::pause();
 
         let event_store = Arc::new(RecordingEventStore::new());
-        // Fail 2 times, then succeed on 3rd
         let gp: Arc<dyn GitProvider> =
             Arc::new(TransientThenSuccessGitProvider::new(2));
-        let svc = TestMergeService::new(gp, event_store.clone());
+        let svc = MergeService::new(gp, event_store.clone(), dummy_pool());
 
         let params = make_params();
-        let result = svc
-            .attempt_merge_with_retry_no_guard(&params, 3, 10)
-            .await;
+        let result = attempt_merge_core_with_retry(&svc, &params, 3, 10).await;
         assert!(result.is_ok(), "retry should eventually succeed: {result:?}");
 
         let outcome = result.unwrap();
@@ -1718,10 +1515,8 @@ mod tests {
         );
 
         let events = event_store.emitted_events().await;
-        // 2 failed attempts (Attempted + Failed each) + 1 success (Attempted + Succeeded) = 6
         assert_eq!(events.len(), 6, "should have 6 events for 3 attempts");
 
-        // Verify event sequence
         assert_eq!(events[0].event_type, "MergeAttempted");
         assert_eq!(events[1].event_type, "MergeFailed");
         assert_eq!(events[2].event_type, "MergeAttempted");
@@ -1735,15 +1530,12 @@ mod tests {
         tokio::time::pause();
 
         let event_store = Arc::new(RecordingEventStore::new());
-        // Always fails (needs 10 tries to succeed, but we only allow 2 retries)
         let gp: Arc<dyn GitProvider> =
             Arc::new(TransientThenSuccessGitProvider::new(10));
-        let svc = TestMergeService::new(gp, event_store.clone());
+        let svc = MergeService::new(gp, event_store.clone(), dummy_pool());
 
         let params = make_params();
-        let result = svc
-            .attempt_merge_with_retry_no_guard(&params, 2, 10)
-            .await;
+        let result = attempt_merge_core_with_retry(&svc, &params, 2, 10).await;
         assert!(result.is_ok());
 
         let outcome = result.unwrap();
@@ -1759,7 +1551,6 @@ mod tests {
         );
 
         let events = event_store.emitted_events().await;
-        // 3 attempts (initial + 2 retries), each with Attempted + Failed = 6
         assert_eq!(events.len(), 6);
     }
 
@@ -1770,12 +1561,10 @@ mod tests {
         let event_store = Arc::new(RecordingEventStore::new());
         let gp: Arc<dyn GitProvider> =
             Arc::new(FailedGitProvider::new("fatal: not a git repository"));
-        let svc = TestMergeService::new(gp, event_store.clone());
+        let svc = MergeService::new(gp, event_store.clone(), dummy_pool());
 
         let params = make_params();
-        let result = svc
-            .attempt_merge_with_retry_no_guard(&params, 3, 10)
-            .await;
+        let result = attempt_merge_core_with_retry(&svc, &params, 3, 10).await;
         assert!(result.is_ok());
 
         let outcome = result.unwrap();
@@ -1791,7 +1580,6 @@ mod tests {
         );
 
         let events = event_store.emitted_events().await;
-        // Only 1 attempt (Attempted + Failed = 2)
         assert_eq!(
             events.len(),
             2,
@@ -1806,12 +1594,10 @@ mod tests {
         let event_store = Arc::new(RecordingEventStore::new());
         let gp: Arc<dyn GitProvider> =
             Arc::new(ConflictGitProvider::new(vec!["file.rs"]));
-        let svc = TestMergeService::new(gp, event_store.clone());
+        let svc = MergeService::new(gp, event_store.clone(), dummy_pool());
 
         let params = make_params();
-        let result = svc
-            .attempt_merge_with_retry_no_guard(&params, 3, 10)
-            .await;
+        let result = attempt_merge_core_with_retry(&svc, &params, 3, 10).await;
         assert!(result.is_ok());
 
         let outcome = result.unwrap();
@@ -1821,7 +1607,6 @@ mod tests {
         );
 
         let events = event_store.emitted_events().await;
-        // Only 1 attempt (Attempted + Conflicted = 2)
         assert_eq!(
             events.len(),
             2,
@@ -1836,10 +1621,10 @@ mod tests {
         let event_store = Arc::new(RecordingEventStore::new());
         let gp: Arc<dyn GitProvider> =
             Arc::new(TransientThenSuccessGitProvider::new(1));
-        let svc = TestMergeService::new(gp, event_store.clone());
+        let svc = MergeService::new(gp, event_store.clone(), dummy_pool());
 
         let params = make_params();
-        svc.attempt_merge_with_retry_no_guard(&params, 2, 10)
+        attempt_merge_core_with_retry(&svc, &params, 2, 10)
             .await
             .expect("should succeed");
 
