@@ -1,5 +1,6 @@
 mod auth;
 mod errors;
+mod frontend;
 mod pagination;
 mod router;
 mod routes;

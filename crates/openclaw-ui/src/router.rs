@@ -7,6 +7,7 @@ use axum::{
 };
 
 use crate::auth::auth_middleware;
+use crate::frontend;
 use crate::routes::{budgets, cycles, events, instances, runs, tasks, ws};
 use crate::state::AppState;
 
@@ -58,6 +59,14 @@ fn ws_routes() -> Router<Arc<AppState>> {
     )
 }
 
+/// Frontend routes (no auth — served publicly).
+fn frontend_routes() -> Router<Arc<AppState>> {
+    Router::new()
+        .route("/", get(frontend::index))
+        .route("/app.js", get(frontend::app_js))
+        .route("/styles.css", get(frontend::styles_css))
+}
+
 /// Build the full Axum router with auth middleware and CORS.
 ///
 /// The WebSocket route uses first-message auth and is mounted OUTSIDE
@@ -76,10 +85,14 @@ pub fn build_router(state: AppState) -> Router {
     // Unauthenticated routes (WS uses first-message auth)
     let unauthed = Router::new().nest("/api/v1", ws_routes());
 
-    // Merge: unauthed routes first, then authed routes.
+    // Frontend routes (no auth — served publicly)
+    let frontend = frontend_routes();
+
+    // Merge: unauthed routes first, then authed routes, then frontend.
     // Axum merges without applying the layer from one router to the other.
     authed
         .merge(unauthed)
+        .merge(frontend)
         .with_state(shared_state)
 }
 
@@ -253,6 +266,46 @@ mod tests {
 
         let response = app.oneshot(request).await.unwrap();
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    /// Frontend routes return 200 without any auth header.
+    #[tokio::test]
+    async fn frontend_routes_return_200_without_auth() {
+        let state = make_test_state();
+        let app = build_router(state);
+
+        let paths = vec![
+            ("/", "text/html"),
+            ("/app.js", "application/javascript"),
+            ("/styles.css", "text/css"),
+        ];
+
+        for (path, expected_ct) in paths {
+            let request = Request::builder()
+                .method("GET")
+                .uri(path)
+                .body(Body::empty())
+                .unwrap();
+
+            let response = app.clone().oneshot(request).await.unwrap();
+            assert_eq!(
+                response.status(),
+                StatusCode::OK,
+                "expected 200 for GET {path}, got {}",
+                response.status()
+            );
+
+            let content_type = response
+                .headers()
+                .get("content-type")
+                .unwrap()
+                .to_str()
+                .unwrap();
+            assert!(
+                content_type.contains(expected_ct),
+                "expected content-type containing {expected_ct} for {path}, got {content_type}"
+            );
+        }
     }
 
     /// The WebSocket route is mounted and does NOT go through auth middleware.
