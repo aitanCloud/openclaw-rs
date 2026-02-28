@@ -17,6 +17,7 @@ pub struct ClaimResult {
     pub cycle_id: Uuid,
     pub instance_id: Uuid,
     pub run_number: i32,
+    pub worker_session_id: Uuid,
 }
 
 /// Row type for reading server capacity from `orch_server_capacity`.
@@ -260,6 +261,7 @@ impl Scheduler {
                 cycle_id: task.cycle_id,
                 instance_id,
                 run_number,
+                worker_session_id,
             });
         }
 
@@ -318,6 +320,7 @@ mod tests {
             cycle_id: Uuid::new_v4(),
             instance_id: Uuid::new_v4(),
             run_number: 1,
+            worker_session_id: Uuid::new_v4(),
         };
         // Verify all fields exist and are the right types
         let _: Uuid = result.task_id;
@@ -325,6 +328,7 @@ mod tests {
         let _: Uuid = result.cycle_id;
         let _: Uuid = result.instance_id;
         let _: i32 = result.run_number;
+        let _: Uuid = result.worker_session_id;
     }
 
     #[test]
@@ -335,6 +339,7 @@ mod tests {
             cycle_id: Uuid::new_v4(),
             instance_id: Uuid::new_v4(),
             run_number: 3,
+            worker_session_id: Uuid::new_v4(),
         };
         let cloned = result.clone();
         assert_eq!(result.task_id, cloned.task_id);
@@ -352,6 +357,7 @@ mod tests {
             cycle_id: Uuid::new_v4(),
             instance_id: Uuid::new_v4(),
             run_number: 1,
+            worker_session_id: Uuid::new_v4(),
         };
         let debug = format!("{result:?}");
         assert!(debug.contains("ClaimResult"));
@@ -393,6 +399,7 @@ mod tests {
             cycle_id: Uuid::new_v4(),
             instance_id: Uuid::new_v4(),
             run_number: 1,
+            worker_session_id: Uuid::new_v4(),
         };
         let r2 = ClaimResult {
             task_id: Uuid::new_v4(),
@@ -400,6 +407,7 @@ mod tests {
             cycle_id: Uuid::new_v4(),
             instance_id: Uuid::new_v4(),
             run_number: 2,
+            worker_session_id: Uuid::new_v4(),
         };
         assert_ne!(r1.task_id, r2.task_id);
         assert_ne!(r1.run_id, r2.run_id);
@@ -413,6 +421,7 @@ mod tests {
             cycle_id: Uuid::new_v4(),
             instance_id: Uuid::new_v4(),
             run_number: 1,
+            worker_session_id: Uuid::new_v4(),
         };
         assert!(result.run_number >= 1, "run_number should be 1-indexed");
     }

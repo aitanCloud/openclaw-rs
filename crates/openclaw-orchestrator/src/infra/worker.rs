@@ -96,7 +96,10 @@ impl ProcessWorkerManager {
         // Atomic write: write to temp file, then rename
         let temp_path = state_path.with_extension("json.tmp");
         tokio::fs::write(&temp_path, json.as_bytes()).await?;
-        tokio::fs::rename(&temp_path, &state_path).await?;
+        if let Err(e) = tokio::fs::rename(&temp_path, &state_path).await {
+            let _ = tokio::fs::remove_file(&temp_path).await;
+            return Err(WorkerError::from(e));
+        }
 
         Ok(())
     }
@@ -129,15 +132,17 @@ impl ProcessWorkerManager {
 
     /// Verify that the process with the given PID belongs to the expected session
     /// by checking `/proc/{pid}/environ` for the OPENCLAW_SESSION_ID.
+    ///
+    /// Uses null-byte splitting for exact key=value matching to prevent
+    /// false positives from substring matches (e.g. PARENT_OPENCLAW_SESSION_ID).
     async fn verify_session(pid: u32, session_id: Uuid) -> bool {
         let environ_path = format!("/proc/{pid}/environ");
         match tokio::fs::read(&environ_path).await {
             Ok(data) => {
-                // /proc/pid/environ uses null bytes as separators
+                // /proc/pid/environ uses null bytes as separators between KEY=VALUE pairs
                 let needle = format!("OPENCLAW_SESSION_ID={session_id}");
-                // Search for the needle in the null-separated environ
-                let environ = String::from_utf8_lossy(&data);
-                environ.contains(&needle)
+                data.split(|&b| b == 0)
+                    .any(|var| var == needle.as_bytes())
             }
             Err(_) => false,
         }
@@ -166,7 +171,12 @@ impl ProcessWorkerManager {
                     "permission denied sending signal {signal} to pid {pid}"
                 )))
             } else {
-                // Treat other errors as non-fatal for signal sending
+                tracing::warn!(
+                    pid = pid,
+                    signal = signal,
+                    stderr = %stderr,
+                    "unexpected error sending signal, treating as non-fatal"
+                );
                 Ok(())
             }
         }
@@ -220,13 +230,40 @@ impl WorkerManager for ProcessWorkerManager {
         cmd.env("OPENCLAW_INSTANCE_ID", config.instance_id.to_string());
 
         // Spawn the process
-        let child = cmd
+        let mut child = cmd
             .spawn()
             .map_err(|e| WorkerError::SpawnFailed(format!("spawn {}: {e}", self.claude_binary)))?;
 
         let pid = child
             .id()
             .ok_or_else(|| WorkerError::SpawnFailed("process exited immediately".to_string()))?;
+
+        // Spawn a background task to reap the child process (prevents zombies).
+        // The child handle must be awaited to prevent accumulating zombie processes.
+        let reap_session_id = config.session_id;
+        let reap_run_id = config.run_id;
+        tokio::spawn(async move {
+            match child.wait().await {
+                Ok(status) => {
+                    tracing::info!(
+                        session_id = %reap_session_id,
+                        run_id = %reap_run_id,
+                        pid = pid,
+                        exit_code = status.code(),
+                        "worker process exited"
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        session_id = %reap_session_id,
+                        run_id = %reap_run_id,
+                        pid = pid,
+                        error = %e,
+                        "failed to wait on worker process"
+                    );
+                }
+            }
+        });
 
         // Store state entry
         let entry = WorkerStateEntry {
