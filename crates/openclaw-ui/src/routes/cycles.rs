@@ -276,3 +276,74 @@ pub async fn approve_plan(
         state: "approved".to_string(),
     }))
 }
+
+/// Request body for POST /api/v1/instances/:id/cycles/:cycle_id/merge.
+#[derive(Debug, Deserialize)]
+pub struct MergeCycleRequest {
+    pub task_id: Uuid,
+    pub run_id: Uuid,
+}
+
+/// Response body for merge trigger.
+#[derive(Debug, Serialize)]
+pub struct MergeCycleResponse {
+    pub cycle_id: Uuid,
+    pub task_id: Uuid,
+    pub run_id: Uuid,
+    pub status: String,
+}
+
+/// POST /api/v1/instances/:id/cycles/:cycle_id/merge — trigger merge for a cycle.
+///
+/// Emits a `MergeAttempted` event via the event store.
+/// Returns 202 Accepted as the merge is processed asynchronously.
+pub async fn trigger_merge(
+    State(state): State<Arc<AppState>>,
+    Path((instance_id, cycle_id)): Path<(Uuid, Uuid)>,
+    Json(body): Json<MergeCycleRequest>,
+) -> Result<(axum::http::StatusCode, Json<MergeCycleResponse>), ApiError> {
+    let now = Utc::now();
+
+    let envelope = EventEnvelope {
+        event_id: Uuid::new_v4(),
+        instance_id,
+        seq: 0, // assigned by store
+        event_type: "MergeAttempted".to_string(),
+        event_version: 1,
+        payload: serde_json::json!({
+            "cycle_id": cycle_id,
+            "task_id": body.task_id,
+            "run_id": body.run_id,
+            "actor": { "kind": "Human" },
+        }),
+        idempotency_key: Some(format!("merge-attempted-{cycle_id}-{}", body.run_id)),
+        correlation_id: None,
+        causation_id: None,
+        occurred_at: now,
+        recorded_at: now,
+    };
+
+    state
+        .event_store
+        .emit(envelope)
+        .await
+        .map_err(|e| ApiError::from(openclaw_orchestrator::app::errors::AppError::Domain(e)))?;
+
+    tracing::info!(
+        instance_id = %instance_id,
+        cycle_id = %cycle_id,
+        task_id = %body.task_id,
+        run_id = %body.run_id,
+        "merge attempted"
+    );
+
+    Ok((
+        axum::http::StatusCode::ACCEPTED,
+        Json(MergeCycleResponse {
+            cycle_id,
+            task_id: body.task_id,
+            run_id: body.run_id,
+            status: "accepted".to_string(),
+        }),
+    ))
+}

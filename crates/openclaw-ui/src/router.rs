@@ -7,14 +7,17 @@ use axum::{
 };
 
 use crate::auth::auth_middleware;
-use crate::routes::{cycles, events, instances, runs, tasks};
+use crate::routes::{budgets, cycles, events, instances, runs, tasks};
 use crate::state::AppState;
 
 /// Build the API routes (nested under /api/v1).
 fn api_routes() -> Router<Arc<AppState>> {
     Router::new()
         // Instances
-        .route("/instances", get(instances::list_instances))
+        .route(
+            "/instances",
+            get(instances::list_instances).post(instances::create_instance),
+        )
         .route("/instances/{id}", get(instances::get_instance))
         // Cycles
         .route(
@@ -29,10 +32,20 @@ fn api_routes() -> Router<Arc<AppState>> {
             "/instances/{id}/cycles/{cycle_id}/approve",
             post(cycles::approve_plan),
         )
+        .route(
+            "/instances/{id}/cycles/{cycle_id}/merge",
+            post(cycles::trigger_merge),
+        )
         // Tasks
         .route("/instances/{id}/tasks", get(tasks::list_tasks))
         // Runs
         .route("/instances/{id}/runs/{run_id}", get(runs::get_run))
+        .route(
+            "/instances/{id}/runs/{run_id}/logs",
+            get(runs::get_run_logs),
+        )
+        // Budgets
+        .route("/instances/{id}/budgets", get(budgets::list_budgets))
         // Events
         .route("/instances/{id}/events", get(events::list_events))
 }
@@ -138,6 +151,14 @@ mod tests {
             ),
             (
                 "GET",
+                "/api/v1/instances/00000000-0000-0000-0000-000000000001/runs/00000000-0000-0000-0000-000000000003/logs",
+            ),
+            (
+                "GET",
+                "/api/v1/instances/00000000-0000-0000-0000-000000000001/budgets",
+            ),
+            (
+                "GET",
                 "/api/v1/instances/00000000-0000-0000-0000-000000000001/events",
             ),
         ];
@@ -165,8 +186,10 @@ mod tests {
         let app = build_router(state);
 
         let paths = vec![
+            "/api/v1/instances",
             "/api/v1/instances/00000000-0000-0000-0000-000000000001/cycles",
             "/api/v1/instances/00000000-0000-0000-0000-000000000001/cycles/00000000-0000-0000-0000-000000000002/approve",
+            "/api/v1/instances/00000000-0000-0000-0000-000000000001/cycles/00000000-0000-0000-0000-000000000002/merge",
         ];
 
         for path in paths {

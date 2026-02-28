@@ -29,7 +29,7 @@ impl ApiConfig {
         let auth_token_hash = std::env::var("OPENCLAW_AUTH_TOKEN_HASH")
             .map_err(|_| anyhow::anyhow!("OPENCLAW_AUTH_TOKEN_HASH must be set"))?;
         let listen_addr =
-            std::env::var("OPENCLAW_LISTEN_ADDR").unwrap_or_else(|_| "0.0.0.0:3130".to_string());
+            std::env::var("OPENCLAW_LISTEN_ADDR").unwrap_or_else(|_| "127.0.0.1:3130".to_string());
         let default_page_limit = std::env::var("OPENCLAW_DEFAULT_PAGE_LIMIT")
             .ok()
             .and_then(|v| v.parse().ok())
@@ -56,12 +56,12 @@ mod tests {
     fn api_config_defaults() {
         let config = ApiConfig {
             auth_token_hash: "test-hash".to_string(),
-            listen_addr: "0.0.0.0:3130".to_string(),
+            listen_addr: "127.0.0.1:3130".to_string(),
             default_page_limit: 50,
             max_page_limit: 100,
         };
         assert_eq!(config.default_page_limit, 50);
         assert_eq!(config.max_page_limit, 100);
-        assert_eq!(config.listen_addr, "0.0.0.0:3130");
+        assert_eq!(config.listen_addr, "127.0.0.1:3130");
     }
 }

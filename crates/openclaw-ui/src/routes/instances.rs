@@ -5,8 +5,11 @@ use axum::{
     Json,
 };
 use chrono::{DateTime, Utc};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+
+use openclaw_orchestrator::domain::errors::DomainError;
+use openclaw_orchestrator::domain::events::EventEnvelope;
 
 use crate::errors::ApiError;
 use crate::pagination::{
@@ -108,4 +111,77 @@ pub async fn get_instance(
     })?;
 
     Ok(Json(row))
+}
+
+/// Request body for POST /api/v1/instances.
+#[derive(Debug, Deserialize)]
+pub struct CreateInstanceRequest {
+    pub name: String,
+    pub project_id: Uuid,
+}
+
+/// Response body for instance creation.
+#[derive(Debug, Serialize)]
+pub struct CreateInstanceResponse {
+    pub instance_id: Uuid,
+    pub project_id: Uuid,
+    pub name: String,
+    pub state: String,
+}
+
+/// POST /api/v1/instances — create a new instance.
+///
+/// Emits an `InstanceCreated` event via the event store.
+pub async fn create_instance(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<CreateInstanceRequest>,
+) -> Result<(axum::http::StatusCode, Json<CreateInstanceResponse>), ApiError> {
+    if body.name.trim().is_empty() {
+        return Err(DomainError::Precondition("name must not be empty".into()).into());
+    }
+
+    let instance_id = Uuid::new_v4();
+    let project_id = body.project_id;
+    let now = Utc::now();
+
+    let envelope = EventEnvelope {
+        event_id: Uuid::new_v4(),
+        instance_id,
+        seq: 0, // assigned by store
+        event_type: "InstanceCreated".to_string(),
+        event_version: 1,
+        payload: serde_json::json!({
+            "instance_id": instance_id,
+            "project_id": project_id,
+            "name": body.name,
+        }),
+        idempotency_key: None,
+        correlation_id: None,
+        causation_id: None,
+        occurred_at: now,
+        recorded_at: now,
+    };
+
+    state
+        .event_store
+        .emit(envelope)
+        .await
+        .map_err(|e| ApiError::from(openclaw_orchestrator::app::errors::AppError::Domain(e)))?;
+
+    tracing::info!(
+        instance_id = %instance_id,
+        project_id = %project_id,
+        name = %body.name,
+        "instance created"
+    );
+
+    Ok((
+        axum::http::StatusCode::CREATED,
+        Json(CreateInstanceResponse {
+            instance_id,
+            project_id,
+            name: body.name,
+            state: "provisioning".to_string(),
+        }),
+    ))
 }

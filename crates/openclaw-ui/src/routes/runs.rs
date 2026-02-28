@@ -58,3 +58,27 @@ pub async fn get_run(
 
     Ok(Json(row))
 }
+
+/// Response body for the log tail placeholder.
+#[derive(Debug, Serialize)]
+pub struct RunLogsResponse {
+    pub logs: Vec<serde_json::Value>,
+    pub message: String,
+}
+
+/// GET /api/v1/instances/:id/runs/:run_id/logs — placeholder for streaming log tail.
+///
+/// Returns 501 Not Implemented. This will be replaced with SSE streaming later.
+#[allow(unused_variables)]
+pub async fn get_run_logs(
+    State(state): State<Arc<AppState>>,
+    Path((instance_id, run_id)): Path<(Uuid, Uuid)>,
+) -> Result<(axum::http::StatusCode, Json<RunLogsResponse>), ApiError> {
+    Ok((
+        axum::http::StatusCode::NOT_IMPLEMENTED,
+        Json(RunLogsResponse {
+            logs: vec![],
+            message: "log streaming not yet implemented".to_string(),
+        }),
+    ))
+}

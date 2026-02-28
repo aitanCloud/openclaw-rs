@@ -1,3 +1,4 @@
+pub mod budgets;
 pub mod cycles;
 pub mod events;
 pub mod instances;
