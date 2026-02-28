@@ -196,7 +196,10 @@ impl Janitor {
                     instance_id = %instance_id,
                     "janitor: disk critical, force-evicting worktrees"
                 );
-                let evicted = self.disk_cap_evict_worktrees(instance_id, path).await?;
+                let remaining_budget = max.saturating_sub(result.total_operations);
+                let evicted = self
+                    .disk_cap_evict_worktrees(instance_id, path, remaining_budget)
+                    .await?;
                 result.disk_cap_worktrees_evicted = evicted;
                 result.total_operations += evicted;
             }
@@ -223,7 +226,8 @@ impl Janitor {
     /// - The artifact was created more than `artifact_retain_days` ago
     /// - The artifact has not already been tombstoned (deleted_at IS NULL)
     ///
-    /// Uses SELECT ... FOR UPDATE to lock rows before modification.
+    /// Runs inside an explicit transaction so that `FOR UPDATE SKIP LOCKED` row
+    /// locks are held until all UPDATEs complete.
     pub async fn purge_expired_artifacts(
         &self,
         instance_id: Uuid,
@@ -236,7 +240,13 @@ impl Janitor {
             return Ok(());
         }
 
-        // Find expired artifacts with per-row locking
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| AppError::Infra(InfraError::Database(e.to_string())))?;
+
+        // Find expired artifacts with per-row locking (held by tx)
         let expired = sqlx::query_as::<_, ExpiredArtifactRow>(
             r#"
             SELECT a.id, a.instance_id,
@@ -256,11 +266,12 @@ impl Janitor {
         .bind(instance_id)
         .bind(retain_days)
         .bind(remaining as i64)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *tx)
         .await
         .map_err(|e| AppError::Infra(InfraError::Database(e.to_string())))?;
 
         if expired.is_empty() {
+            // Nothing to do -- tx rolls back (no-op).
             return Ok(());
         }
 
@@ -277,16 +288,20 @@ impl Janitor {
                 "#,
             )
             .bind(artifact.id)
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await
             .map_err(|e| AppError::Infra(InfraError::Database(e.to_string())))?;
 
-            total_bytes += artifact.content_size.unwrap_or(0) as u64;
+            total_bytes += artifact.content_size.unwrap_or(0).max(0) as u64;
             purged_count += 1;
         }
 
+        tx.commit()
+            .await
+            .map_err(|e| AppError::Infra(InfraError::Database(e.to_string())))?;
+
         if purged_count > 0 {
-            // Emit ArtifactsPurged event
+            // Emit ArtifactsPurged event (outside tx -- event store has its own persistence)
             let event = EventEnvelope {
                 event_id: Uuid::new_v4(),
                 instance_id,
@@ -333,7 +348,8 @@ impl Janitor {
     /// - The run finished more than `log_retain_days` ago
     /// - At least one of log_stdout or log_stderr is not null
     ///
-    /// Uses SELECT ... FOR UPDATE to lock rows before modification.
+    /// Runs inside an explicit transaction so that `FOR UPDATE SKIP LOCKED` row
+    /// locks are held until all UPDATEs complete.
     pub async fn purge_expired_logs(
         &self,
         instance_id: Uuid,
@@ -346,7 +362,13 @@ impl Janitor {
             return Ok(());
         }
 
-        // Find expired logs with per-row locking
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| AppError::Infra(InfraError::Database(e.to_string())))?;
+
+        // Find expired logs with per-row locking (held by tx)
         let expired = sqlx::query_as::<_, ExpiredLogRow>(
             r#"
             SELECT id, instance_id,
@@ -366,11 +388,12 @@ impl Janitor {
         .bind(instance_id)
         .bind(retain_days)
         .bind(remaining as i64)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *tx)
         .await
         .map_err(|e| AppError::Infra(InfraError::Database(e.to_string())))?;
 
         if expired.is_empty() {
+            // Nothing to do -- tx rolls back (no-op).
             return Ok(());
         }
 
@@ -383,18 +406,23 @@ impl Janitor {
                 UPDATE orch_runs
                 SET log_stdout = NULL, log_stderr = NULL
                 WHERE id = $1
+                  AND (log_stdout IS NOT NULL OR log_stderr IS NOT NULL)
                 "#,
             )
             .bind(run.id)
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await
             .map_err(|e| AppError::Infra(InfraError::Database(e.to_string())))?;
 
-            let stdout_size = run.log_stdout_size.unwrap_or(0) as u64;
-            let stderr_size = run.log_stderr_size.unwrap_or(0) as u64;
+            let stdout_size = run.log_stdout_size.unwrap_or(0).max(0) as u64;
+            let stderr_size = run.log_stderr_size.unwrap_or(0).max(0) as u64;
             total_bytes += stdout_size + stderr_size;
             purged_count += 1;
         }
+
+        tx.commit()
+            .await
+            .map_err(|e| AppError::Infra(InfraError::Database(e.to_string())))?;
 
         if purged_count > 0 {
             // Emit LogsPurged event
@@ -442,7 +470,8 @@ impl Janitor {
     /// - Failed runs (`state IN ('failed', 'timed_out', 'cancelled', 'abandoned')`):
     ///   `worktree_retain_hours_failed`
     ///
-    /// Uses SELECT ... FOR UPDATE to lock rows before modification.
+    /// Runs inside an explicit transaction so that `FOR UPDATE SKIP LOCKED` row
+    /// locks are held until all UPDATEs complete.
     pub async fn clean_expired_worktrees(
         &self,
         instance_id: Uuid,
@@ -456,7 +485,13 @@ impl Janitor {
             return Ok(());
         }
 
-        // Find expired worktrees: state-dependent retention, with per-row locking
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| AppError::Infra(InfraError::Database(e.to_string())))?;
+
+        // Find expired worktrees: state-dependent retention, with per-row locking (held by tx)
         let expired = sqlx::query_as::<_, ExpiredWorktreeRow>(
             r#"
             SELECT id, instance_id, worktree_path, state
@@ -480,11 +515,12 @@ impl Janitor {
         .bind(success_hours)
         .bind(failed_hours)
         .bind(remaining as i64)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *tx)
         .await
         .map_err(|e| AppError::Infra(InfraError::Database(e.to_string())))?;
 
         if expired.is_empty() {
+            // Nothing to do -- tx rolls back (no-op).
             return Ok(());
         }
 
@@ -531,11 +567,19 @@ impl Janitor {
                 "#,
             )
             .bind(run.id)
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await
             .map_err(|e| AppError::Infra(InfraError::Database(e.to_string())))?;
 
-            // Emit WorktreeEvicted event
+            cleaned_count += 1;
+        }
+
+        tx.commit()
+            .await
+            .map_err(|e| AppError::Infra(InfraError::Database(e.to_string())))?;
+
+        // Emit events outside the transaction (event store has its own persistence)
+        for run in &expired {
             let event = EventEnvelope {
                 event_id: Uuid::new_v4(),
                 instance_id: run.instance_id,
@@ -562,8 +606,6 @@ impl Janitor {
                     run.id
                 )))
             })?;
-
-            cleaned_count += 1;
         }
 
         if cleaned_count > 0 {
@@ -717,15 +759,30 @@ impl Janitor {
     ///
     /// Queries terminal worktrees ordered by `finished_at ASC` (oldest first),
     /// removes them one by one, and emits `WorktreeEvicted` with `reason: "disk_cap"`
-    /// for each. Stops when disk space recovers above threshold or no more worktrees.
+    /// for each. Stops when disk space recovers above threshold, no more worktrees,
+    /// or `max_ops` evictions have been performed (respects global rate limit).
+    ///
+    /// Runs inside an explicit transaction so that `FOR UPDATE SKIP LOCKED` row
+    /// locks are held until all UPDATEs complete.
     ///
     /// Returns the number of worktrees evicted.
     pub async fn disk_cap_evict_worktrees(
         &self,
         instance_id: Uuid,
         path: &str,
+        max_ops: u32,
     ) -> Result<u32, AppError> {
-        // Find all terminal worktrees, oldest first, up to rate limit
+        if max_ops == 0 {
+            return Ok(0);
+        }
+
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| AppError::Infra(InfraError::Database(e.to_string())))?;
+
+        // Find all terminal worktrees, oldest first, up to max_ops budget
         let candidates = sqlx::query_as::<_, ExpiredWorktreeRow>(
             r#"
             SELECT id, instance_id, worktree_path, state
@@ -740,8 +797,8 @@ impl Janitor {
             "#,
         )
         .bind(instance_id)
-        .bind(self.config.max_deletions_per_tick as i64)
-        .fetch_all(&self.pool)
+        .bind(max_ops as i64)
+        .fetch_all(&mut *tx)
         .await
         .map_err(|e| AppError::Infra(InfraError::Database(e.to_string())))?;
 
@@ -750,10 +807,12 @@ impl Janitor {
                 instance_id = %instance_id,
                 "janitor: disk_cap eviction: no terminal worktrees to evict"
             );
+            // tx rolls back (no-op)
             return Ok(0);
         }
 
         let mut evicted: u32 = 0;
+        let mut evicted_runs: Vec<&ExpiredWorktreeRow> = Vec::new();
 
         for run in &candidates {
             // Check if disk has recovered
@@ -780,11 +839,26 @@ impl Janitor {
                 "#,
             )
             .bind(run.id)
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await
             .map_err(|e| AppError::Infra(InfraError::Database(e.to_string())))?;
 
-            // Emit WorktreeEvicted event with disk_cap reason
+            evicted += 1;
+            evicted_runs.push(run);
+
+            tracing::info!(
+                run_id = %run.id,
+                path = %run.worktree_path,
+                "janitor: disk_cap evicted worktree"
+            );
+        }
+
+        tx.commit()
+            .await
+            .map_err(|e| AppError::Infra(InfraError::Database(e.to_string())))?;
+
+        // Emit events outside the transaction (event store has its own persistence)
+        for run in &evicted_runs {
             let event = EventEnvelope {
                 event_id: Uuid::new_v4(),
                 instance_id: run.instance_id,
@@ -811,14 +885,6 @@ impl Janitor {
                     run.id
                 )))
             })?;
-
-            evicted += 1;
-
-            tracing::info!(
-                run_id = %run.id,
-                path = %run.worktree_path,
-                "janitor: disk_cap evicted worktree"
-            );
         }
 
         if evicted > 0 {
@@ -889,7 +955,7 @@ async fn remove_worktree(path: &str) -> Result<(), AppError> {
 
 /// Get available disk bytes for the filesystem containing `path`.
 ///
-/// Uses `statvfs` via `std::process::Command` calling `df` for portability.
+/// Uses GNU coreutils `df` (Linux-only).
 async fn get_free_disk_bytes(path: &str) -> Result<u64, AppError> {
     // Use `df --output=avail -B1 <path>` for a single-value bytes output.
     let output = tokio::process::Command::new("df")
