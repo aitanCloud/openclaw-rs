@@ -1,6 +1,6 @@
 import type { Component, Route, AppState } from './types';
 import { store } from './store';
-import { setToken, getToken } from './api';
+import { api, setToken, getToken } from './api';
 import { WsManager } from './ws';
 import { InstanceList } from './components/instance-list';
 import { InstanceDetail } from './components/instance-detail';
@@ -61,6 +61,9 @@ class App {
         window.addEventListener('openclaw:auth-required', () => this.showLoginPrompt());
         window.addEventListener('openclaw:maintenance', () => {
             store.setMaintenanceMode(true);
+        });
+        window.addEventListener('openclaw:new-cycle', () => {
+            this.showCreateCycleModal();
         });
 
         // Initial load
@@ -123,7 +126,7 @@ class App {
         const component = new InstanceDetail(this.container);
         this.currentComponents.push(component);
 
-        // Mount event timeline below
+        // Mount collapsible event timeline below
         const timeline = new EventTimeline(this.container, instanceId);
         this.currentComponents.push(timeline);
 
@@ -193,6 +196,97 @@ class App {
         }
     }
 
+    // ── Create Cycle Modal ───────────────────────────────────────
+
+    private showCreateCycleModal(): void {
+        const instanceId = store.getState().selectedInstanceId;
+        if (!instanceId) return;
+
+        // Create overlay
+        const overlay = el('div', 'modal-overlay');
+
+        const modal = el('div', 'modal');
+
+        // Header
+        const header = el('div', 'modal__header');
+        header.appendChild(el('h3', 'modal__title', 'New Cycle'));
+        const closeBtn = el('button', 'modal__close', '\u00D7');
+        header.appendChild(closeBtn);
+        modal.appendChild(header);
+
+        // Body
+        const body = el('div', 'modal__body');
+        body.appendChild(el('label', 'field-label', 'What should this cycle accomplish?'));
+        const textarea = document.createElement('textarea');
+        textarea.className = 'textarea';
+        textarea.placeholder = 'Describe the development task...';
+        textarea.rows = 4;
+        body.appendChild(textarea);
+        modal.appendChild(body);
+
+        // Error container
+        const errorContainer = el('div', '');
+        modal.appendChild(errorContainer);
+
+        // Footer
+        const footer = el('div', 'modal__footer');
+        const cancelBtn = el('button', 'btn btn--ghost', 'Cancel');
+        const startBtn = el('button', 'btn btn--primary', 'Start Cycle');
+        footer.appendChild(cancelBtn);
+        footer.appendChild(startBtn);
+        modal.appendChild(footer);
+
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
+
+        // Focus textarea
+        setTimeout(() => textarea.focus(), 100);
+
+        // Handlers
+        const close = () => {
+            overlay.remove();
+        };
+
+        closeBtn.addEventListener('click', close);
+        cancelBtn.addEventListener('click', close);
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) close();
+        });
+
+        // Escape key
+        const onKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') close();
+        };
+        document.addEventListener('keydown', onKeyDown);
+
+        startBtn.addEventListener('click', async () => {
+            const prompt = textarea.value.trim();
+            if (!prompt) {
+                textarea.style.borderColor = 'var(--accent-red)';
+                return;
+            }
+
+            startBtn.textContent = 'Creating...';
+            (startBtn as HTMLButtonElement).disabled = true;
+
+            try {
+                const cycle = await api.createCycle(instanceId, { prompt });
+                close();
+                document.removeEventListener('keydown', onKeyDown);
+                // Navigate to the new cycle
+                location.hash = `#/instances/${instanceId}/cycles/${cycle.id}`;
+                // Refresh data
+                await store.invalidate(instanceId);
+            } catch (e) {
+                const msg = e instanceof Error ? e.message : String(e);
+                clearChildren(errorContainer);
+                errorContainer.appendChild(el('div', 'modal__error', msg));
+                startBtn.textContent = 'Start Cycle';
+                (startBtn as HTMLButtonElement).disabled = false;
+            }
+        });
+    }
+
     // ── Login prompt ─────────────────────────────────────────────
 
     private showLoginPrompt(): void {
@@ -217,7 +311,6 @@ class App {
             }
         });
 
-        // Also handle Enter key
         input.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') {
                 const token = input.value.trim();

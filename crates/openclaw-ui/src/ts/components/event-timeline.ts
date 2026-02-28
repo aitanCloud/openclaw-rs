@@ -3,8 +3,8 @@ import { api } from '../api';
 import { el, clearChildren, formatDate, shortId, truncate } from '../utils';
 
 /**
- * Event timeline — filterable event list for an instance.
- * Embedded within the instance detail view or accessible via tab.
+ * Event timeline — collapsible event log for an instance.
+ * Collapsed by default; expanded via toggle button.
  */
 export class EventTimeline implements Component {
     el: HTMLElement;
@@ -13,24 +13,37 @@ export class EventTimeline implements Component {
     private events: EventRow[] = [];
     private filterType: string = '';
     private loading = false;
+    private expanded = false;
     private instanceId: string;
 
     constructor(container: HTMLElement, instanceId: string) {
         this.instanceId = instanceId;
-        this.el = el('div', 'event-timeline');
+        this.el = el('div', 'collapsible');
         container.appendChild(this.el);
 
-        this.fetchEvents();
+        this.render();
     }
 
     update(_state: AppState): void {
-        // Re-fetch events when state changes (WS invalidation)
-        this.fetchEvents();
+        // Only re-fetch if expanded
+        if (this.expanded) {
+            this.fetchEvents();
+        }
     }
 
     destroy(): void {
         this.disposables.forEach(d => d());
         this.el.remove();
+    }
+
+    // ── Toggle ────────────────────────────────────────────────────
+
+    private toggle(): void {
+        this.expanded = !this.expanded;
+        if (this.expanded && this.events.length === 0) {
+            this.fetchEvents();
+        }
+        this.render();
     }
 
     // ── Data fetching ────────────────────────────────────────────
@@ -62,88 +75,86 @@ export class EventTimeline implements Component {
             events: this.events.map(e => e.event_id),
             filter: this.filterType,
             loading: this.loading,
+            expanded: this.expanded,
         });
         if (key === this.renderKey) return;
         this.renderKey = key;
 
         clearChildren(this.el);
+        this.el.className = this.expanded ? 'collapsible collapsible--open' : 'collapsible';
 
-        // Header with filter
-        const header = el('div', 'section-header');
-        header.appendChild(el('h3', 'section-title', 'Events'));
+        // Toggle button
+        const toggleBtn = document.createElement('button');
+        toggleBtn.className = 'collapsible__toggle';
 
-        const filterContainer = el('div', 'event-filter');
-        const filterInput = document.createElement('input');
-        filterInput.type = 'text';
-        filterInput.placeholder = 'Filter by event type...';
-        filterInput.className = 'input';
-        filterInput.value = this.filterType;
+        const arrow = el('span', 'collapsible__arrow', '\u25B6');
+        toggleBtn.appendChild(arrow);
+        toggleBtn.appendChild(document.createTextNode(
+            `Event Log${this.events.length > 0 ? ` (${this.events.length})` : ''}`,
+        ));
 
-        const handleFilter = () => {
-            this.filterType = filterInput.value.trim();
-            this.fetchEvents();
-        };
+        toggleBtn.addEventListener('click', () => this.toggle());
+        this.disposables.push(() => toggleBtn.removeEventListener('click', () => this.toggle()));
+        this.el.appendChild(toggleBtn);
 
-        // Debounced filter
-        let filterTimer: ReturnType<typeof setTimeout> | null = null;
-        const onInput = () => {
-            if (filterTimer) clearTimeout(filterTimer);
-            filterTimer = setTimeout(handleFilter, 300);
-        };
-        filterInput.addEventListener('input', onInput);
-        this.disposables.push(() => {
-            filterInput.removeEventListener('input', onInput);
-            if (filterTimer) clearTimeout(filterTimer);
-        });
+        // Content (only rendered when expanded)
+        const content = el('div', 'collapsible__content');
 
-        filterContainer.appendChild(filterInput);
-        header.appendChild(filterContainer);
-        this.el.appendChild(header);
+        if (this.expanded) {
+            // Filter input
+            const filterContainer = el('div', 'event-filter');
+            filterContainer.style.marginBottom = '0.75rem';
+            const filterInput = document.createElement('input');
+            filterInput.type = 'text';
+            filterInput.placeholder = 'Filter by event type...';
+            filterInput.className = 'input';
+            filterInput.value = this.filterType;
 
-        // Event count
-        this.el.appendChild(
-            el('div', 'section-count', `${this.events.length} events`),
-        );
+            let filterTimer: ReturnType<typeof setTimeout> | null = null;
+            const onInput = () => {
+                if (filterTimer) clearTimeout(filterTimer);
+                filterTimer = setTimeout(() => {
+                    this.filterType = filterInput.value.trim();
+                    this.fetchEvents();
+                }, 300);
+            };
+            filterInput.addEventListener('input', onInput);
+            this.disposables.push(() => {
+                filterInput.removeEventListener('input', onInput);
+                if (filterTimer) clearTimeout(filterTimer);
+            });
 
-        if (this.loading && this.events.length === 0) {
-            this.el.appendChild(el('div', 'empty-state', 'Loading events...'));
-            return;
+            filterContainer.appendChild(filterInput);
+            content.appendChild(filterContainer);
+
+            if (this.loading && this.events.length === 0) {
+                content.appendChild(el('div', 'empty-state', 'Loading events...'));
+            } else if (this.events.length === 0) {
+                content.appendChild(el('div', 'empty-state', 'No events found.'));
+            } else {
+                const list = el('div', 'event-list');
+                for (const event of this.events) {
+                    list.appendChild(this.renderEvent(event));
+                }
+                content.appendChild(list);
+            }
         }
 
-        if (this.events.length === 0) {
-            this.el.appendChild(el('div', 'empty-state', 'No events found.'));
-            return;
-        }
-
-        // Event list
-        const list = el('div', 'event-list');
-        for (const event of this.events) {
-            list.appendChild(this.renderEvent(event));
-        }
-        this.el.appendChild(list);
+        this.el.appendChild(content);
     }
 
     private renderEvent(event: EventRow): HTMLElement {
         const item = el('div', 'event-item');
 
-        // Left: sequence number
-        const seqBadge = el('div', 'event-item__seq');
-        seqBadge.textContent = `#${event.seq}`;
+        const seqBadge = el('div', 'event-item__seq', `#${event.seq}`);
         item.appendChild(seqBadge);
 
-        // Center: event info
         const info = el('div', 'event-item__info');
         const typeRow = el('div', 'event-item__type');
-
-        const typeBadge = el('span', 'event-type-badge', event.event_type);
-        typeRow.appendChild(typeBadge);
-
-        const version = el('span', 'event-item__version', `v${event.event_version}`);
-        typeRow.appendChild(version);
-
+        typeRow.appendChild(el('span', 'event-type-badge', event.event_type));
+        typeRow.appendChild(el('span', 'event-item__version', `v${event.event_version}`));
         info.appendChild(typeRow);
 
-        // Payload preview
         const payloadStr = typeof event.payload === 'string'
             ? event.payload
             : JSON.stringify(event.payload);
@@ -151,7 +162,6 @@ export class EventTimeline implements Component {
         preview.title = payloadStr;
         info.appendChild(preview);
 
-        // Metadata row
         const metaRow = el('div', 'event-item__meta');
         metaRow.appendChild(el('span', 'text-secondary', formatDate(event.occurred_at)));
         if (event.correlation_id) {
