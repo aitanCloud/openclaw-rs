@@ -109,6 +109,11 @@ enum Commands {
         #[arg(long, default_value = "http://localhost:11434")]
         ollama_url: String,
     },
+    /// Orchestrator admin commands (instances, cycles, maintenance)
+    Orch {
+        #[command(subcommand)]
+        action: commands::orch::OrchAction,
+    },
 }
 
 #[tokio::main]
@@ -159,6 +164,7 @@ async fn main() -> anyhow::Result<()> {
         }
         Some(Commands::Db { action }) => commands::db::run(action).await,
         Some(Commands::Arena { ollama_url }) => commands::arena::run(&ollama_url).await,
+        Some(Commands::Orch { action }) => commands::orch::run(action).await,
         None => {
             println!("openclaw-rs {}", env!("CARGO_PKG_VERSION"));
             Ok(())

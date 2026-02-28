@@ -6,5 +6,6 @@ pub mod cron;
 pub mod db;
 pub mod gateway;
 pub mod models;
+pub mod orch;
 pub mod sessions;
 pub mod skills;
