@@ -1,0 +1,22 @@
+[package]
+name = "openclaw-ui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "openclaw-orch"
+path = "src/main.rs"
+
+[dependencies]
+openclaw-orchestrator = { path = "../openclaw-orchestrator" }
+openclaw-db = { path = "../openclaw-db" }
+axum = "0.8"
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tower-http = { version = "0.6", features = ["cors"] }
