@@ -35,7 +35,7 @@ pub struct EventKindEntry {
 
 /// Authoritative registry of all event types in the system.
 ///
-/// 42 state-changing + 9 informational = 51 total.
+/// 43 state-changing + 9 informational = 52 total.
 pub const EVENT_KINDS: &[EventKindEntry] = &[
     // ── Instance (7 state-changing) ──
     EventKindEntry {
@@ -91,6 +91,11 @@ pub const EVENT_KINDS: &[EventKindEntry] = &[
     },
     EventKindEntry {
         event_type: "PlanApproved",
+        current_version: 1,
+        criticality: EventCriticality::StateChanging,
+    },
+    EventKindEntry {
+        event_type: "PlanGenerationFailed",
         current_version: 1,
         criticality: EventCriticality::StateChanging,
     },
@@ -308,7 +313,7 @@ mod tests {
 
     #[test]
     fn total_event_count() {
-        assert_eq!(EVENT_KINDS.len(), 51, "expected 51 total event kinds");
+        assert_eq!(EVENT_KINDS.len(), 52, "expected 52 total event kinds");
     }
 
     #[test]
@@ -317,7 +322,7 @@ mod tests {
             .iter()
             .filter(|e| e.criticality == EventCriticality::StateChanging)
             .count();
-        assert_eq!(count, 42, "expected 42 state-changing event kinds");
+        assert_eq!(count, 43, "expected 43 state-changing event kinds");
     }
 
     #[test]
@@ -372,7 +377,7 @@ mod tests {
                         && !e.event_type.starts_with("PlanBudget"))
             })
             .count();
-        assert_eq!(count, 11, "expected 11 Cycle events");
+        assert_eq!(count, 12, "expected 12 Cycle events");
     }
 
     #[test]

@@ -90,11 +90,25 @@ impl PlannerService {
         instance_id: Uuid,
         cycle_id: Uuid,
         context: &PlanningContext,
+        attempt: u32,
     ) -> Result<PlanProposal, AppError> {
         // In-flight guard: check no plan generation is already in progress
         self.check_in_flight_generation(cycle_id).await?;
 
-        // Call the planner
+        self.generate_plan_core(instance_id, cycle_id, context, attempt)
+            .await
+    }
+
+    /// Core plan generation logic, separated from the in-flight guard for testability.
+    ///
+    /// Calls the Planner trait and emits the appropriate event.
+    pub(crate) async fn generate_plan_core(
+        &self,
+        instance_id: Uuid,
+        cycle_id: Uuid,
+        context: &PlanningContext,
+        attempt: u32,
+    ) -> Result<PlanProposal, AppError> {
         match self.planner.generate_plan(context).await {
             Ok(proposal) => {
                 let plan_json = serde_json::to_value(&proposal)?;
@@ -116,7 +130,7 @@ impl PlannerService {
                         "summary": proposal.summary,
                         "actor": { "kind": "Planner" },
                     }),
-                    idempotency_key: Some(format!("plan-generated-{cycle_id}")),
+                    idempotency_key: Some(format!("plan-generated-{cycle_id}-{attempt}")),
                     correlation_id: None,
                     causation_id: None,
                     occurred_at: now,
@@ -130,6 +144,7 @@ impl PlannerService {
                 tracing::info!(
                     cycle_id = %cycle_id,
                     task_count = task_count,
+                    attempt = attempt,
                     "plan generated"
                 );
 
@@ -156,7 +171,7 @@ impl PlannerService {
                         "reason": plan_err.to_string(),
                         "actor": { "kind": "Planner" },
                     }),
-                    idempotency_key: Some(format!("plan-generation-failed-{cycle_id}")),
+                    idempotency_key: Some(format!("plan-generation-failed-{cycle_id}-{attempt}")),
                     correlation_id: None,
                     causation_id: None,
                     occurred_at: now,
@@ -173,6 +188,7 @@ impl PlannerService {
                     cycle_id = %cycle_id,
                     category = category,
                     reason = %plan_err,
+                    attempt = attempt,
                     "plan generation failed"
                 );
 
@@ -384,21 +400,22 @@ mod tests {
             project_id: Uuid::new_v4(),
             objective: "Implement user authentication".to_string(),
             repo_context: RepoContext {
-                files: vec![FileContext {
-                    path: "src/main.rs".to_string(),
-                    content_preview: "fn main() { ... }".to_string(),
-                }],
+                file_tree_summary: "src/\n  main.rs\n  lib.rs".to_string(),
                 recent_commits: vec![CommitSummary {
                     sha: "abc123".to_string(),
                     message: "initial commit".to_string(),
                     author: "alice".to_string(),
                 }],
-                primary_language: Some("Rust".to_string()),
+                relevant_files: vec![FileContext {
+                    path: "src/main.rs".to_string(),
+                    content_preview: "fn main() { ... }".to_string(),
+                }],
             },
             constraints: PlanConstraints {
-                max_budget_cents: Some(100_00),
-                max_tasks: Some(5),
-                max_tokens_per_task: Some(50_000),
+                max_tasks: 5,
+                max_concurrent: 2,
+                budget_remaining: 100_00,
+                forbidden_paths: vec![],
             },
             previous_cycle_summary: Some(CycleSummary {
                 cycle_id: Uuid::new_v4(),
@@ -418,8 +435,8 @@ mod tests {
             dependencies: vec![],
             estimated_tokens: Some(25_000),
             scope: Some(TaskScope {
-                file_patterns: vec!["src/**/*.rs".to_string()],
-                directories: vec!["src/".to_string()],
+                target_paths: vec!["src/".to_string()],
+                read_only_paths: vec![],
             }),
         }
     }
@@ -439,11 +456,13 @@ mod tests {
                 kind: "reasoning_trace".to_string(),
                 hash: "sha256-trace123".to_string(),
             }),
-            estimated_cost: Some(5000),
+            estimated_cost: 5000,
             metadata: PlanMetadata {
-                model: Some("claude-opus-4-20250514".to_string()),
-                generation_ms: Some(2500),
-                prompt_hash: Some("sha256-prompt456".to_string()),
+                model_id: "claude-opus-4-20250514".to_string(),
+                prompt_hash: "sha256-prompt456".to_string(),
+                context_hash: "sha256-ctx789".to_string(),
+                temperature: 0.7,
+                generated_at: chrono::Utc::now(),
             },
         }
     }
@@ -522,78 +541,142 @@ mod tests {
         assert_eq!(payload["actor"]["kind"], "System");
     }
 
-    // ── generate_plan (success) ──
+    // ── generate_plan_core (success — tests event emission without SQL guard) ──
 
     #[tokio::test]
-    async fn generate_plan_success_emits_plan_generated() {
+    async fn generate_plan_core_emits_plan_generated() {
         let event_store = Arc::new(RecordingEventStore::new());
         let planner: Arc<dyn Planner> = Arc::new(SuccessPlanner::new());
-        // Note: generate_plan calls check_in_flight_generation which needs SQL.
-        // For unit tests that don't have a real DB, we test the event emission
-        // by directly checking what would happen. We use a separate test approach.
-        // Since we can't run SQL in unit tests, we test the core logic by
-        // wrapping generate_plan_core.
         let svc = PlannerService::new(planner, event_store.clone(), dummy_pool());
 
-        // We can test the planner directly
+        let instance_id = Uuid::new_v4();
+        let cycle_id = Uuid::new_v4();
         let context = make_planning_context();
-        let result = svc.planner.generate_plan(&context).await;
-        assert!(result.is_ok());
-        let proposal = result.unwrap();
-        assert_eq!(proposal.tasks.len(), 2);
-        assert_eq!(proposal.summary, "Two-phase implementation plan");
+
+        let result = svc.generate_plan_core(instance_id, cycle_id, &context, 1).await;
+        assert!(result.is_ok(), "generate_plan_core should succeed: {result:?}");
+
+        let events = event_store.emitted_events().await;
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].event_type, "PlanGenerated");
+        assert_eq!(events[0].instance_id, instance_id);
     }
 
     #[tokio::test]
-    async fn generate_plan_returns_proposal_with_correct_task_count() {
+    async fn generate_plan_core_returns_proposal_with_correct_task_count() {
+        let event_store = Arc::new(RecordingEventStore::new());
         let planner: Arc<dyn Planner> = Arc::new(SuccessPlanner::new());
+        let svc = PlannerService::new(planner, event_store.clone(), dummy_pool());
+
         let context = make_planning_context();
-        let result = planner.generate_plan(&context).await;
-        assert!(result.is_ok());
-        let proposal = result.unwrap();
+        let proposal = svc
+            .generate_plan_core(Uuid::new_v4(), Uuid::new_v4(), &context, 1)
+            .await
+            .unwrap();
         assert_eq!(proposal.tasks.len(), 2);
         assert_eq!(proposal.tasks[0].task_key, "task-1");
         assert_eq!(proposal.tasks[1].task_key, "task-2");
     }
 
     #[tokio::test]
-    async fn generate_plan_proposal_has_dependencies() {
+    async fn generate_plan_core_proposal_has_dependencies() {
+        let event_store = Arc::new(RecordingEventStore::new());
         let planner: Arc<dyn Planner> = Arc::new(SuccessPlanner::new());
+        let svc = PlannerService::new(planner, event_store.clone(), dummy_pool());
+
         let context = make_planning_context();
-        let proposal = planner.generate_plan(&context).await.unwrap();
+        let proposal = svc
+            .generate_plan_core(Uuid::new_v4(), Uuid::new_v4(), &context, 1)
+            .await
+            .unwrap();
         assert!(proposal.tasks[0].dependencies.is_empty());
         assert_eq!(proposal.tasks[1].dependencies, vec!["task-1".to_string()]);
     }
 
-    // ── generate_plan (failure) ──
-
     #[tokio::test]
-    async fn generate_plan_failure_from_planner() {
-        let planner: Arc<dyn Planner> =
-            Arc::new(FailingPlanner::new("model rate limited"));
+    async fn generate_plan_core_event_payload_fields() {
+        let event_store = Arc::new(RecordingEventStore::new());
+        let planner: Arc<dyn Planner> = Arc::new(SuccessPlanner::new());
+        let svc = PlannerService::new(planner, event_store.clone(), dummy_pool());
+
+        let cycle_id = Uuid::new_v4();
         let context = make_planning_context();
-        let result = planner.generate_plan(&context).await;
-        assert!(result.is_err());
-        match result.unwrap_err() {
-            PlanError::GenerationFailed(msg) => {
-                assert_eq!(msg, "model rate limited");
-            }
-            other => panic!("expected GenerationFailed, got: {other:?}"),
-        }
+
+        svc.generate_plan_core(Uuid::new_v4(), cycle_id, &context, 1)
+            .await
+            .unwrap();
+
+        let events = event_store.emitted_events().await;
+        let payload = &events[0].payload;
+        assert_eq!(payload["cycle_id"], cycle_id.to_string());
+        assert_eq!(payload["task_count"], 2);
+        assert_eq!(payload["summary"], "Two-phase implementation plan");
+        assert_eq!(payload["actor"]["kind"], "Planner");
+        assert!(payload.get("plan").is_some(), "should include plan JSON");
     }
 
     #[tokio::test]
-    async fn generate_plan_timeout_from_planner() {
-        let planner: Arc<dyn Planner> = Arc::new(TimeoutPlanner);
+    async fn generate_plan_core_idempotency_key_includes_attempt() {
+        let event_store = Arc::new(RecordingEventStore::new());
+        let planner: Arc<dyn Planner> = Arc::new(SuccessPlanner::new());
+        let svc = PlannerService::new(planner, event_store.clone(), dummy_pool());
+
+        let cycle_id = Uuid::new_v4();
         let context = make_planning_context();
-        let result = planner.generate_plan(&context).await;
+
+        svc.generate_plan_core(Uuid::new_v4(), cycle_id, &context, 3)
+            .await
+            .unwrap();
+
+        let events = event_store.emitted_events().await;
+        let key = events[0].idempotency_key.as_ref().expect("should have key");
+        assert_eq!(*key, format!("plan-generated-{cycle_id}-3"));
+    }
+
+    // ── generate_plan_core (failure — tests error event emission) ──
+
+    #[tokio::test]
+    async fn generate_plan_core_failure_emits_plan_generation_failed() {
+        let event_store = Arc::new(RecordingEventStore::new());
+        let planner: Arc<dyn Planner> =
+            Arc::new(FailingPlanner::new("model rate limited"));
+        let svc = PlannerService::new(planner, event_store.clone(), dummy_pool());
+
+        let instance_id = Uuid::new_v4();
+        let cycle_id = Uuid::new_v4();
+        let context = make_planning_context();
+
+        let result = svc.generate_plan_core(instance_id, cycle_id, &context, 1).await;
         assert!(result.is_err());
-        match result.unwrap_err() {
-            PlanError::Timeout { elapsed_secs } => {
-                assert_eq!(elapsed_secs, 300);
-            }
-            other => panic!("expected Timeout, got: {other:?}"),
-        }
+
+        let events = event_store.emitted_events().await;
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].event_type, "PlanGenerationFailed");
+        assert_eq!(events[0].instance_id, instance_id);
+        assert_eq!(events[0].payload["category"], "GenerationFailed");
+        assert!(events[0].payload["reason"].as_str().unwrap().contains("model rate limited"));
+    }
+
+    #[tokio::test]
+    async fn generate_plan_core_timeout_emits_plan_generation_failed() {
+        let event_store = Arc::new(RecordingEventStore::new());
+        let planner: Arc<dyn Planner> = Arc::new(TimeoutPlanner);
+        let svc = PlannerService::new(planner, event_store.clone(), dummy_pool());
+
+        let cycle_id = Uuid::new_v4();
+        let context = make_planning_context();
+
+        let result = svc
+            .generate_plan_core(Uuid::new_v4(), cycle_id, &context, 2)
+            .await;
+        assert!(result.is_err());
+
+        let events = event_store.emitted_events().await;
+        assert_eq!(events[0].event_type, "PlanGenerationFailed");
+        assert_eq!(events[0].payload["category"], "Timeout");
+
+        let key = events[0].idempotency_key.as_ref().expect("should have key");
+        assert_eq!(*key, format!("plan-generation-failed-{cycle_id}-2"));
     }
 
     // ── approve_plan ──
@@ -716,10 +799,10 @@ mod tests {
         assert_eq!(events[0].seq, 0);
     }
 
-    // ── Full lifecycle (request + approve, without SQL-dependent generate) ──
+    // ── Full lifecycle (request + generate + approve) ──
 
     #[tokio::test]
-    async fn full_lifecycle_request_then_approve() {
+    async fn full_lifecycle_request_generate_approve() {
         let event_store = Arc::new(RecordingEventStore::new());
         let planner: Arc<dyn Planner> = Arc::new(SuccessPlanner::new());
         let svc = PlannerService::new(planner, event_store.clone(), dummy_pool());
@@ -733,23 +816,27 @@ mod tests {
             .await
             .unwrap();
 
-        // Step 2: approve plan (skipping generate since it needs SQL)
+        // Step 2: generate plan (using core to bypass SQL guard)
+        svc.generate_plan_core(instance_id, cycle_id, &context, 1)
+            .await
+            .unwrap();
+
+        // Step 3: approve plan
         svc.approve_plan(instance_id, cycle_id, "alice")
             .await
             .unwrap();
 
         let events = event_store.emitted_events().await;
-        assert_eq!(events.len(), 2);
+        assert_eq!(events.len(), 3);
         assert_eq!(events[0].event_type, "PlanRequested");
-        assert_eq!(events[1].event_type, "PlanApproved");
+        assert_eq!(events[1].event_type, "PlanGenerated");
+        assert_eq!(events[2].event_type, "PlanApproved");
 
-        // Both events have same instance_id
-        assert_eq!(events[0].instance_id, instance_id);
-        assert_eq!(events[1].instance_id, instance_id);
-
-        // Both events reference same cycle_id
-        assert_eq!(events[0].payload["cycle_id"], cycle_id.to_string());
-        assert_eq!(events[1].payload["cycle_id"], cycle_id.to_string());
+        // All events have same instance_id
+        for event in &events {
+            assert_eq!(event.instance_id, instance_id);
+            assert_eq!(event.payload["cycle_id"], cycle_id.to_string());
+        }
     }
 
     // ── Plan proposal serialization within events ──
@@ -766,40 +853,30 @@ mod tests {
         assert_eq!(value["summary"], "Two-phase implementation plan");
     }
 
-    // ── PlannerService field accessors ──
+    // ── Error paths via service ──
 
     #[tokio::test]
-    async fn planner_service_exposes_planner_via_field() {
-        let planner: Arc<dyn Planner> = Arc::new(SuccessPlanner::new());
-        let es: Arc<dyn EventStore> = Arc::new(RecordingEventStore::new());
-        let svc = PlannerService::new(planner, es, dummy_pool());
+    async fn generate_plan_core_failure_returns_domain_error() {
+        let event_store = Arc::new(RecordingEventStore::new());
+        let planner: Arc<dyn Planner> = Arc::new(FailingPlanner::new("LLM overloaded"));
+        let svc = PlannerService::new(planner, event_store.clone(), dummy_pool());
 
-        // Can call planner directly
-        let ctx = make_planning_context();
-        let result = svc.planner.generate_plan(&ctx).await;
-        assert!(result.is_ok());
-    }
-
-    // ── Error paths ──
-
-    #[tokio::test]
-    async fn failing_planner_error_category() {
-        let planner = FailingPlanner::new("LLM overloaded");
-        let result = planner
-            .generate_plan(&make_planning_context())
+        let result = svc
+            .generate_plan_core(Uuid::new_v4(), Uuid::new_v4(), &make_planning_context(), 1)
             .await;
-        let err = result.unwrap_err();
-        assert!(matches!(err, PlanError::GenerationFailed(_)));
+        assert!(matches!(result, Err(AppError::Domain(_))));
     }
 
     #[tokio::test]
-    async fn timeout_planner_error_category() {
-        let planner = TimeoutPlanner;
-        let result = planner
-            .generate_plan(&make_planning_context())
+    async fn generate_plan_core_timeout_returns_domain_error() {
+        let event_store = Arc::new(RecordingEventStore::new());
+        let planner: Arc<dyn Planner> = Arc::new(TimeoutPlanner);
+        let svc = PlannerService::new(planner, event_store.clone(), dummy_pool());
+
+        let result = svc
+            .generate_plan_core(Uuid::new_v4(), Uuid::new_v4(), &make_planning_context(), 1)
             .await;
-        let err = result.unwrap_err();
-        assert!(matches!(err, PlanError::Timeout { .. }));
+        assert!(matches!(result, Err(AppError::Domain(_))));
     }
 
     // ── Multiple approvals ──

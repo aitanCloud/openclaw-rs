@@ -5,6 +5,7 @@
 //! This is a **domain port** -- the domain defines the interface, the
 //! infrastructure layer provides the implementation.
 
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -85,23 +86,25 @@ pub struct CommitSummary {
 /// Repository context provided to the planner.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RepoContext {
-    /// Key files the planner should be aware of.
-    pub files: Vec<FileContext>,
+    /// Summary of the file tree (e.g. directory listing, tree output).
+    pub file_tree_summary: String,
     /// Recent commits for change context.
     pub recent_commits: Vec<CommitSummary>,
-    /// Primary language / framework.
-    pub primary_language: Option<String>,
+    /// Relevant files the planner should be aware of.
+    pub relevant_files: Vec<FileContext>,
 }
 
 /// Constraints on plan generation (budget, scope, etc.).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PlanConstraints {
-    /// Maximum budget for the entire cycle, in cents.
-    pub max_budget_cents: Option<BudgetCents>,
     /// Maximum number of tasks allowed.
-    pub max_tasks: Option<u32>,
-    /// Maximum estimated tokens per task.
-    pub max_tokens_per_task: Option<u64>,
+    pub max_tasks: u32,
+    /// Maximum number of concurrent tasks.
+    pub max_concurrent: u32,
+    /// Remaining budget for the cycle, in cents.
+    pub budget_remaining: BudgetCents,
+    /// Paths the planner must not modify.
+    pub forbidden_paths: Vec<String>,
 }
 
 /// Full context provided to the planner for plan generation.
@@ -124,10 +127,10 @@ pub struct PlanningContext {
 /// Scope definition for a task: which files/dirs the task should touch.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TaskScope {
-    /// File globs this task is expected to modify.
-    pub file_patterns: Vec<String>,
-    /// Directories this task is scoped to.
-    pub directories: Vec<String>,
+    /// Paths this task is expected to modify.
+    pub target_paths: Vec<String>,
+    /// Paths this task may read but must not modify.
+    pub read_only_paths: Vec<String>,
 }
 
 /// A single proposed task within a plan.
@@ -150,18 +153,22 @@ pub struct TaskProposal {
 }
 
 /// Metadata about the plan generation process.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PlanMetadata {
     /// Model used for generation (e.g. "claude-opus-4-20250514").
-    pub model: Option<String>,
-    /// Generation latency in milliseconds.
-    pub generation_ms: Option<u64>,
+    pub model_id: String,
     /// Prompt hash for auditability.
-    pub prompt_hash: Option<String>,
+    pub prompt_hash: String,
+    /// Hash of the context used for generation.
+    pub context_hash: String,
+    /// Temperature used for generation.
+    pub temperature: f32,
+    /// Timestamp when the plan was generated.
+    pub generated_at: DateTime<Utc>,
 }
 
 /// The full plan proposal produced by the Planner.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PlanProposal {
     /// Ordered list of proposed tasks.
     pub tasks: Vec<TaskProposal>,
@@ -170,7 +177,7 @@ pub struct PlanProposal {
     /// Reference to the stored reasoning trace.
     pub reasoning_ref: Option<ArtifactRef>,
     /// Total estimated cost for the plan, in cents.
-    pub estimated_cost: Option<BudgetCents>,
+    pub estimated_cost: BudgetCents,
     /// Metadata about the generation process.
     pub metadata: PlanMetadata,
 }
@@ -178,12 +185,10 @@ pub struct PlanProposal {
 /// A request for additional context from the planner.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ContextRequest {
-    /// Human-readable description of what context is needed.
-    pub description: String,
-    /// Suggested file paths to examine.
-    pub suggested_files: Vec<String>,
-    /// Suggested questions to answer.
-    pub questions: Vec<String>,
+    /// File paths to retrieve (max 50).
+    pub requested_files: Vec<String>,
+    /// Description of additional context needed.
+    pub requested_context: String,
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -325,16 +330,16 @@ mod tests {
     #[test]
     fn repo_context_serde_round_trip() {
         let rc = RepoContext {
-            files: vec![FileContext {
-                path: "src/lib.rs".to_string(),
-                content_preview: "pub mod app;".to_string(),
-            }],
+            file_tree_summary: "src/\n  lib.rs\n  main.rs".to_string(),
             recent_commits: vec![CommitSummary {
                 sha: "def456".to_string(),
                 message: "chore: cleanup".to_string(),
                 author: "bob".to_string(),
             }],
-            primary_language: Some("Rust".to_string()),
+            relevant_files: vec![FileContext {
+                path: "src/lib.rs".to_string(),
+                content_preview: "pub mod app;".to_string(),
+            }],
         };
         let json = serde_json::to_string(&rc).unwrap();
         let restored: RepoContext = serde_json::from_str(&json).unwrap();
@@ -344,9 +349,9 @@ mod tests {
     #[test]
     fn repo_context_empty() {
         let rc = RepoContext {
-            files: vec![],
+            file_tree_summary: String::new(),
             recent_commits: vec![],
-            primary_language: None,
+            relevant_files: vec![],
         };
         let json = serde_json::to_string(&rc).unwrap();
         let restored: RepoContext = serde_json::from_str(&json).unwrap();
@@ -358,9 +363,10 @@ mod tests {
     #[test]
     fn plan_constraints_serde_round_trip() {
         let pc = PlanConstraints {
-            max_budget_cents: Some(50000),
-            max_tasks: Some(10),
-            max_tokens_per_task: Some(100_000),
+            max_tasks: 10,
+            max_concurrent: 3,
+            budget_remaining: 50000,
+            forbidden_paths: vec![".env".to_string(), "secrets/".to_string()],
         };
         let json = serde_json::to_string(&pc).unwrap();
         let restored: PlanConstraints = serde_json::from_str(&json).unwrap();
@@ -368,11 +374,12 @@ mod tests {
     }
 
     #[test]
-    fn plan_constraints_all_none() {
+    fn plan_constraints_defaults() {
         let pc = PlanConstraints {
-            max_budget_cents: None,
-            max_tasks: None,
-            max_tokens_per_task: None,
+            max_tasks: 0,
+            max_concurrent: 0,
+            budget_remaining: 0,
+            forbidden_paths: vec![],
         };
         let json = serde_json::to_string(&pc).unwrap();
         let restored: PlanConstraints = serde_json::from_str(&json).unwrap();
@@ -403,8 +410,8 @@ mod tests {
     #[test]
     fn task_scope_serde_round_trip() {
         let ts = TaskScope {
-            file_patterns: vec!["src/**/*.rs".to_string()],
-            directories: vec!["src/domain".to_string()],
+            target_paths: vec!["src/domain/planner.rs".to_string()],
+            read_only_paths: vec!["src/domain/types.rs".to_string()],
         };
         let json = serde_json::to_string(&ts).unwrap();
         let restored: TaskScope = serde_json::from_str(&json).unwrap();
@@ -442,9 +449,11 @@ mod tests {
     #[test]
     fn plan_metadata_serde_round_trip() {
         let pm = PlanMetadata {
-            model: Some("claude-opus-4-20250514".to_string()),
-            generation_ms: Some(3500),
-            prompt_hash: Some("sha256-abc123".to_string()),
+            model_id: "claude-opus-4-20250514".to_string(),
+            prompt_hash: "sha256-abc123".to_string(),
+            context_hash: "sha256-ctx789".to_string(),
+            temperature: 0.7,
+            generated_at: Utc::now(),
         };
         let json = serde_json::to_string(&pm).unwrap();
         let restored: PlanMetadata = serde_json::from_str(&json).unwrap();
@@ -452,11 +461,13 @@ mod tests {
     }
 
     #[test]
-    fn plan_metadata_all_none() {
+    fn plan_metadata_zero_temperature() {
         let pm = PlanMetadata {
-            model: None,
-            generation_ms: None,
-            prompt_hash: None,
+            model_id: "test-model".to_string(),
+            prompt_hash: "hash1".to_string(),
+            context_hash: "hash2".to_string(),
+            temperature: 0.0,
+            generated_at: Utc::now(),
         };
         let json = serde_json::to_string(&pm).unwrap();
         let restored: PlanMetadata = serde_json::from_str(&json).unwrap();
@@ -488,11 +499,13 @@ mod tests {
             tasks: vec![],
             summary: "Empty plan".to_string(),
             reasoning_ref: None,
-            estimated_cost: None,
+            estimated_cost: 0,
             metadata: PlanMetadata {
-                model: None,
-                generation_ms: None,
-                prompt_hash: None,
+                model_id: "test-model".to_string(),
+                prompt_hash: "hash1".to_string(),
+                context_hash: "hash2".to_string(),
+                temperature: 0.0,
+                generated_at: Utc::now(),
             },
         };
         let json = serde_json::to_string(&pp).unwrap();
@@ -506,9 +519,8 @@ mod tests {
     #[test]
     fn context_request_serde_round_trip() {
         let cr = ContextRequest {
-            description: "Need database schema".to_string(),
-            suggested_files: vec!["migrations/".to_string()],
-            questions: vec!["What ORM is used?".to_string()],
+            requested_files: vec!["migrations/".to_string(), "schema.sql".to_string()],
+            requested_context: "Need database schema and ORM details".to_string(),
         };
         let json = serde_json::to_string(&cr).unwrap();
         let restored: ContextRequest = serde_json::from_str(&json).unwrap();
@@ -588,21 +600,22 @@ mod tests {
             project_id: Uuid::new_v4(),
             objective: "Implement user authentication".to_string(),
             repo_context: RepoContext {
-                files: vec![FileContext {
-                    path: "src/main.rs".to_string(),
-                    content_preview: "fn main() { ... }".to_string(),
-                }],
+                file_tree_summary: "src/\n  main.rs\n  lib.rs".to_string(),
                 recent_commits: vec![CommitSummary {
                     sha: "abc123".to_string(),
                     message: "initial commit".to_string(),
                     author: "alice".to_string(),
                 }],
-                primary_language: Some("Rust".to_string()),
+                relevant_files: vec![FileContext {
+                    path: "src/main.rs".to_string(),
+                    content_preview: "fn main() { ... }".to_string(),
+                }],
             },
             constraints: PlanConstraints {
-                max_budget_cents: Some(100_00),
-                max_tasks: Some(5),
-                max_tokens_per_task: Some(50_000),
+                max_tasks: 5,
+                max_concurrent: 2,
+                budget_remaining: 100_00,
+                forbidden_paths: vec![],
             },
             previous_cycle_summary: Some(CycleSummary {
                 cycle_id: Uuid::new_v4(),
@@ -622,8 +635,8 @@ mod tests {
             dependencies: vec![],
             estimated_tokens: Some(25_000),
             scope: Some(TaskScope {
-                file_patterns: vec!["src/**/*.rs".to_string()],
-                directories: vec!["src/".to_string()],
+                target_paths: vec!["src/".to_string()],
+                read_only_paths: vec![],
             }),
         }
     }
@@ -643,11 +656,13 @@ mod tests {
                 kind: "reasoning_trace".to_string(),
                 hash: "sha256-trace123".to_string(),
             }),
-            estimated_cost: Some(5000),
+            estimated_cost: 5000,
             metadata: PlanMetadata {
-                model: Some("claude-opus-4-20250514".to_string()),
-                generation_ms: Some(2500),
-                prompt_hash: Some("sha256-prompt456".to_string()),
+                model_id: "claude-opus-4-20250514".to_string(),
+                prompt_hash: "sha256-prompt456".to_string(),
+                context_hash: "sha256-ctx789".to_string(),
+                temperature: 0.7,
+                generated_at: Utc::now(),
             },
         }
     }

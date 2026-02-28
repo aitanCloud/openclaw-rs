@@ -6,18 +6,19 @@ use sqlx::PgPool;
 
 /// Projects cycle lifecycle events into the `orch_cycles` table.
 ///
-/// Handles all 11 cycle state-changing events:
-/// - CycleCreated      -> INSERT (created)
-/// - PlanRequested     -> created -> planning
-/// - PlanGenerated     -> planning -> plan_ready (stores plan JSON)
-/// - PlanApproved      -> plan_ready -> approved
-/// - CycleRunningStarted -> approved -> running
-/// - CycleCompleting   -> running -> completing
-/// - CycleBlocked      -> running -> blocked (stores block_reason)
-/// - CycleUnblocked    -> blocked -> running (clears block_reason)
-/// - CycleCompleted    -> completing -> completed
-/// - CycleFailed       -> running|completing -> failed (stores failure_reason)
-/// - CycleCancelled    -> plan_ready|running -> cancelled (stores cancel_reason)
+/// Handles all 12 cycle state-changing events:
+/// - CycleCreated         -> INSERT (created)
+/// - PlanRequested        -> created -> planning
+/// - PlanGenerated        -> planning -> plan_ready (stores plan JSON)
+/// - PlanApproved         -> plan_ready -> approved
+/// - PlanGenerationFailed -> planning -> failed (stores failure_reason)
+/// - CycleRunningStarted  -> approved -> running
+/// - CycleCompleting      -> running -> completing
+/// - CycleBlocked         -> running -> blocked (stores block_reason)
+/// - CycleUnblocked       -> blocked -> running (clears block_reason)
+/// - CycleCompleted       -> completing -> completed
+/// - CycleFailed          -> running|completing -> failed (stores failure_reason)
+/// - CycleCancelled       -> plan_ready|running -> cancelled (stores cancel_reason)
 ///
 /// Note on co-emission (Section 31.3 rule 1):
 /// PlanApproved and PlanBudgetReserved are co-emitted in the same transaction.
@@ -49,6 +50,7 @@ impl Projector for CycleProjector {
             "PlanRequested",
             "PlanGenerated",
             "PlanApproved",
+            "PlanGenerationFailed",
             "CycleRunningStarted",
             "CycleCompleting",
             "CycleBlocked",
@@ -170,6 +172,36 @@ impl Projector for CycleProjector {
                     "UPDATE orch_cycles SET state = 'approved', updated_at = $2 WHERE id = $1 AND state = 'plan_ready'",
                 )
                 .bind(cycle_id)
+                .bind(event.occurred_at)
+                .execute(pool)
+                .await
+                .map_err(|e| AppError::Infra(InfraError::Database(e.to_string())))?;
+
+                Ok(())
+            }
+            "PlanGenerationFailed" => {
+                let cycle_id: uuid::Uuid = serde_json::from_value(
+                    event
+                        .payload
+                        .get("cycle_id")
+                        .cloned()
+                        .ok_or_else(|| {
+                            AppError::Domain(crate::domain::errors::DomainError::Precondition(
+                                "missing cycle_id".into(),
+                            ))
+                        })?,
+                )?;
+                let reason = event
+                    .payload
+                    .get("reason")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
+
+                sqlx::query(
+                    "UPDATE orch_cycles SET state = 'failed', failure_reason = $2, updated_at = $3 WHERE id = $1 AND state = 'planning'",
+                )
+                .bind(cycle_id)
+                .bind(reason)
                 .bind(event.occurred_at)
                 .execute(pool)
                 .await
@@ -445,7 +477,7 @@ mod tests {
     #[test]
     fn handles_returns_correct_count() {
         let projector = CycleProjector::new();
-        assert_eq!(projector.handles().len(), 11, "expected 11 cycle events");
+        assert_eq!(projector.handles().len(), 12, "expected 12 cycle events");
     }
 
     #[test]
