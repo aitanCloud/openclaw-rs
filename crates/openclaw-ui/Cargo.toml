@@ -12,7 +12,7 @@ path = "src/main.rs"
 [dependencies]
 openclaw-orchestrator = { path = "../openclaw-orchestrator" }
 openclaw-db = { path = "../openclaw-db" }
-axum = "0.8"
+axum = { version = "0.8", features = ["ws"] }
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -28,6 +28,7 @@ sha2 = "0.10"
 hex = "0.4"
 base64 = { workspace = true }
 async-trait = "0.1"
+futures-util = { workspace = true }
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }

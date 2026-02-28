@@ -2,12 +2,12 @@ use std::sync::Arc;
 
 use axum::{
     middleware,
-    routing::{get, post},
+    routing::{any, get, post},
     Router,
 };
 
 use crate::auth::auth_middleware;
-use crate::routes::{budgets, cycles, events, instances, runs, tasks};
+use crate::routes::{budgets, cycles, events, instances, runs, tasks, ws};
 use crate::state::AppState;
 
 /// Build the API routes (nested under /api/v1).
@@ -50,16 +50,36 @@ fn api_routes() -> Router<Arc<AppState>> {
         .route("/instances/{id}/events", get(events::list_events))
 }
 
+/// Routes that bypass the auth middleware (first-message auth via WebSocket).
+fn ws_routes() -> Router<Arc<AppState>> {
+    Router::new().route(
+        "/instances/{id}/events/ws",
+        any(ws::ws_handler),
+    )
+}
+
 /// Build the full Axum router with auth middleware and CORS.
+///
+/// The WebSocket route uses first-message auth and is mounted OUTSIDE
+/// the bearer-token auth middleware layer.
 pub fn build_router(state: AppState) -> Router {
     let shared_state = Arc::new(state);
 
-    Router::new()
+    // Authenticated routes (bearer token in header)
+    let authed = Router::new()
         .nest("/api/v1", api_routes())
         .layer(middleware::from_fn_with_state(
             shared_state.clone(),
             auth_middleware,
-        ))
+        ));
+
+    // Unauthenticated routes (WS uses first-message auth)
+    let unauthed = Router::new().nest("/api/v1", ws_routes());
+
+    // Merge: unauthed routes first, then authed routes.
+    // Axum merges without applying the layer from one router to the other.
+    authed
+        .merge(unauthed)
         .with_state(shared_state)
 }
 
@@ -74,6 +94,7 @@ mod tests {
     use openclaw_orchestrator::domain::errors::DomainError;
     use openclaw_orchestrator::domain::events::EventEnvelope;
     use openclaw_orchestrator::domain::ports::EventStore;
+    use tokio::sync::broadcast;
     use uuid::Uuid;
 
     /// Minimal event store for route registration tests.
@@ -108,9 +129,12 @@ mod tests {
             .connect_lazy("postgres://dummy:dummy@localhost:5432/dummy")
             .expect("connect_lazy should not fail");
 
+        let (event_tx, _) = broadcast::channel(16);
+
         AppState {
             pool,
             event_store: Arc::new(NoopEventStore),
+            event_tx,
             config: ApiConfig {
                 auth_token_hash: hash,
                 listen_addr: "127.0.0.1:0".to_string(),
@@ -224,5 +248,28 @@ mod tests {
 
         let response = app.oneshot(request).await.unwrap();
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    /// The WebSocket route is mounted and does NOT go through auth middleware.
+    /// A non-upgrade request should fail with a WebSocket-related error, not 401 or 404.
+    #[tokio::test]
+    async fn ws_route_is_mounted_outside_auth() {
+        let state = make_test_state();
+        let app = build_router(state);
+
+        // A plain GET without WebSocket upgrade headers should NOT return 404 (route exists)
+        // and should NOT return 401 (no auth middleware on this route).
+        let request = Request::builder()
+            .method("GET")
+            .uri("/api/v1/instances/00000000-0000-0000-0000-000000000001/events/ws")
+            .body(Body::empty())
+            .unwrap();
+
+        let response = app.oneshot(request).await.unwrap();
+        // Without upgrade headers, axum's WebSocketUpgrade extractor rejects.
+        // This should NOT be 401 (auth bypass confirmed) or 404 (route exists).
+        let status = response.status();
+        assert_ne!(status, StatusCode::UNAUTHORIZED, "ws route should not require auth middleware");
+        assert_ne!(status, StatusCode::NOT_FOUND, "ws route should be mounted");
     }
 }

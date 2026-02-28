@@ -33,10 +33,12 @@ async fn main() -> anyhow::Result<()> {
     info!("database pool connected");
 
     let event_store = Arc::new(PgEventStore::new(pool.clone()));
+    let event_tx = event_store.sender();
 
     let state = AppState {
         pool,
         event_store,
+        event_tx,
         config,
     };
 

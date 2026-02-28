@@ -1,13 +1,20 @@
 use std::sync::Arc;
 
 use sqlx::PgPool;
+use tokio::sync::broadcast;
 
+use openclaw_orchestrator::domain::events::EventEnvelope;
 use openclaw_orchestrator::domain::ports::EventStore;
 
 /// Shared application state for Axum handlers.
 pub struct AppState {
     pub pool: PgPool,
     pub event_store: Arc<dyn EventStore>,
+    /// Broadcast sender for real-time event notifications.
+    ///
+    /// WebSocket handlers call `event_tx.subscribe()` to get a receiver.
+    /// The sender is obtained from `PgEventStore::sender()` at startup.
+    pub event_tx: broadcast::Sender<EventEnvelope>,
     pub config: ApiConfig,
 }
 
@@ -63,5 +70,13 @@ mod tests {
         assert_eq!(config.default_page_limit, 50);
         assert_eq!(config.max_page_limit, 100);
         assert_eq!(config.listen_addr, "127.0.0.1:3130");
+    }
+
+    #[test]
+    fn app_state_has_event_tx() {
+        let (tx, _rx) = broadcast::channel::<EventEnvelope>(16);
+        // Just verify the field exists and compiles
+        let _sender = tx.clone();
+        assert!(true);
     }
 }

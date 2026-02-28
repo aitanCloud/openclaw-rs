@@ -28,6 +28,15 @@ impl PgEventStore {
         self.tx.subscribe()
     }
 
+    /// Return a clone of the broadcast sender.
+    ///
+    /// Used by the UI crate to store the sender in `AppState` so that
+    /// WebSocket handlers can call `sender.subscribe()` without needing
+    /// the concrete `PgEventStore` type.
+    pub fn sender(&self) -> broadcast::Sender<EventEnvelope> {
+        self.tx.clone()
+    }
+
     /// Get the next sequence number for an instance.
     async fn next_seq(&self, instance_id: Uuid) -> Result<i64, InfraError> {
         let row = sqlx::query_scalar::<_, Option<i64>>(
