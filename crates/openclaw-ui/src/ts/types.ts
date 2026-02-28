@@ -24,11 +24,10 @@ export interface Instance {
 
 export type InstanceState =
     | 'provisioning'
-    | 'running'
+    | 'active'
     | 'blocked'
-    | 'completed'
-    | 'failed'
-    | 'cancelled';
+    | 'suspended'
+    | 'provisioning_failed';
 
 /** Cycle row from GET /api/v1/instances/:id/cycles. */
 export interface Cycle {
@@ -45,11 +44,13 @@ export interface Cycle {
 }
 
 export type CycleState =
+    | 'created'
     | 'planning'
-    | 'plan_review'
+    | 'plan_ready'
     | 'approved'
-    | 'executing'
-    | 'merging'
+    | 'running'
+    | 'blocked'
+    | 'completing'
     | 'completed'
     | 'failed'
     | 'cancelled';
@@ -75,10 +76,10 @@ export interface Task {
 }
 
 export type TaskState =
-    | 'pending'
     | 'scheduled'
-    | 'running'
-    | 'completed'
+    | 'active'
+    | 'verifying'
+    | 'passed'
     | 'failed'
     | 'cancelled'
     | 'skipped';
@@ -183,11 +184,12 @@ export interface CycleProgress {
 
 /** Ordered cycle states for stepper display. */
 export const CYCLE_STEPS: CycleState[] = [
+    'created',
     'planning',
-    'plan_review',
+    'plan_ready',
     'approved',
-    'executing',
-    'merging',
+    'running',
+    'completing',
     'completed',
 ];
 
@@ -200,11 +202,13 @@ export const TERMINAL_CYCLE_STATES: CycleState[] = [
 
 /** Stepper labels for cycle states. */
 export const CYCLE_STEP_LABELS: Record<CycleState, string> = {
+    created: 'Created',
     planning: 'Planning',
-    plan_review: 'Review',
+    plan_ready: 'Review',
     approved: 'Approved',
-    executing: 'Executing',
-    merging: 'Merging',
+    running: 'Running',
+    blocked: 'Blocked',
+    completing: 'Merging',
     completed: 'Done',
     failed: 'Failed',
     cancelled: 'Cancelled',

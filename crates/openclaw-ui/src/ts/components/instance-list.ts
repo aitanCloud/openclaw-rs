@@ -155,9 +155,9 @@ export class InstanceList implements Component {
         return {
             cycle: active,
             tasks,
-            tasksPassed: tasks.filter(t => t.state === 'completed').length,
+            tasksPassed: tasks.filter(t => t.state === 'passed').length,
             tasksFailed: tasks.filter(t => t.state === 'failed').length,
-            tasksRunning: tasks.filter(t => t.state === 'running').length,
+            tasksRunning: tasks.filter(t => t.state === 'active').length,
             tasksTotal: tasks.length,
         };
     }

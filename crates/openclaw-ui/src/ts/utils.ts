@@ -56,20 +56,25 @@ export function appendChildren(
 const STATE_COLORS: Record<string, string> = {
     // Instance states
     provisioning: 'blue',
-    running: 'green',
+    active: 'green',
     blocked: 'red',
+    suspended: 'yellow',
+    provisioning_failed: 'red',
+    // Cycle states
+    created: 'gray',
+    planning: 'blue',
+    plan_ready: 'purple',
+    approved: 'green',
+    running: 'green',
+    completing: 'blue',
     completed: 'gray',
     failed: 'red',
     cancelled: 'yellow',
-    // Cycle states
-    planning: 'blue',
-    plan_review: 'purple',
-    approved: 'green',
-    executing: 'green',
-    merging: 'blue',
     // Task states
-    pending: 'gray',
-    scheduled: 'blue',
+    scheduled: 'gray',
+    active_task: 'blue', // not used directly, 'active' maps to green above
+    verifying: 'purple',
+    passed: 'green',
     skipped: 'yellow',
 };
 

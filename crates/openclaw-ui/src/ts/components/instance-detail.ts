@@ -146,7 +146,7 @@ export class InstanceDetail implements Component {
         // Action buttons
         const actions = el('div', 'active-cycle-panel__actions');
 
-        if (cp.cycle.state === 'plan_review') {
+        if (cp.cycle.state === 'plan_ready') {
             const approveBtn = el('button', 'btn btn--primary', 'Approve Plan');
             approveBtn.dataset.cycleId = cp.cycle.id;
             approveBtn.dataset.instanceId = vm.instance.id;
@@ -304,7 +304,7 @@ export class InstanceDetail implements Component {
 
             // Task count for this cycle
             const cycleTasks = vm.tasks.filter(t => t.cycle_id === cycle.id);
-            const passed = cycleTasks.filter(t => t.state === 'completed').length;
+            const passed = cycleTasks.filter(t => t.state === 'passed').length;
             const taskLabel = cycleTasks.length > 0 ? `${passed}/${cycleTasks.length}` : '-';
             row.appendChild(el('td', 'data-table__cell mono', taskLabel));
 
@@ -352,9 +352,9 @@ export class InstanceDetail implements Component {
         return {
             cycle: active,
             tasks,
-            tasksPassed: tasks.filter(t => t.state === 'completed').length,
+            tasksPassed: tasks.filter(t => t.state === 'passed').length,
             tasksFailed: tasks.filter(t => t.state === 'failed').length,
-            tasksRunning: tasks.filter(t => t.state === 'running').length,
+            tasksRunning: tasks.filter(t => t.state === 'active').length,
             tasksTotal: tasks.length,
         };
     }

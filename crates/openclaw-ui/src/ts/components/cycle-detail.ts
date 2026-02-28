@@ -195,7 +195,7 @@ export class CycleDetail implements Component {
         }
 
         // Action buttons
-        if (cycle.state === 'plan_review') {
+        if (cycle.state === 'plan_ready') {
             const actions = el('div', 'action-buttons');
             const approveBtn = el('button', 'btn btn--primary', 'Approve Plan');
             approveBtn.dataset.action = 'approve';
@@ -339,7 +339,7 @@ export class CycleDetail implements Component {
         // Checkbox indicator
         const check = el('div', 'task-item__check');
         switch (task.state) {
-            case 'completed':
+            case 'passed':
                 check.className = 'task-item__check task-item__check--passed';
                 check.textContent = '\u2713';
                 break;
@@ -347,7 +347,8 @@ export class CycleDetail implements Component {
                 check.className = 'task-item__check task-item__check--failed';
                 check.textContent = '\u2717';
                 break;
-            case 'running':
+            case 'active':
+            case 'verifying':
                 check.className = 'task-item__check task-item__check--running';
                 check.textContent = '\u25B6';
                 break;
@@ -399,9 +400,9 @@ export class CycleDetail implements Component {
         return {
             cycle: this.cycle!,
             tasks: this.cycleTasks,
-            tasksPassed: this.cycleTasks.filter(t => t.state === 'completed').length,
+            tasksPassed: this.cycleTasks.filter(t => t.state === 'passed').length,
             tasksFailed: this.cycleTasks.filter(t => t.state === 'failed').length,
-            tasksRunning: this.cycleTasks.filter(t => t.state === 'running').length,
+            tasksRunning: this.cycleTasks.filter(t => t.state === 'active').length,
             tasksTotal: this.cycleTasks.length,
         };
     }
