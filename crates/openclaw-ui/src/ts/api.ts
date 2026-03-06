@@ -165,6 +165,10 @@ export const api = {
         return request('GET', `/api/v1/instances/${instanceId}/runs/${runId}`);
     },
 
+    listRunsForTask(instanceId: string, taskId: string): Promise<Run[]> {
+        return request('GET', `/api/v1/instances/${instanceId}/tasks/${taskId}/runs`);
+    },
+
     // ── Budgets ──────────────────────────────────────────────────
 
     listBudgets(

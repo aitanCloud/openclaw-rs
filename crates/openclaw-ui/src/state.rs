@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use sqlx::PgPool;
 use tokio::sync::broadcast;
+use uuid::Uuid;
 
 use openclaw_orchestrator::domain::events::EventEnvelope;
 use openclaw_orchestrator::domain::ports::EventStore;
@@ -30,6 +31,10 @@ pub struct ApiConfig {
     pub max_page_limit: u32,
     /// Maximum WebSocket events per second per connection (0 = unlimited).
     pub max_ws_events_per_sec: u32,
+    /// Instance ID for this orchestrator process. If set, background loops start.
+    pub instance_id: Option<Uuid>,
+    /// Data directory for worker logs and state files.
+    pub data_dir: Option<String>,
 }
 
 impl ApiConfig {
@@ -52,12 +57,19 @@ impl ApiConfig {
             .and_then(|v| v.parse().ok())
             .unwrap_or(100);
 
+        let instance_id = std::env::var("OPENCLAW_INSTANCE_ID")
+            .ok()
+            .and_then(|v| Uuid::parse_str(&v).ok());
+        let data_dir = std::env::var("OPENCLAW_DATA_DIR").ok();
+
         Ok(Self {
             auth_token_hash,
             listen_addr,
             default_page_limit,
             max_page_limit,
             max_ws_events_per_sec,
+            instance_id,
+            data_dir,
         })
     }
 }
@@ -74,6 +86,8 @@ mod tests {
             default_page_limit: 50,
             max_page_limit: 100,
             max_ws_events_per_sec: 100,
+            instance_id: None,
+            data_dir: None,
         };
         assert_eq!(config.default_page_limit, 50);
         assert_eq!(config.max_page_limit, 100);

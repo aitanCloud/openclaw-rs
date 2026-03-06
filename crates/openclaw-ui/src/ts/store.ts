@@ -10,6 +10,7 @@ type Listener = (state: AppState) => void;
 class Store {
     private state: AppState;
     private listeners: Set<Listener> = new Set();
+    private invalidateTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
 
     constructor() {
         this.state = {
@@ -147,14 +148,33 @@ class Store {
 
     /**
      * Invalidate and re-fetch data for an instance.
-     * Called when a WS event arrives for this instance.
+     * Debounced — coalesces rapid WS events within a 500ms window.
      */
     async invalidate(instanceId: string): Promise<void> {
-        // If we're currently viewing this instance, re-fetch detail
+        const existing = this.invalidateTimers.get(instanceId);
+        if (existing) clearTimeout(existing);
+
+        const timer = setTimeout(async () => {
+            this.invalidateTimers.delete(instanceId);
+            if (this.state.selectedInstanceId === instanceId) {
+                await this.fetchInstanceDetail(instanceId);
+            }
+            await this.fetchInstances();
+        }, 500);
+
+        this.invalidateTimers.set(instanceId, timer);
+    }
+
+    /** Immediate invalidate (bypass debounce), for user-initiated actions. */
+    async invalidateNow(instanceId: string): Promise<void> {
+        const existing = this.invalidateTimers.get(instanceId);
+        if (existing) {
+            clearTimeout(existing);
+            this.invalidateTimers.delete(instanceId);
+        }
         if (this.state.selectedInstanceId === instanceId) {
             await this.fetchInstanceDetail(instanceId);
         }
-        // Always refresh the instance list (state may have changed)
         await this.fetchInstances();
     }
 }

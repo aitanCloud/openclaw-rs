@@ -24,6 +24,8 @@ pub struct RunRow {
     pub worker_session_id: Uuid,
     pub exit_code: Option<i32>,
     pub cost_cents: i64,
+    pub output_json: Option<serde_json::Value>,
+    pub prompt_sent: Option<String>,
     pub failure_category: Option<String>,
     pub cancel_reason: Option<String>,
     pub abandon_reason: Option<String>,
@@ -39,7 +41,8 @@ pub async fn get_run(
     let row = sqlx::query_as::<_, RunRow>(
         r#"
         SELECT id, task_id, instance_id, run_number, state, worker_session_id,
-               exit_code, cost_cents, failure_category, cancel_reason, abandon_reason,
+               exit_code, cost_cents, output_json, prompt_sent,
+               failure_category, cancel_reason, abandon_reason,
                started_at, finished_at
         FROM orch_runs
         WHERE instance_id = $1 AND id = $2
@@ -57,6 +60,30 @@ pub async fn get_run(
     })?;
 
     Ok(Json(row))
+}
+
+/// GET /api/v1/instances/:id/tasks/:task_id/runs — list runs for a task.
+pub async fn list_runs_for_task(
+    State(state): State<Arc<AppState>>,
+    Path((instance_id, task_id)): Path<(Uuid, Uuid)>,
+) -> Result<Json<Vec<RunRow>>, ApiError> {
+    let rows = sqlx::query_as::<_, RunRow>(
+        r#"
+        SELECT id, task_id, instance_id, run_number, state, worker_session_id,
+               exit_code, cost_cents, output_json, prompt_sent,
+               failure_category, cancel_reason, abandon_reason,
+               started_at, finished_at
+        FROM orch_runs
+        WHERE instance_id = $1 AND task_id = $2
+        ORDER BY run_number ASC
+        "#,
+    )
+    .bind(instance_id)
+    .bind(task_id)
+    .fetch_all(&state.pool)
+    .await?;
+
+    Ok(Json(rows))
 }
 
 /// Response body for the log tail placeholder.

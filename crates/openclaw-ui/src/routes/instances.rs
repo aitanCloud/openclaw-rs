@@ -163,6 +163,52 @@ pub async fn create_instance(
     let project_id = body.project_id;
     let now = Utc::now();
 
+    // ── Projection first (orch_events has FK to orch_instances) ──
+    sqlx::query(
+        r#"
+        INSERT INTO orch_projects (id, name, repo_path, config, created_at)
+        VALUES ($1, $2, $3, '{}', $4)
+        ON CONFLICT (id) DO NOTHING
+        "#,
+    )
+    .bind(project_id)
+    .bind(&body.name)
+    .bind(&body.data_dir)
+    .bind(now)
+    .execute(&state.pool)
+    .await
+    .map_err(|e| DomainError::Precondition(format!("project insert: {e}")))?;
+
+    sqlx::query(
+        r#"
+        INSERT INTO orch_instances (
+            id, project_id, name, state, data_dir, token_hash,
+            started_at, last_heartbeat, config
+        )
+        VALUES ($1, $2, $3, 'active', $4, $5, $6, $6, '{}')
+        "#,
+    )
+    .bind(instance_id)
+    .bind(project_id)
+    .bind(&body.name)
+    .bind(&body.data_dir)
+    .bind(&token_hash)
+    .bind(now)
+    .execute(&state.pool)
+    .await
+    .map_err(|e| DomainError::Precondition(format!("instance insert: {e}")))?;
+
+    // Seed server capacity for the new instance
+    sqlx::query(
+        "INSERT INTO orch_server_capacity (instance_id, active_runs, max_concurrent, updated_at) VALUES ($1, 0, 3, $2) ON CONFLICT (instance_id) DO NOTHING",
+    )
+    .bind(instance_id)
+    .bind(now)
+    .execute(&state.pool)
+    .await
+    .map_err(|e| DomainError::Precondition(format!("server capacity insert: {e}")))?;
+
+    // ── Event (after projection row exists for FK) ──
     let envelope = EventEnvelope {
         event_id: Uuid::new_v4(),
         instance_id,
@@ -202,7 +248,7 @@ pub async fn create_instance(
             instance_id,
             project_id,
             name: body.name,
-            state: "provisioning".to_string(),
+            state: "active".to_string(),
         }),
     ))
 }

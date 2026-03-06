@@ -59,8 +59,10 @@ impl EventStore for PgEventStore {
             .map_err(|e| DomainError::Precondition(e.to_string()))?;
         event.seq = seq;
 
-        // Insert event. If idempotency_key conflicts, return existing seq.
-        let result = sqlx::query_scalar::<_, i64>(
+        // Insert event. If idempotency_key conflicts, skip insert (DO NOTHING)
+        // and fall back to querying the existing seq. We avoid DO UPDATE because
+        // the append-only trigger on orch_events blocks all UPDATEs.
+        let inserted = sqlx::query_scalar::<_, i64>(
             r#"
             INSERT INTO orch_events (
                 event_id, instance_id, seq, event_type, event_version,
@@ -70,7 +72,7 @@ impl EventStore for PgEventStore {
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())
             ON CONFLICT (instance_id, idempotency_key)
                 WHERE idempotency_key IS NOT NULL
-                DO UPDATE SET recorded_at = orch_events.recorded_at
+                DO NOTHING
             RETURNING seq
             "#,
         )
@@ -84,9 +86,26 @@ impl EventStore for PgEventStore {
         .bind(event.correlation_id)
         .bind(event.causation_id)
         .bind(event.occurred_at)
-        .fetch_one(&self.pool)
+        .fetch_optional(&self.pool)
         .await
         .map_err(|e| DomainError::Precondition(format!("event store: {e}")))?;
+
+        let result = match inserted {
+            Some(seq) => seq,
+            None => {
+                // Idempotency conflict — fetch existing seq
+                sqlx::query_scalar::<_, i64>(
+                    "SELECT seq FROM orch_events WHERE instance_id = $1 AND idempotency_key = $2",
+                )
+                .bind(event.instance_id)
+                .bind(&event.idempotency_key)
+                .fetch_one(&self.pool)
+                .await
+                .map_err(|e| {
+                    DomainError::Precondition(format!("event store idempotency lookup: {e}"))
+                })?
+            }
+        };
 
         // Update event with actual seq (may differ if idempotency conflict)
         event.seq = result;

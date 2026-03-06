@@ -132,6 +132,40 @@ export function shortId(uuid: string): string {
     return uuid.slice(0, 8);
 }
 
+/** Generate a v4 UUID using the Web Crypto API. */
+export function generateUuid(): string {
+    return crypto.randomUUID();
+}
+
+/** Generate a random hex token of given byte length. */
+export function generateToken(bytes = 32): string {
+    const arr = new Uint8Array(bytes);
+    crypto.getRandomValues(arr);
+    return Array.from(arr, b => b.toString(16).padStart(2, '0')).join('');
+}
+
+/** Format a duration in milliseconds to a human-readable string. */
+export function formatDuration(ms: number): string {
+    if (ms < 60_000) return `${Math.round(ms / 1000)}s`;
+    if (ms < 3_600_000) return `${Math.round(ms / 60_000)}m`;
+    if (ms < 86_400_000) {
+        const h = Math.floor(ms / 3_600_000);
+        const m = Math.round((ms % 3_600_000) / 60_000);
+        return m > 0 ? `${h}h ${m}m` : `${h}h`;
+    }
+    const d = Math.floor(ms / 86_400_000);
+    const h = Math.round((ms % 86_400_000) / 3_600_000);
+    return h > 0 ? `${d}d ${h}h` : `${d}d`;
+}
+
+/** Try to parse a plan as PlanProposal. Returns null if not valid. */
+export function parsePlan(plan: unknown): import('./types').PlanProposal | null {
+    if (!plan || typeof plan !== 'object') return null;
+    const p = plan as Record<string, unknown>;
+    if (typeof p.summary !== 'string' || !Array.isArray(p.tasks)) return null;
+    return plan as import('./types').PlanProposal;
+}
+
 // ── Event delegation helper ─────────────────────────────────────
 
 /**

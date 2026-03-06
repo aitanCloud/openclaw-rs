@@ -198,6 +198,25 @@ pub async fn create_cycle(
         .await
         .map_err(|e| ApiError::from(openclaw_orchestrator::app::errors::AppError::Domain(e)))?;
 
+    // ── Inline projection: write to orch_cycles ──
+    sqlx::query(
+        r#"
+        INSERT INTO orch_cycles (id, instance_id, state, prompt, created_at, updated_at)
+        VALUES ($1, $2, 'planning', $3, $4, $4)
+        "#,
+    )
+    .bind(cycle_id)
+    .bind(instance_id)
+    .bind(&body.prompt)
+    .bind(now)
+    .execute(&state.pool)
+    .await
+    .map_err(|e| {
+        ApiError::from(openclaw_orchestrator::app::errors::AppError::Domain(
+            DomainError::Precondition(format!("cycle insert: {e}")),
+        ))
+    })?;
+
     tracing::info!(
         instance_id = %instance_id,
         cycle_id = %cycle_id,
@@ -263,6 +282,107 @@ pub async fn approve_plan(
         .emit(envelope)
         .await
         .map_err(|e| ApiError::from(openclaw_orchestrator::app::errors::AppError::Domain(e)))?;
+
+    // ── Inline projection: update orch_cycles state ──
+    sqlx::query(
+        "UPDATE orch_cycles SET state = 'approved', updated_at = $1 WHERE id = $2 AND instance_id = $3",
+    )
+    .bind(now)
+    .bind(cycle_id)
+    .bind(instance_id)
+    .execute(&state.pool)
+    .await
+    .map_err(|e| {
+        ApiError::from(openclaw_orchestrator::app::errors::AppError::Domain(
+            DomainError::Precondition(format!("cycle update: {e}")),
+        ))
+    })?;
+
+    // ── Inline projection: schedule tasks from plan ──
+    let plan_json: Option<serde_json::Value> = match sqlx::query_scalar::<_, Option<serde_json::Value>>(
+        "SELECT plan FROM orch_cycles WHERE id = $1 AND instance_id = $2",
+    )
+    .bind(cycle_id)
+    .bind(instance_id)
+    .fetch_one(&state.pool)
+    .await
+    {
+        Ok(plan) => plan,
+        Err(e) => {
+            tracing::error!(cycle_id = %cycle_id, error = %e, "failed to read plan for task scheduling");
+            None
+        }
+    };
+
+    tracing::info!(cycle_id = %cycle_id, plan_present = plan_json.is_some(), "reading plan for task scheduling");
+
+    if let Some(plan) = plan_json {
+        tracing::info!(cycle_id = %cycle_id, has_tasks_key = plan.get("tasks").is_some(), "plan structure check");
+        if let Some(tasks) = plan.get("tasks").and_then(|v| v.as_array()) {
+            for (i, task_val) in tasks.iter().enumerate() {
+                let task_id = Uuid::new_v4();
+                let task_key = task_val
+                    .get("task_key")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(&format!("task-{}", i + 1))
+                    .to_string();
+                let title = task_val
+                    .get("title")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("Untitled")
+                    .to_string();
+                let description = task_val
+                    .get("description")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let acceptance = task_val
+                    .get("acceptance_criteria")
+                    .cloned()
+                    .unwrap_or(serde_json::json!([]));
+
+                let phase = task_val
+                    .get("phase")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("implement")
+                    .to_string();
+
+                if let Err(e) = sqlx::query(
+                    r#"
+                    INSERT INTO orch_tasks (id, cycle_id, instance_id, task_key, phase, ordinal, state, title, description, acceptance, created_at, updated_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, 'scheduled', $7, $8, $9, $10, $10)
+                    ON CONFLICT (id) DO NOTHING
+                    "#,
+                )
+                .bind(task_id)
+                .bind(cycle_id)
+                .bind(instance_id)
+                .bind(&task_key)
+                .bind(&phase)
+                .bind(i as i32)
+                .bind(&title)
+                .bind(&description)
+                .bind(&acceptance)
+                .bind(now)
+                .execute(&state.pool)
+                .await
+                {
+                    tracing::error!(
+                        cycle_id = %cycle_id,
+                        task_key = %task_key,
+                        error = %e,
+                        "failed to insert task"
+                    );
+                }
+            }
+
+            tracing::info!(
+                cycle_id = %cycle_id,
+                task_count = tasks.len(),
+                "scheduled tasks from plan"
+            );
+        }
+    }
 
     tracing::info!(
         instance_id = %instance_id,

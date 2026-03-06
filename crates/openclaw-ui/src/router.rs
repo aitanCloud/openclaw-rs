@@ -39,6 +39,7 @@ fn api_routes() -> Router<Arc<AppState>> {
         )
         // Tasks
         .route("/instances/{id}/tasks", get(tasks::list_tasks))
+        .route("/instances/{id}/tasks/{task_id}/runs", get(runs::list_runs_for_task))
         // Runs
         .route("/instances/{id}/runs/{run_id}", get(runs::get_run))
         .route(
@@ -186,6 +187,10 @@ mod tests {
             (
                 "GET",
                 "/api/v1/instances/00000000-0000-0000-0000-000000000001/tasks",
+            ),
+            (
+                "GET",
+                "/api/v1/instances/00000000-0000-0000-0000-000000000001/tasks/00000000-0000-0000-0000-000000000002/runs",
             ),
             (
                 "GET",

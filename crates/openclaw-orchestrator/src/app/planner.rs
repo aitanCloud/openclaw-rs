@@ -152,7 +152,7 @@ impl PlannerService {
     /// Core plan generation logic, separated from the in-flight guard for testability.
     ///
     /// Calls the Planner trait and emits the appropriate event.
-    pub(crate) async fn generate_plan_core(
+    pub async fn generate_plan_core(
         &self,
         instance_id: Uuid,
         cycle_id: Uuid,

@@ -8,6 +8,17 @@ use uuid::Uuid;
 use crate::domain::ports::WorkerManager;
 use crate::domain::worker::{WorkerError, WorkerHandle, WorkerSpawnConfig};
 
+/// Notification sent when a worker process exits.
+#[derive(Debug, Clone)]
+pub struct WorkerExitNotification {
+    pub session_id: Uuid,
+    pub run_id: Uuid,
+    pub instance_id: Uuid,
+    pub exit_code: Option<i32>,
+    pub log_stdout: String,
+    pub log_stderr: String,
+}
+
 /// Entry in the local worker state file. Maps a session to a running process.
 ///
 /// This is adapter-level state -- NOT domain events. It tracks PID-to-session
@@ -34,7 +45,7 @@ struct WorkerState {
 /// Subprocess-based worker manager that spawns `claude` CLI processes.
 ///
 /// Responsibilities:
-/// - Spawn `claude --print --output-format json` with prompt piped via stdin
+/// - Spawn `claude --print --output-format stream-json` with prompt as arg
 /// - Redirect stdout/stderr to log files
 /// - Track PIDs in a local state file (NOT events)
 /// - Check process liveness via `/proc/{pid}/status` or `kill -0`
@@ -43,6 +54,8 @@ pub struct ProcessWorkerManager {
     data_dir: PathBuf,
     state: Arc<Mutex<WorkerState>>,
     claude_binary: String,
+    /// Optional channel for notifying when workers exit.
+    completion_tx: Option<tokio::sync::mpsc::UnboundedSender<WorkerExitNotification>>,
 }
 
 impl ProcessWorkerManager {
@@ -56,7 +69,17 @@ impl ProcessWorkerManager {
             data_dir,
             state: Arc::new(Mutex::new(WorkerState::default())),
             claude_binary: claude_binary.unwrap_or_else(|| "claude".to_string()),
+            completion_tx: None,
         }
+    }
+
+    /// Set the completion notification channel.
+    pub fn with_completion_sender(
+        mut self,
+        tx: tokio::sync::mpsc::UnboundedSender<WorkerExitNotification>,
+    ) -> Self {
+        self.completion_tx = Some(tx);
+        self
     }
 
     /// Build the log directory path for a given instance and run.
@@ -210,9 +233,9 @@ impl WorkerManager for ProcessWorkerManager {
         // Build the command
         let mut cmd = tokio::process::Command::new(&self.claude_binary);
         cmd.arg("--print")
-            .arg("--output-format")
-            .arg("json")
             .arg("--verbose")
+            .arg("--output-format")
+            .arg("stream-json")
             .arg(&config.prompt)
             .current_dir(&config.worktree_path)
             .stdout(std::process::Stdio::from(stdout_file))
@@ -242,8 +265,13 @@ impl WorkerManager for ProcessWorkerManager {
         // The child handle must be awaited to prevent accumulating zombie processes.
         let reap_session_id = config.session_id;
         let reap_run_id = config.run_id;
+        let reap_instance_id = config.instance_id;
+        let reap_stdout = stdout_path.to_string_lossy().to_string();
+        let reap_stderr = stderr_path.to_string_lossy().to_string();
+        let reap_tx = self.completion_tx.clone();
+        let reap_state = self.state.clone();
         tokio::spawn(async move {
-            match child.wait().await {
+            let exit_code = match child.wait().await {
                 Ok(status) => {
                     tracing::info!(
                         session_id = %reap_session_id,
@@ -252,6 +280,7 @@ impl WorkerManager for ProcessWorkerManager {
                         exit_code = status.code(),
                         "worker process exited"
                     );
+                    status.code()
                 }
                 Err(e) => {
                     tracing::warn!(
@@ -261,7 +290,27 @@ impl WorkerManager for ProcessWorkerManager {
                         error = %e,
                         "failed to wait on worker process"
                     );
+                    None
                 }
+            };
+
+            // Remove from in-memory state
+            {
+                let mut state = reap_state.lock().await;
+                state.entries.remove(&reap_session_id);
+                // Best-effort persist — don't block on failure
+            }
+
+            // Notify completion handler
+            if let Some(tx) = reap_tx {
+                let _ = tx.send(WorkerExitNotification {
+                    session_id: reap_session_id,
+                    run_id: reap_run_id,
+                    instance_id: reap_instance_id,
+                    exit_code,
+                    log_stdout: reap_stdout,
+                    log_stderr: reap_stderr,
+                });
             }
         });
 

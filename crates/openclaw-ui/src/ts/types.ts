@@ -66,6 +66,7 @@ export interface Task {
     state: TaskState;
     title: string;
     description: string;
+    acceptance: string[] | null;
     current_attempt: number;
     max_retries: number;
     failure_reason: string | null;
@@ -84,6 +85,26 @@ export type TaskState =
     | 'cancelled'
     | 'skipped';
 
+/** Raw tool invocation output extracted from the worker JSONL log. */
+export interface ToolOutput {
+    tool_name: string;
+    command?: string;
+    stdout: string;
+    stderr: string;
+}
+
+/** Parsed worker output stored in orch_runs.output_json. */
+export interface RunOutput {
+    result?: string;
+    duration_ms?: number;
+    num_turns?: number;
+    input_tokens?: number;
+    output_tokens?: number;
+    tool_outputs?: ToolOutput[];
+    stdout_sha256?: string;
+    output_format?: string;
+}
+
 /** Run row from GET /api/v1/instances/:id/runs/:run_id. */
 export interface Run {
     id: string;
@@ -94,6 +115,8 @@ export interface Run {
     worker_session_id: string;
     exit_code: number | null;
     cost_cents: number;
+    output_json: RunOutput | null;
+    prompt_sent: string | null;
     failure_category: string | null;
     cancel_reason: string | null;
     abandon_reason: string | null;
@@ -146,6 +169,41 @@ export type ServerWsMessage =
 export interface CreateInstanceRequest {
     name: string;
     project_id: string;
+    data_dir: string;
+    token: string;
+}
+
+// ── Plan proposal types (mirrors backend PlanProposal) ──────────
+
+export interface PlanProposal {
+    tasks: TaskProposal[];
+    summary: string;
+    reasoning_ref?: { kind: string; hash: string } | null;
+    estimated_cost: number;
+    metadata: PlanMetadata;
+}
+
+export interface TaskProposal {
+    task_key: string;
+    title: string;
+    description: string;
+    acceptance_criteria: string[];
+    dependencies: string[];
+    estimated_tokens?: number | null;
+    scope?: TaskScope | null;
+}
+
+export interface TaskScope {
+    target_paths: string[];
+    read_only_paths: string[];
+}
+
+export interface PlanMetadata {
+    model_id: string;
+    prompt_hash: string;
+    context_hash: string;
+    temperature: number;
+    generated_at: string;
 }
 
 export interface CreateCycleRequest {

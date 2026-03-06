@@ -1,4 +1,4 @@
-import type { AppState, Component, Cycle, Task, CycleProgress } from '../types';
+import type { AppState, Component, Cycle, Task, Run, CycleProgress } from '../types';
 import { CYCLE_STEPS, CYCLE_STEP_LABELS, TERMINAL_CYCLE_STATES } from '../types';
 import { api } from '../api';
 import { store } from '../store';
@@ -7,14 +7,18 @@ import {
     clearChildren,
     stateBadge,
     formatDate,
+    formatCents,
     timeAgo,
     shortId,
     truncate,
     delegateClick,
+    formatDuration,
+    parsePlan,
 } from '../utils';
 
 /**
- * Cycle detail view — state stepper, structured plan, task progress, actions.
+ * Cycle detail view — state stepper, plan summary/metadata,
+ * structured plan with expandable tasks, task progress, actions.
  * Route: #/instances/:id/cycles/:cid
  */
 export class CycleDetail implements Component {
@@ -24,6 +28,8 @@ export class CycleDetail implements Component {
     private cycle: Cycle | null = null;
     private cycleTasks: Task[] = [];
     private loading = false;
+    private expandedTasks = new Set<string>();
+    private taskRuns = new Map<string, { runs: Run[]; taskState: string }>();
 
     constructor(container: HTMLElement, private instanceId: string, private cycleId: string) {
         this.el = el('div', 'cycle-detail');
@@ -84,6 +90,8 @@ export class CycleDetail implements Component {
             cycle: this.cycle ? `${this.cycle.id}:${this.cycle.state}:${this.cycle.updated_at}` : null,
             tasks: this.cycleTasks.map(t => `${t.id}:${t.state}:${t.current_attempt}`),
             loading: this.loading,
+            expanded: [...this.expandedTasks],
+            runs: [...this.taskRuns.entries()].map(([k, v]) => `${k}:${v.taskState}:${v.runs.length}`),
         });
         if (key === this.renderKey) return;
         this.renderKey = key;
@@ -105,6 +113,7 @@ export class CycleDetail implements Component {
         this.renderAlerts();
         this.renderCompletionSummary();
         this.renderTaskProgress();
+        this.renderPlanSummary();
         this.renderPlan();
     }
 
@@ -145,18 +154,27 @@ export class CycleDetail implements Component {
         const isFailed = cycle.state === 'failed' || cycle.state === 'cancelled';
         const isCompleted = cycle.state === 'completed';
 
+        // For failed cycles, infer how far the cycle got
+        let failedAtIdx = -1;
+        if (isFailed) {
+            failedAtIdx = this.inferFailedStep(cycle, this.cycleTasks);
+        }
+
         for (let i = 0; i < CYCLE_STEPS.length; i++) {
             const step = CYCLE_STEPS[i];
             const stepEl = el('div', 'stepper-step');
 
             let status: string;
             if (isCompleted) {
-                // All steps completed including the last one
                 status = 'completed';
             } else if (isFailed) {
-                // Failed/cancelled: show all as dimmed, none completed
-                // (we don't know which step it failed at)
-                status = 'failed';
+                if (i < failedAtIdx) {
+                    status = 'completed';
+                } else if (i === failedAtIdx) {
+                    status = 'failed';
+                } else {
+                    status = 'future';
+                }
             } else if (i < currentIdx) {
                 status = 'completed';
             } else if (i === currentIdx) {
@@ -182,6 +200,26 @@ export class CycleDetail implements Component {
             stepper.appendChild(stepEl);
         }
         this.el.appendChild(stepper);
+    }
+
+    /** Infer which step a failed cycle reached before failing. */
+    private inferFailedStep(cycle: Cycle, tasks: Task[]): number {
+        const hasAnyRunningOrCompleted = tasks.some(t =>
+            t.state === 'active' || t.state === 'verifying' ||
+            t.state === 'passed' || t.state === 'failed',
+        );
+        const hasTasks = tasks.length > 0;
+
+        if (hasAnyRunningOrCompleted) {
+            return CYCLE_STEPS.indexOf('running');
+        }
+        if (hasTasks && cycle.plan) {
+            return CYCLE_STEPS.indexOf('approved');
+        }
+        if (cycle.plan) {
+            return CYCLE_STEPS.indexOf('plan_ready');
+        }
+        return CYCLE_STEPS.indexOf('planning');
     }
 
     // ── Alerts ────────────────────────────────────────────────────
@@ -220,18 +258,23 @@ export class CycleDetail implements Component {
         }
 
         if (cycle.state === 'failed') {
+            const retryContainer = el('div', '');
             const retryBtn = el('button', 'btn btn--primary', 'Retry with Same Prompt');
             retryBtn.dataset.action = 'retry';
-            actions.appendChild(retryBtn);
+            retryContainer.appendChild(retryBtn);
+            retryContainer.appendChild(el('div', 'action-hint', 'Creates a new cycle with the same prompt'));
+            actions.appendChild(retryContainer);
             hasActions = true;
         }
 
         if (!TERMINAL_CYCLE_STATES.includes(cycle.state)) {
+            const cancelContainer = el('div', '');
             const cancelBtn = el('button', 'btn btn--ghost', 'Cancel Cycle');
             (cancelBtn as HTMLButtonElement).disabled = true;
-            cancelBtn.title = 'Cancel via CLI: openclaw cycle cancel';
             cancelBtn.style.opacity = '0.5';
-            actions.appendChild(cancelBtn);
+            cancelContainer.appendChild(cancelBtn);
+            cancelContainer.appendChild(el('div', 'action-hint', 'Cancel via CLI: openclaw cycle cancel'));
+            actions.appendChild(cancelContainer);
             hasActions = true;
         }
 
@@ -252,32 +295,35 @@ export class CycleDetail implements Component {
         const created = new Date(cycle.created_at).getTime();
         const updated = new Date(cycle.updated_at).getTime();
         const durationMs = updated - created;
-        let durationStr: string;
-        if (durationMs < 3_600_000) {
-            durationStr = `${Math.round(durationMs / 60_000)}m`;
-        } else if (durationMs < 86_400_000) {
-            durationStr = `${(durationMs / 3_600_000).toFixed(1)}h`;
-        } else {
-            durationStr = `${(durationMs / 86_400_000).toFixed(1)}d`;
-        }
+
         const durationCard = el('div', 'summary-card');
         durationCard.appendChild(el('div', 'summary-card__title', 'Duration'));
-        durationCard.appendChild(el('div', 'summary-card__value', durationStr));
+        durationCard.appendChild(el('div', 'summary-card__value', formatDuration(durationMs)));
         cards.appendChild(durationCard);
 
         // Task pass rate
         const cp = this.getCycleProgress();
-        const passRate = cp.tasksTotal > 0 ? Math.round((cp.tasksPassed / cp.tasksTotal) * 100) : 0;
-        const passCard = el('div', 'summary-card');
-        passCard.appendChild(el('div', 'summary-card__title', 'Tasks Passed'));
-        passCard.appendChild(el('div', 'summary-card__value', `${cp.tasksPassed}/${cp.tasksTotal}`));
-        passCard.appendChild(el('div', 'summary-card__subtitle', `${passRate}% pass rate`));
-        cards.appendChild(passCard);
+        if (cp.tasksTotal === 0) {
+            // Failed before tasks were created
+            const passCard = el('div', 'summary-card');
+            passCard.appendChild(el('div', 'summary-card__title', 'Tasks'));
+            passCard.appendChild(el('div', 'summary-card__value', 'None'));
+            passCard.appendChild(el('div', 'summary-card__subtitle', 'No tasks were created'));
+            cards.appendChild(passCard);
+        } else {
+            const passRate = Math.round((cp.tasksPassed / cp.tasksTotal) * 100);
+            const passCard = el('div', 'summary-card');
+            passCard.appendChild(el('div', 'summary-card__title', 'Tasks Passed'));
+            passCard.appendChild(el('div', 'summary-card__value', `${cp.tasksPassed}/${cp.tasksTotal}`));
+            passCard.appendChild(el('div', 'summary-card__subtitle', `${passRate}% pass rate`));
+            cards.appendChild(passCard);
+        }
 
         // Outcome
         const outcomeCard = el('div', 'summary-card');
         outcomeCard.appendChild(el('div', 'summary-card__title', 'Outcome'));
-        outcomeCard.appendChild(el('div', 'summary-card__value', cycle.state === 'completed' ? 'Success' : 'Failed'));
+        outcomeCard.appendChild(el('div', 'summary-card__value',
+            cycle.state === 'completed' ? 'Success' : 'Failed'));
         if (cycle.failure_reason) {
             outcomeCard.appendChild(el('div', 'summary-card__subtitle', truncate(cycle.failure_reason, 40)));
         }
@@ -320,6 +366,55 @@ export class CycleDetail implements Component {
         this.el.appendChild(bar);
     }
 
+    // ── Plan Summary / Metadata ───────────────────────────────────
+
+    private renderPlanSummary(): void {
+        const cycle = this.cycle!;
+        if (!cycle.plan) return;
+
+        const plan = parsePlan(cycle.plan);
+        if (!plan) return;
+
+        const section = el('div', 'plan-summary');
+
+        // Summary quote
+        section.appendChild(el('div', 'plan-summary__quote', plan.summary));
+
+        // Metadata row
+        const meta = el('div', 'plan-summary__meta');
+
+        if (plan.metadata?.model_id) {
+            const item = el('span', 'plan-summary__meta-item');
+            item.appendChild(document.createTextNode('Model: '));
+            item.appendChild(el('span', 'plan-summary__meta-value', plan.metadata.model_id));
+            meta.appendChild(item);
+        }
+
+        if (plan.estimated_cost > 0) {
+            const item = el('span', 'plan-summary__meta-item');
+            item.appendChild(document.createTextNode('Est. cost: '));
+            item.appendChild(el('span', 'plan-summary__meta-value', formatCents(plan.estimated_cost)));
+            meta.appendChild(item);
+        }
+
+        if (plan.tasks.length > 0) {
+            const item = el('span', 'plan-summary__meta-item');
+            item.appendChild(el('span', 'plan-summary__meta-value', String(plan.tasks.length)));
+            item.appendChild(document.createTextNode(' tasks'));
+            meta.appendChild(item);
+        }
+
+        if (plan.metadata?.generated_at) {
+            const item = el('span', 'plan-summary__meta-item');
+            item.appendChild(document.createTextNode('Generated: '));
+            item.appendChild(el('span', 'plan-summary__meta-value', timeAgo(plan.metadata.generated_at)));
+            meta.appendChild(item);
+        }
+
+        section.appendChild(meta);
+        this.el.appendChild(section);
+    }
+
     // ── Structured Plan ───────────────────────────────────────────
 
     private renderPlan(): void {
@@ -346,7 +441,7 @@ export class CycleDetail implements Component {
         // Try to render structured plan from JSON
         const planObj = typeof cycle.plan === 'string' ? this.tryParsePlan(cycle.plan) : cycle.plan;
 
-        if (planObj && typeof planObj === 'object' && this.isStructuredPlan(planObj)) {
+        if (planObj && typeof planObj === 'object' && this.cycleTasks.length > 0) {
             section.appendChild(this.renderStructuredPlan(planObj));
         } else {
             // Fallback to raw display
@@ -362,7 +457,7 @@ export class CycleDetail implements Component {
         this.el.appendChild(section);
     }
 
-    private renderStructuredPlan(plan: any): HTMLElement {
+    private renderStructuredPlan(plan: unknown): HTMLElement {
         const container = el('div', 'plan-structured');
 
         // Group tasks by phase
@@ -394,34 +489,15 @@ export class CycleDetail implements Component {
         return container;
     }
 
-    // ── Task List ─────────────────────────────────────────────────
-
-    private renderTaskList(): void {
-        const section = el('div', 'section');
-        const header = el('div', 'section-header');
-        header.appendChild(el('h3', 'section-title', 'Tasks'));
-        header.appendChild(el('span', 'section-count', `${this.cycleTasks.length}`));
-        section.appendChild(header);
-
-        if (this.cycleTasks.length === 0) {
-            section.appendChild(el('div', 'empty-state', 'No tasks in this cycle.'));
-            this.el.appendChild(section);
-            return;
-        }
-
-        // Sort by ordinal
-        const sorted = [...this.cycleTasks].sort((a, b) => a.ordinal - b.ordinal);
-
-        const list = el('div', 'plan-structured');
-        for (const task of sorted) {
-            list.appendChild(this.renderTaskItem(task));
-        }
-        section.appendChild(list);
-        this.el.appendChild(section);
-    }
+    // ── Task Items (expandable) ───────────────────────────────────
 
     private renderTaskItem(task: Task): HTMLElement {
-        const item = el('div', 'task-item');
+        const isExpanded = this.expandedTasks.has(task.id);
+        const item = el('div', `task-item task-item--expandable${isExpanded ? ' task-item--expanded' : ''}`);
+
+        // Expand icon
+        const expandIcon = el('div', 'task-item__expand-icon', '\u25B6');
+        item.appendChild(expandIcon);
 
         // Checkbox indicator
         const check = el('div', 'task-item__check');
@@ -462,7 +538,8 @@ export class CycleDetail implements Component {
         const meta = el('div', 'task-item__meta');
         meta.appendChild(stateBadge(task.state));
 
-        if (task.max_retries > 1) {
+        // Only show attempt info for non-scheduled tasks
+        if (task.max_retries > 1 && task.state !== 'scheduled') {
             const attempt = Math.max(1, task.current_attempt);
             meta.appendChild(el('span', 'text-secondary',
                 `Attempt ${attempt}/${task.max_retries}`));
@@ -476,7 +553,7 @@ export class CycleDetail implements Component {
         }
 
         if (task.task_key) {
-            meta.appendChild(el('span', 'mono text-secondary', truncate(task.task_key, 24)));
+            meta.appendChild(el('span', 'mono text-secondary', `Key: ${truncate(task.task_key, 24)}`));
         }
         body.appendChild(meta);
 
@@ -485,8 +562,224 @@ export class CycleDetail implements Component {
             body.appendChild(el('div', 'task-item__failure', task.failure_reason));
         }
 
+        // Expanded detail
+        if (isExpanded) {
+            // Re-fetch runs if task state changed since last fetch
+            this.fetchRunsIfNeeded(task);
+            body.appendChild(this.renderTaskDetail(task));
+        }
+
         item.appendChild(body);
+
+        // Click to toggle expansion
+        item.addEventListener('click', () => {
+            if (this.expandedTasks.has(task.id)) {
+                this.expandedTasks.delete(task.id);
+            } else {
+                this.expandedTasks.add(task.id);
+                // Lazy-fetch runs when expanding (or re-fetch if task state changed)
+                this.fetchRunsIfNeeded(task);
+            }
+            this.renderKey = ''; // force re-render
+            this.render();
+        });
+
         return item;
+    }
+
+    private fetchRunsIfNeeded(task: Task): void {
+        const cached = this.taskRuns.get(task.id);
+        // Fetch if: never fetched, or task state changed since last fetch
+        if (!cached || cached.taskState !== task.state) {
+            api.listRunsForTask(this.instanceId, task.id).then(runs => {
+                this.taskRuns.set(task.id, { runs, taskState: task.state });
+                this.renderKey = ''; // force re-render
+                this.render();
+            }).catch(e => console.error('[cycle-detail] fetch runs error:', e));
+        }
+    }
+
+    private renderTaskDetail(task: Task): HTMLElement {
+        const detail = el('div', 'task-item__detail');
+        const cached = this.taskRuns.get(task.id);
+        const runs = cached?.runs || [];
+
+        const latestCompletedRun = [...runs].reverse().find(r => r.state === 'completed' || r.state === 'failed');
+        const toolOutputs = latestCompletedRun?.output_json?.tool_outputs;
+        const hasToolOutputs = toolOutputs && toolOutputs.length > 0;
+
+        // ── Section A: Command Output (ground truth) ──
+        if (hasToolOutputs) {
+            const cmdSection = el('div', 'task-detail-section');
+            const cmdHeader = el('div', 'task-detail-section__title');
+            cmdHeader.textContent = 'Command Output ';
+            cmdHeader.appendChild(el('span', 'badge badge--green truth-badge', 'ground truth'));
+            cmdSection.appendChild(cmdHeader);
+
+            for (const to of toolOutputs!) {
+                const block = el('div', 'tool-output-block');
+
+                if (to.command) {
+                    block.appendChild(el('div', 'tool-output-command', `$ ${to.command}`));
+                } else {
+                    block.appendChild(el('div', 'tool-output-command', `[${to.tool_name}]`));
+                }
+
+                if (to.stdout) {
+                    const pre = el('pre', 'tool-output-stdout');
+                    pre.textContent = to.stdout;
+                    pre.addEventListener('click', (e) => e.stopPropagation());
+                    block.appendChild(pre);
+                }
+
+                if (to.stderr) {
+                    block.appendChild(el('div', 'tool-output-stderr-label', 'stderr:'));
+                    const stderrPre = el('pre', 'tool-output-stderr');
+                    stderrPre.textContent = to.stderr;
+                    stderrPre.addEventListener('click', (e) => e.stopPropagation());
+                    block.appendChild(stderrPre);
+                }
+
+                cmdSection.appendChild(block);
+            }
+
+            if (latestCompletedRun?.output_json?.stdout_sha256) {
+                const sha = el('div', 'tool-output-sha256');
+                sha.textContent = `SHA256: ${latestCompletedRun.output_json.stdout_sha256}`;
+                sha.title = 'Immutability proof \u2014 hash of concatenated raw stdout';
+                sha.addEventListener('click', (e) => e.stopPropagation());
+                cmdSection.appendChild(sha);
+            }
+
+            detail.appendChild(cmdSection);
+        }
+
+        // ── Section B: AI Commentary ──
+        const outputSection = el('div', 'task-detail-section');
+        const commentaryTitle = el('div', 'task-detail-section__title');
+
+        if (hasToolOutputs) {
+            commentaryTitle.textContent = 'AI Commentary';
+        } else if (latestCompletedRun?.output_json?.output_format === 'compact') {
+            commentaryTitle.textContent = 'Output ';
+            commentaryTitle.appendChild(el('span', 'compact-format-notice', '(raw command output not available)'));
+        } else {
+            commentaryTitle.textContent = 'Output';
+        }
+        outputSection.appendChild(commentaryTitle);
+
+        if (latestCompletedRun?.output_json?.result) {
+            const cssClass = hasToolOutputs ? 'task-output task-output--commentary' : 'task-output';
+            const pre = el('pre', cssClass);
+            pre.textContent = latestCompletedRun.output_json.result;
+            pre.addEventListener('click', (e) => e.stopPropagation());
+            outputSection.appendChild(pre);
+        } else if (task.state === 'active' || task.state === 'verifying') {
+            outputSection.appendChild(el('div', 'text-secondary', 'Running...'));
+        } else if (task.state === 'scheduled') {
+            outputSection.appendChild(el('div', 'text-secondary', 'Waiting to start...'));
+        } else if (runs.length === 0 && (task.state === 'passed' || task.state === 'failed')) {
+            outputSection.appendChild(el('div', 'text-secondary', 'Loading runs...'));
+        } else if (task.failure_reason) {
+            outputSection.appendChild(el('div', 'task-item__failure', task.failure_reason));
+        } else {
+            outputSection.appendChild(el('div', 'text-secondary', 'No output available'));
+        }
+        detail.appendChild(outputSection);
+
+        // ── Section B: Acceptance Criteria ──
+        if (task.acceptance && Array.isArray(task.acceptance) && task.acceptance.length > 0) {
+            const accSection = el('div', 'task-detail-section');
+            accSection.appendChild(el('div', 'task-detail-section__title', 'Acceptance Criteria'));
+            const list = el('ul', 'task-acceptance');
+            for (const criterion of task.acceptance) {
+                const item = el('li', 'task-acceptance__item');
+                const icon = el('span', 'task-acceptance__icon');
+                if (task.state === 'passed') {
+                    icon.className = 'task-acceptance__icon task-acceptance__icon--pass';
+                    icon.textContent = '\u2713';
+                } else if (task.state === 'failed') {
+                    icon.className = 'task-acceptance__icon task-acceptance__icon--fail';
+                    icon.textContent = '\u2717';
+                } else {
+                    icon.className = 'task-acceptance__icon task-acceptance__icon--pending';
+                    icon.textContent = '\u25CB';
+                }
+                item.appendChild(icon);
+                item.appendChild(el('span', '', String(criterion)));
+                list.appendChild(item);
+            }
+            accSection.appendChild(list);
+            detail.appendChild(accSection);
+        }
+
+        // ── Section C: Run History ──
+        if (runs.length > 0) {
+            const runsSection = el('div', 'task-detail-section');
+            runsSection.appendChild(el('div', 'task-detail-section__title', `Runs (${runs.length})`));
+            const runsList = el('div', 'task-runs');
+            for (const run of runs) {
+                const row = el('div', 'task-run-row');
+                row.appendChild(el('span', 'task-run-row__num', `#${run.run_number}`));
+                row.appendChild(stateBadge(run.state));
+
+                // Duration
+                if (run.started_at && run.finished_at) {
+                    const dur = new Date(run.finished_at).getTime() - new Date(run.started_at).getTime();
+                    row.appendChild(el('span', 'task-run-row__meta', formatDuration(dur)));
+                } else if (run.started_at && !run.finished_at) {
+                    row.appendChild(el('span', 'task-run-row__meta', 'running'));
+                }
+
+                // Cost
+                if (run.cost_cents > 0) {
+                    row.appendChild(el('span', 'task-run-row__meta', formatCents(run.cost_cents)));
+                }
+
+                // Tokens
+                if (run.output_json?.input_tokens || run.output_json?.output_tokens) {
+                    const inTok = run.output_json.input_tokens || 0;
+                    const outTok = run.output_json.output_tokens || 0;
+                    row.appendChild(el('span', 'task-run-row__meta',
+                        `${(inTok / 1000).toFixed(1)}k in / ${(outTok / 1000).toFixed(1)}k out`));
+                }
+
+                // Exit code for failures
+                if (run.exit_code !== null && run.exit_code !== 0) {
+                    row.appendChild(el('span', 'task-run-row__meta', `exit ${run.exit_code}`));
+                }
+
+                runsList.appendChild(row);
+            }
+            runsSection.appendChild(runsList);
+            detail.appendChild(runsSection);
+        }
+
+        // ── Section D: Metadata ──
+        const metaSection = el('div', 'task-detail-section');
+        metaSection.appendChild(el('div', 'task-detail-section__title', 'Details'));
+        const rows: [string, string][] = [
+            ['Task ID', shortId(task.id)],
+            ['Key', task.task_key],
+            ['Phase', task.phase],
+            ['Ordinal', String(task.ordinal)],
+            ['Attempt', `${Math.max(1, task.current_attempt)} / ${task.max_retries}`],
+            ['Created', formatDate(task.created_at)],
+            ['Updated', formatDate(task.updated_at)],
+        ];
+
+        if (task.cancel_reason) rows.push(['Cancel Reason', task.cancel_reason]);
+        if (task.skip_reason) rows.push(['Skip Reason', task.skip_reason]);
+
+        for (const [label, value] of rows) {
+            const row = el('div', 'task-item__detail-row');
+            row.appendChild(el('span', 'task-item__detail-label', label));
+            row.appendChild(el('span', 'task-item__detail-value', value));
+            metaSection.appendChild(row);
+        }
+        detail.appendChild(metaSection);
+
+        return detail;
     }
 
     // ── Helpers ────────────────────────────────────────────────────
@@ -506,36 +799,27 @@ export class CycleDetail implements Component {
         try { return JSON.parse(s); } catch { return null; }
     }
 
-    private isStructuredPlan(obj: unknown): boolean {
-        // Consider it structured if we have tasks to display in phases
-        return this.cycleTasks.length > 0;
-    }
-
     // ── Actions ────────────────────────────────────────────────────
 
     private async handleApprove(): Promise<void> {
-        const approvedBy = prompt('Approved by (your name):');
-        if (!approvedBy) return;
-
-        try {
-            await api.approvePlan(this.instanceId, this.cycleId, { approved_by: approvedBy });
-            await this.fetchCycleData();
-            await store.invalidate(this.instanceId);
-        } catch (e) {
-            console.error('[cycle-detail] approve error:', e);
-            const msg = e instanceof Error ? e.message : String(e);
-            window.dispatchEvent(new CustomEvent('openclaw:error', { detail: msg }));
-        }
+        if (!this.cycle) return;
+        window.dispatchEvent(new CustomEvent('openclaw:approve-plan', {
+            detail: {
+                instanceId: this.instanceId,
+                cycleId: this.cycleId,
+                cycle: this.cycle,
+            },
+        }));
     }
 
     private async handleRetry(): Promise<void> {
         if (!this.cycle) return;
-        const prompt = this.cycle.prompt;
-        if (!confirm(`Create a new cycle with the same prompt?\n\n"${prompt}"`)) return;
+        const cyclePrompt = this.cycle.prompt;
+        if (!confirm(`Create a new cycle with the same prompt?\n\n"${cyclePrompt}"`)) return;
 
         try {
-            const result = await api.createCycle(this.instanceId, { prompt });
-            await store.invalidate(this.instanceId);
+            const result = await api.createCycle(this.instanceId, { prompt: cyclePrompt });
+            await store.invalidateNow(this.instanceId);
             location.hash = `#/instances/${this.instanceId}/cycles/${result.cycle_id}`;
         } catch (e) {
             console.error('[cycle-detail] retry error:', e);

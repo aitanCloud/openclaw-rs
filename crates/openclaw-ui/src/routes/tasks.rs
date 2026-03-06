@@ -28,6 +28,7 @@ pub struct TaskRow {
     pub state: String,
     pub title: String,
     pub description: String,
+    pub acceptance: Option<serde_json::Value>,
     pub current_attempt: i32,
     pub max_retries: i32,
     pub failure_reason: Option<String>,
@@ -73,7 +74,7 @@ pub async fn list_tasks(
             sqlx::query_as::<_, TaskRow>(
                 r#"
                 SELECT id, cycle_id, instance_id, task_key, phase, ordinal, state,
-                       title, description, current_attempt, max_retries,
+                       title, description, acceptance, current_attempt, max_retries,
                        failure_reason, cancel_reason, skip_reason,
                        created_at, updated_at
                 FROM orch_tasks
@@ -92,7 +93,7 @@ pub async fn list_tasks(
             sqlx::query_as::<_, TaskRow>(
                 r#"
                 SELECT id, cycle_id, instance_id, task_key, phase, ordinal, state,
-                       title, description, current_attempt, max_retries,
+                       title, description, acceptance, current_attempt, max_retries,
                        failure_reason, cancel_reason, skip_reason,
                        created_at, updated_at
                 FROM orch_tasks
@@ -115,7 +116,7 @@ pub async fn list_tasks(
             sqlx::query_as::<_, TaskRow>(
                 r#"
                 SELECT id, cycle_id, instance_id, task_key, phase, ordinal, state,
-                       title, description, current_attempt, max_retries,
+                       title, description, acceptance, current_attempt, max_retries,
                        failure_reason, cancel_reason, skip_reason,
                        created_at, updated_at
                 FROM orch_tasks
@@ -139,7 +140,7 @@ pub async fn list_tasks(
             sqlx::query_as::<_, TaskRow>(
                 r#"
                 SELECT id, cycle_id, instance_id, task_key, phase, ordinal, state,
-                       title, description, current_attempt, max_retries,
+                       title, description, acceptance, current_attempt, max_retries,
                        failure_reason, cancel_reason, skip_reason,
                        created_at, updated_at
                 FROM orch_tasks

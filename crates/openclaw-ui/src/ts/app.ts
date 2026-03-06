@@ -1,12 +1,12 @@
-import type { Component, Route, AppState } from './types';
+import type { Component, Route, AppState, Cycle } from './types';
 import { store } from './store';
-import { api, setToken, getToken } from './api';
+import { api, setToken, getToken, clearToken, ApiError } from './api';
 import { WsManager } from './ws';
 import { InstanceList } from './components/instance-list';
 import { InstanceDetail } from './components/instance-detail';
 import { CycleDetail } from './components/cycle-detail';
 import { EventTimeline } from './components/event-timeline';
-import { el, clearChildren } from './utils';
+import { el, clearChildren, generateUuid, generateToken, formatCents, parsePlan } from './utils';
 
 // ── Router ───────────────────────────────────────────────────────
 
@@ -66,14 +66,28 @@ class App {
             this.showCreateCycleModal();
         });
         window.addEventListener('openclaw:new-instance', () => {
-            this.showCreateInstanceModal();
+            this.showStartOrchestratorModal();
         });
+        window.addEventListener('openclaw:approve-plan', ((e: CustomEvent) => {
+            const { instanceId, cycleId, cycle } = e.detail;
+            this.showApprovePlanModal(instanceId, cycleId, cycle);
+        }) as EventListener);
         window.addEventListener('openclaw:error', ((e: CustomEvent) => {
             this.showToast(e.detail || 'An error occurred', 'error');
         }) as EventListener);
+        window.addEventListener('openclaw:toast', ((e: CustomEvent) => {
+            const { message, type } = e.detail;
+            this.showToast(message, type || 'info');
+        }) as EventListener);
 
-        // Initial load
-        await store.fetchInstances();
+        // Initial load — verify token works
+        try {
+            await store.fetchInstances();
+        } catch (e) {
+            if (e instanceof ApiError && e.status === 401) {
+                return; // auth-required event already fired
+            }
+        }
 
         // Route to the correct view
         this.onRouteChange();
@@ -168,9 +182,13 @@ class App {
         // Update status bar
         this.updateStatusBar(state);
 
-        // Update all mounted components
+        // Update all mounted components (with error boundary)
         for (const component of this.currentComponents) {
-            component.update(state);
+            try {
+                component.update(state);
+            } catch (e) {
+                console.error('[app] component update error:', e);
+            }
         }
     }
 
@@ -184,7 +202,7 @@ class App {
         const viewingInstance = state.selectedInstanceId !== null;
         if (viewingInstance) {
             const wsIndicator = el('span', `status-indicator ${state.wsConnected ? 'status-indicator--connected' : 'status-indicator--disconnected'}`);
-            wsIndicator.textContent = state.wsConnected ? 'Live' : 'Connecting...';
+            wsIndicator.textContent = state.wsConnected ? 'Live' : 'Connecting to live feed...';
             statusBar.appendChild(wsIndicator);
         } else {
             const readyIndicator = el('span', 'status-indicator status-indicator--connected');
@@ -203,6 +221,14 @@ class App {
             const errorEl = el('span', 'status-error', state.error);
             statusBar.appendChild(errorEl);
         }
+
+        // Logout button
+        const logoutBtn = el('button', 'btn--logout', 'Logout');
+        logoutBtn.addEventListener('click', () => {
+            clearToken();
+            location.reload();
+        });
+        statusBar.appendChild(logoutBtn);
     }
 
     // ── Create Cycle Modal ───────────────────────────────────────
@@ -211,9 +237,7 @@ class App {
         const instanceId = store.getState().selectedInstanceId;
         if (!instanceId) return;
 
-        // Create overlay
         const overlay = el('div', 'modal-overlay');
-
         const modal = el('div', 'modal');
 
         // Header
@@ -248,10 +272,8 @@ class App {
         overlay.appendChild(modal);
         document.body.appendChild(overlay);
 
-        // Focus textarea
         setTimeout(() => textarea.focus(), 100);
 
-        // Handlers
         const onKeyDown = (e: KeyboardEvent) => {
             if (e.key === 'Escape') close();
         };
@@ -281,10 +303,8 @@ class App {
             try {
                 const cycle = await api.createCycle(instanceId, { prompt });
                 close();
-                // Navigate to the new cycle
-                location.hash = `#/instances/${instanceId}/cycles/${cycle.id}`;
-                // Refresh data
-                await store.invalidate(instanceId);
+                location.hash = `#/instances/${instanceId}/cycles/${cycle.cycle_id}`;
+                await store.invalidateNow(instanceId);
             } catch (e) {
                 const msg = e instanceof Error ? e.message : String(e);
                 clearChildren(errorContainer);
@@ -295,46 +315,96 @@ class App {
         });
     }
 
-    // ── Create Instance Modal ─────────────────────────────────────
+    // ── Start New Orchestrator Modal ─────────────────────────────
 
-    private showCreateInstanceModal(): void {
+    private showStartOrchestratorModal(): void {
         const overlay = el('div', 'modal-overlay');
-        const modal = el('div', 'modal');
+        const modal = el('div', 'modal modal--wide');
 
         const header = el('div', 'modal__header');
-        header.appendChild(el('h3', 'modal__title', 'New Instance'));
+        header.appendChild(el('h3', 'modal__title', 'Start New Orchestrator'));
         const closeBtn = el('button', 'modal__close', '\u00D7');
         header.appendChild(closeBtn);
         modal.appendChild(header);
 
         const body = el('div', 'modal__body');
 
-        body.appendChild(el('label', 'field-label', 'Instance Name'));
+        // Project Name
+        body.appendChild(el('label', 'field-label', 'Project Name'));
         const nameInput = document.createElement('input');
         nameInput.type = 'text';
         nameInput.className = 'input';
         nameInput.placeholder = 'e.g., my-project';
         body.appendChild(nameInput);
 
-        const spacer = el('div', '');
-        spacer.style.marginTop = '0.75rem';
-        body.appendChild(spacer);
+        // Project Directory
+        body.appendChild(el('div', 'field-spacer'));
+        body.appendChild(el('label', 'field-label', 'Project Directory'));
+        const dataDirInput = document.createElement('input');
+        dataDirInput.type = 'text';
+        dataDirInput.className = 'input';
+        dataDirInput.placeholder = '/home/user/projects/my-project';
+        body.appendChild(dataDirInput);
 
-        body.appendChild(el('label', 'field-label', 'Project ID'));
-        const projectInput = document.createElement('input');
-        projectInput.type = 'text';
-        projectInput.className = 'input';
-        projectInput.placeholder = 'UUID of the project';
-        body.appendChild(projectInput);
+        // Initial Task
+        body.appendChild(el('div', 'field-spacer'));
+        body.appendChild(el('label', 'field-label', 'Initial Task'));
+        const promptTextarea = document.createElement('textarea');
+        promptTextarea.className = 'textarea';
+        promptTextarea.placeholder = 'What should this orchestrator work on first?';
+        promptTextarea.rows = 3;
+        body.appendChild(promptTextarea);
+
+        // Advanced section (collapsed)
+        const autoProjectId = generateUuid();
+        const autoToken = generateToken();
+
+        const advToggle = el('button', 'advanced-toggle');
+        const advArrow = el('span', 'advanced-toggle__arrow', '\u25B6');
+        advToggle.appendChild(advArrow);
+        advToggle.appendChild(document.createTextNode(' Advanced'));
+        body.appendChild(advToggle);
+
+        const advSection = el('div', 'advanced-section');
+
+        advSection.appendChild(el('label', 'field-label', 'Project ID (auto-generated)'));
+        const projectIdInput = document.createElement('input');
+        projectIdInput.type = 'text';
+        projectIdInput.className = 'input';
+        projectIdInput.value = autoProjectId;
+        advSection.appendChild(projectIdInput);
+
+        advSection.appendChild(el('div', 'field-spacer'));
+        advSection.appendChild(el('label', 'field-label', 'Auth Token (shown once — save this)'));
+        const tokenDisplay = el('div', 'token-display');
+        const tokenText = el('span', '', autoToken);
+        tokenDisplay.appendChild(tokenText);
+        const copyBtn = el('button', 'token-display__copy', 'Copy');
+        copyBtn.addEventListener('click', () => {
+            navigator.clipboard.writeText(autoToken).then(() => {
+                copyBtn.textContent = 'Copied!';
+                setTimeout(() => { copyBtn.textContent = 'Copy'; }, 1500);
+            });
+        });
+        tokenDisplay.appendChild(copyBtn);
+        advSection.appendChild(tokenDisplay);
+
+        body.appendChild(advSection);
+
+        advToggle.addEventListener('click', () => {
+            const isOpen = advToggle.classList.toggle('advanced-toggle--open');
+            advSection.style.display = isOpen ? 'block' : 'none';
+        });
 
         modal.appendChild(body);
 
         const errorContainer = el('div', '');
         modal.appendChild(errorContainer);
 
+        // Footer
         const footer = el('div', 'modal__footer');
         const cancelBtn = el('button', 'btn btn--ghost', 'Cancel');
-        const createBtn = el('button', 'btn btn--primary', 'Create Instance');
+        const createBtn = el('button', 'btn btn--primary', 'Start Orchestrator');
         footer.appendChild(cancelBtn);
         footer.appendChild(createBtn);
         modal.appendChild(footer);
@@ -357,25 +427,157 @@ class App {
 
         createBtn.addEventListener('click', async () => {
             const name = nameInput.value.trim();
-            const projectId = projectInput.value.trim();
-            if (!name) { nameInput.style.borderColor = 'var(--accent-red)'; return; }
-            if (!projectId) { projectInput.style.borderColor = 'var(--accent-red)'; return; }
+            const dataDir = dataDirInput.value.trim();
+            const initialPrompt = promptTextarea.value.trim();
+            const projectId = projectIdInput.value.trim() || autoProjectId;
+            const token = autoToken;
 
-            createBtn.textContent = 'Creating...';
+            // Validate
+            if (!name) { nameInput.style.borderColor = 'var(--accent-red)'; return; }
+            if (!dataDir) { dataDirInput.style.borderColor = 'var(--accent-red)'; return; }
+            if (!initialPrompt) { promptTextarea.style.borderColor = 'var(--accent-red)'; return; }
+
+            createBtn.textContent = 'Starting...';
             (createBtn as HTMLButtonElement).disabled = true;
 
             try {
-                const result = await api.createInstance({ name, project_id: projectId });
+                // Step 1: Create the instance
+                const result = await api.createInstance({
+                    name,
+                    project_id: projectId,
+                    data_dir: dataDir,
+                    token,
+                });
+
+                // Step 2: Create the first cycle with the prompt
+                try {
+                    await api.createCycle(result.instance_id, { prompt: initialPrompt });
+                } catch (cycleErr) {
+                    // Instance created but cycle failed — still navigate
+                    console.warn('[app] initial cycle creation failed:', cycleErr);
+                }
+
                 close();
-                this.showToast(`Instance "${result.name}" created`, 'success');
+                this.showToast('Orchestrator started \u2014 generating plan...', 'success');
                 await store.fetchInstances();
                 location.hash = `#/instances/${result.instance_id}`;
             } catch (e) {
                 const msg = e instanceof Error ? e.message : String(e);
                 clearChildren(errorContainer);
                 errorContainer.appendChild(el('div', 'modal__error', msg));
-                createBtn.textContent = 'Create Instance';
+                createBtn.textContent = 'Start Orchestrator';
                 (createBtn as HTMLButtonElement).disabled = false;
+            }
+        });
+    }
+
+    // ── Approve Plan Modal ───────────────────────────────────────
+
+    showApprovePlanModal(instanceId: string, cycleId: string, cycle: Cycle): void {
+        const overlay = el('div', 'modal-overlay');
+        const modal = el('div', 'modal modal--wide');
+
+        const header = el('div', 'modal__header');
+        header.appendChild(el('h3', 'modal__title', 'Approve Plan'));
+        const closeBtn = el('button', 'modal__close', '\u00D7');
+        header.appendChild(closeBtn);
+        modal.appendChild(header);
+
+        const body = el('div', 'modal__body');
+
+        // Plan summary
+        const plan = parsePlan(cycle.plan);
+        const summarySection = el('div', 'approve-summary');
+
+        if (plan) {
+            const quote = el('div', 'approve-summary__quote', plan.summary);
+            summarySection.appendChild(quote);
+
+            const stats = el('div', 'approve-summary__stats');
+
+            const taskStat = el('span', 'approve-summary__stat');
+            taskStat.appendChild(el('span', 'approve-summary__stat-value', String(plan.tasks.length)));
+            taskStat.appendChild(document.createTextNode(' tasks'));
+            stats.appendChild(taskStat);
+
+            if (plan.estimated_cost > 0) {
+                const costStat = el('span', 'approve-summary__stat');
+                costStat.appendChild(document.createTextNode('Est. '));
+                costStat.appendChild(el('span', 'approve-summary__stat-value', formatCents(plan.estimated_cost)));
+                stats.appendChild(costStat);
+            }
+
+            if (plan.metadata?.model_id) {
+                const modelStat = el('span', 'approve-summary__stat');
+                modelStat.appendChild(document.createTextNode('Model: '));
+                modelStat.appendChild(el('span', 'approve-summary__stat-value', plan.metadata.model_id));
+                stats.appendChild(modelStat);
+            }
+
+            summarySection.appendChild(stats);
+        } else {
+            summarySection.appendChild(el('div', 'text-secondary', 'Plan details not available.'));
+        }
+
+        body.appendChild(summarySection);
+
+        // Approver name
+        body.appendChild(el('label', 'field-label', 'Your Name'));
+        const nameInput = document.createElement('input');
+        nameInput.type = 'text';
+        nameInput.className = 'input';
+        nameInput.placeholder = 'Who is approving this plan?';
+        body.appendChild(nameInput);
+
+        modal.appendChild(body);
+
+        const errorContainer = el('div', '');
+        modal.appendChild(errorContainer);
+
+        const footer = el('div', 'modal__footer');
+        const cancelBtn = el('button', 'btn btn--ghost', 'Cancel');
+        const approveBtn = el('button', 'btn btn--primary', 'Approve');
+        footer.appendChild(cancelBtn);
+        footer.appendChild(approveBtn);
+        modal.appendChild(footer);
+
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
+        setTimeout(() => nameInput.focus(), 100);
+
+        const onKeyDown = (e: KeyboardEvent) => { if (e.key === 'Escape') close(); };
+        document.addEventListener('keydown', onKeyDown);
+
+        const close = () => {
+            document.removeEventListener('keydown', onKeyDown);
+            overlay.remove();
+        };
+
+        closeBtn.addEventListener('click', close);
+        cancelBtn.addEventListener('click', close);
+        overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+
+        approveBtn.addEventListener('click', async () => {
+            const approvedBy = nameInput.value.trim();
+            if (!approvedBy) {
+                nameInput.style.borderColor = 'var(--accent-red)';
+                return;
+            }
+
+            approveBtn.textContent = 'Approving...';
+            (approveBtn as HTMLButtonElement).disabled = true;
+
+            try {
+                await api.approvePlan(instanceId, cycleId, { approved_by: approvedBy });
+                close();
+                this.showToast('Plan approved \u2014 execution starting', 'success');
+                await store.invalidateNow(instanceId);
+            } catch (e) {
+                const msg = e instanceof Error ? e.message : String(e);
+                clearChildren(errorContainer);
+                errorContainer.appendChild(el('div', 'modal__error', msg));
+                approveBtn.textContent = 'Approve';
+                (approveBtn as HTMLButtonElement).disabled = false;
             }
         });
     }
@@ -403,7 +605,7 @@ class App {
 
     // ── Login prompt ─────────────────────────────────────────────
 
-    private showLoginPrompt(): void {
+    private showLoginPrompt(errorMessage?: string): void {
         clearChildren(this.container);
 
         const form = el('div', 'login-form');
@@ -413,6 +615,13 @@ class App {
         form.appendChild(el('h2', 'login-form__title', 'OpenClaw Orchestrator'));
         form.appendChild(el('p', 'login-form__subtitle', 'Claude-powered software development orchestrator. Enter your API token to continue.'));
 
+        // Error message
+        const errorDiv = el('div', '');
+        if (errorMessage) {
+            errorDiv.appendChild(el('div', 'login-form__error', errorMessage));
+        }
+        form.appendChild(errorDiv);
+
         const input = document.createElement('input');
         input.type = 'password';
         input.placeholder = 'API Token';
@@ -420,22 +629,34 @@ class App {
         form.appendChild(input);
 
         const button = el('button', 'btn btn--primary login-form__button', 'Connect');
-        button.addEventListener('click', () => {
-            const token = input.value.trim();
-            if (token) {
-                setToken(token);
-                this.init();
-            }
-        });
 
-        input.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') {
-                const token = input.value.trim();
-                if (token) {
-                    setToken(token);
-                    this.init();
-                }
+        const doLogin = async () => {
+            const token = input.value.trim();
+            if (!token) return;
+
+            button.textContent = 'Connecting...';
+            (button as HTMLButtonElement).disabled = true;
+
+            setToken(token);
+            try {
+                await api.listInstances(undefined, 1);
+                // Token works — reinit
+                this.init();
+            } catch (e) {
+                clearToken();
+                clearChildren(errorDiv);
+                const msg = e instanceof ApiError && e.status === 401
+                    ? 'Invalid token. Please check and try again.'
+                    : (e instanceof Error ? e.message : 'Connection failed');
+                errorDiv.appendChild(el('div', 'login-form__error', msg));
+                button.textContent = 'Connect';
+                (button as HTMLButtonElement).disabled = false;
             }
+        };
+
+        button.addEventListener('click', doLogin);
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') doLogin();
         });
 
         form.appendChild(button);

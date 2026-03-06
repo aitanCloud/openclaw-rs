@@ -1,10 +1,10 @@
 import type { AppState, Component, Instance, InstanceViewModel, CycleProgress } from '../types';
-import { TERMINAL_CYCLE_STATES, CYCLE_STEP_LABELS } from '../types';
+import { TERMINAL_CYCLE_STATES } from '../types';
 import { store } from '../store';
 import { el, clearChildren, stateBadge, timeAgo, formatCents, truncate, delegateClick } from '../utils';
 
 /**
- * Instance dashboard — project-oriented cards instead of a flat table.
+ * Instance dashboard — project-oriented cards with global stats bar.
  * Route: #/
  */
 export class InstanceList implements Component {
@@ -35,28 +35,31 @@ export class InstanceList implements Component {
 
         clearChildren(this.el);
 
+        // Global stats bar
+        this.renderStatsBar(state);
+
         // Header
         const header = el('div', 'section-header');
         const titleGroup = el('div', 'section-header__left');
-        titleGroup.appendChild(el('h2', 'section-title', 'Instances'));
+        titleGroup.appendChild(el('h2', 'section-title', 'Orchestrators'));
         titleGroup.appendChild(el('span', 'section-count', `${state.instanceList.length}`));
         header.appendChild(titleGroup);
 
-        const newInstanceBtn = el('button', 'btn btn--primary', '+ New Instance');
-        newInstanceBtn.addEventListener('click', () => {
+        const newBtn = el('button', 'btn btn--primary', '+ Start New Orchestrator');
+        newBtn.addEventListener('click', () => {
             window.dispatchEvent(new CustomEvent('openclaw:new-instance'));
         });
-        header.appendChild(newInstanceBtn);
+        header.appendChild(newBtn);
         this.el.appendChild(header);
 
         if (state.loading && state.instanceList.length === 0) {
-            this.el.appendChild(el('div', 'empty-state', 'Loading instances...'));
+            this.el.appendChild(el('div', 'empty-state', 'Loading orchestrators...'));
             return;
         }
 
         if (state.instanceList.length === 0) {
             this.el.appendChild(
-                el('div', 'empty-state', 'No instances deployed. Use the CLI to create one.'),
+                el('div', 'empty-state', 'No orchestrators running. Start one to begin development work.'),
             );
             return;
         }
@@ -78,6 +81,53 @@ export class InstanceList implements Component {
     destroy(): void {
         this.disposables.forEach(d => d());
         this.el.remove();
+    }
+
+    // ── Stats bar ────────────────────────────────────────────────
+
+    private renderStatsBar(state: AppState): void {
+        if (state.instanceList.length === 0) return;
+
+        const bar = el('div', 'stats-bar');
+
+        // Count active instances
+        const activeCount = state.instanceList.filter(i => i.state === 'active').length;
+
+        // Count active cycles across all cached VMs
+        let activeCycles = 0;
+        let totalSpent = 0;
+        for (const vm of state.instances.values()) {
+            activeCycles += vm.cycles.filter(c => !TERMINAL_CYCLE_STATES.includes(c.state)).length;
+            totalSpent += vm.totalSpentCents;
+        }
+
+        const item1 = el('span', 'stats-bar__item');
+        item1.appendChild(el('span', 'stats-bar__value', String(state.instanceList.length)));
+        item1.appendChild(document.createTextNode(` orchestrator${state.instanceList.length !== 1 ? 's' : ''}`));
+        bar.appendChild(item1);
+
+        if (activeCount > 0) {
+            const item2 = el('span', 'stats-bar__item');
+            item2.appendChild(el('span', 'stats-bar__value', String(activeCount)));
+            item2.appendChild(document.createTextNode(' active'));
+            bar.appendChild(item2);
+        }
+
+        if (activeCycles > 0) {
+            const item3 = el('span', 'stats-bar__item');
+            item3.appendChild(el('span', 'stats-bar__value', String(activeCycles)));
+            item3.appendChild(document.createTextNode(` running cycle${activeCycles !== 1 ? 's' : ''}`));
+            bar.appendChild(item3);
+        }
+
+        if (totalSpent > 0) {
+            const item4 = el('span', 'stats-bar__item');
+            item4.appendChild(el('span', 'stats-bar__value', formatCents(totalSpent)));
+            item4.appendChild(document.createTextNode(' total spend'));
+            bar.appendChild(item4);
+        }
+
+        this.el.appendChild(bar);
     }
 
     // ── Card rendering ────────────────────────────────────────────
