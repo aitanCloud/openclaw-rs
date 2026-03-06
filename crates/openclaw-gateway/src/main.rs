@@ -79,7 +79,8 @@ async fn main() -> anyhow::Result<()> {
             }
         }
     } else {
-        warn!("Postgres not connected — sessions will not be available!");
+        warn!("Postgres not connected — spawning background reconnect loop");
+        openclaw_db::spawn_reconnect_loop();
     }
 
     // ── Initialize LLM activity log ──
