@@ -121,6 +121,7 @@ pub async fn handle_discord_message(
         loop {
             tokio::select! {
                 _ = tokio::time::sleep(std::time::Duration::from_secs(8)) => {
+                    if typing_cancel.is_cancelled() { break; }
                     typing_bot.send_typing(&typing_channel).await.ok();
                 }
                 _ = typing_cancel.cancelled() => break,
@@ -357,6 +358,7 @@ pub async fn handle_discord_message(
             }
 
             StreamEvent::Done => {
+                typing_token.cancel(); // Stop typing immediately, don't wait for agent_handle
                 break;
             }
         }

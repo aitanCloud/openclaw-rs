@@ -192,6 +192,8 @@ pub async fn handle_message(
         loop {
             tokio::select! {
                 _ = tokio::time::sleep(std::time::Duration::from_secs(4)) => {
+                    // Guard against race: cancel may fire at same instant as sleep
+                    if typing_cancel.is_cancelled() { break; }
                     typing_bot.send_typing(chat_id).await.ok();
                 }
                 _ = typing_cancel.cancelled() => break,
@@ -700,6 +702,7 @@ pub async fn handle_message(
 
             StreamEvent::Done => {
                 is_done = true;
+                typing_token.cancel(); // Stop typing immediately, don't wait for agent_handle
                 break;
             }
         }
@@ -802,6 +805,12 @@ pub async fn handle_message(
                 send_bot.send_message(chat_id, &chunk).await?;
             }
         }
+    }
+
+    // Clear typing indicator: editMessage doesn't clear it, only sendMessage does.
+    // Send a zero-width space and immediately delete it.
+    if let Ok(clear_id) = stream_bot.send_message_with_id(chat_id, "\u{200B}").await {
+        stream_bot.delete_message(chat_id, clear_id).await.ok();
     }
 
     info!(

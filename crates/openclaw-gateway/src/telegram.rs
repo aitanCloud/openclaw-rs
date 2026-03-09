@@ -324,6 +324,22 @@ impl TelegramBot {
         Ok(())
     }
 
+    /// Delete a message by ID
+    pub async fn delete_message(&self, chat_id: i64, message_id: i64) -> Result<()> {
+        let body = serde_json::json!({
+            "chat_id": chat_id,
+            "message_id": message_id,
+        });
+
+        self.client
+            .post(format!("{}/deleteMessage", self.api_base))
+            .json(&body)
+            .send()
+            .await?;
+
+        Ok(())
+    }
+
     /// Send "typing..." indicator
     pub async fn send_typing(&self, chat_id: i64) -> Result<()> {
         let body = SendChatActionRequest {
